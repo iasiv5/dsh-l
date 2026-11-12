@@ -25,6 +25,9 @@ const emptyDoc = (now) => ({
 export function createStore({ filePath, now = () => new Date() }) {
   let doc;
   try { doc = JSON.parse(readFileSync(filePath, "utf8")); } catch { doc = emptyDoc(now); }
+  // 旧档迁移：v1 早期档无 repos/ingestLog（2026-11-12 契约对表引入），补空结构。
+  doc.repos ??= {};
+  doc.ingestLog ??= [];
   const persist = () => {
     mkdirSync(dirname(filePath), { recursive: true });
     const tmp = join(dirname(filePath), ".store-" + process.pid + "-" + Date.now() + ".tmp");

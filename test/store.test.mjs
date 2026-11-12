@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createStore, DEFAULT_WATCH_REPOS, candidateKey } from "../src/store.mjs";
@@ -56,6 +56,14 @@ test("持久化：重开读回", () => {
   const filePath = join(mkdtempSync(join(tmpdir(), "dsh-l-")), "store.json");
   createStore({ filePath }).setWatch(["o/r"]);
   assert.deepEqual(createStore({ filePath }).getWatch().repos, ["o/r"]);
+});
+
+test("旧档迁移：缺 repos/ingestLog 的存量档补空结构不炸", () => {
+  const filePath = join(mkdtempSync(join(tmpdir(), "dsh-l-")), "store.json");
+  writeFileSync(filePath, JSON.stringify({ version: 1, watch: { repos: [], updatedAt: "T" }, candidates: {}, snapshots: {}, settings: { intervalMinutes: 0, triageModel: null } }));
+  const s = createStore({ filePath });
+  assert.deepEqual(s.getIngestLog(), []);
+  assert.equal(s.getRepoFacts("o/r"), null);
 });
 
 test("recordHistory 落痕；ingestLog 追加并 FIFO 截到 50", () => {
