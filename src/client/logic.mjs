@@ -21,3 +21,26 @@ export function filterCandidates(list, { type = "all", repo = "all", urgency = "
     && (repo === "all" || c.repo === repo)
     && (urgency === "all" || (c.triage?.urgency ?? "") === urgency));
 }
+
+export function pickTriageBatch(list, filters = {}) {
+  return filterCandidates(list, { type: filters.type ?? "all", repo: filters.repo ?? "all", urgency: "all" })
+    .filter((c) => c.stage === "inbox").slice(0, 10).map((c) => c.key);
+}
+
+export function gateState(candidate) {
+  return { G1: candidate?.stage === "gating", G2: false, G3: false };
+}
+
+export function stageCounts(list) {
+  const all = list ?? [];
+  const n = (pred) => all.filter(pred).length;
+  return {
+    ingest: all.length,
+    backlog: n((c) => c.stage === "inbox"),
+    triage: n((c) => Boolean(c.triage)),
+    feedback: n((c) => c.stage === "gating"),
+    build: n((c) => c.stage === "building"),
+    verify: n((c) => c.stage === "verifying"),
+    ship: n((c) => c.stage === "shipped"),
+  };
+}

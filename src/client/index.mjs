@@ -1,5 +1,6 @@
 import { makeT, createLangSource } from "./i18n.mjs";
 import { mountWorkbench } from "./components/workbench.mjs";
+import { installActions } from "./components/actions.mjs";
 
 const React = require("react");
 const h = React.createElement;
@@ -24,7 +25,7 @@ export function apply(ctx) {
       const host = ref.current;
       if (!host) return undefined;
       const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
-      const view = mountWorkbench(shadow, { getLang: lang.get, build: BUILD });
+      const view = mountWorkbench(shadow, { getLang: lang.get, build: BUILD, extend: installActions({ getLang: lang.get }) });
       const off = lang.subscribe(() => view.relabel());
       return () => { off(); view.dispose(); };
     }, []);

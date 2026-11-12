@@ -47,4 +47,6 @@ export const en = {
     noToken: "No GitHub credential found: configure a token or sign in to gh on this machine.",
   },
   meta: { candidates: "candidates", lastRefreshAt: "Last refresh" },
+  actions: { triageBatch: "Triage inbox", override: "Save my judgment", reason: "Reason", moveTo: "Move to", pass: "Pass", reject: "Reject", copyPackage: "Copy task package" },
+  gateV1Hint: "v1 enables G1 only; build, verify, ship and G2/G3 open in v2",
 }
