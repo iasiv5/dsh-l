@@ -84,7 +84,7 @@ test("manifest 形状", () => {
   assert.equal(pkg.dsh.engines.dsh, ">=0.2.2-rc.1");
   assert.equal(pkg.dsh.bundle.patch, "./cordis.patch.yml");
   assert.equal(pkg.dsh.client.platform, "web");
-  assert.deepEqual(pkg.dsh.client.inject, []);
+  assert.deepEqual(pkg.dsh.client.inject, ["slots"]);
   assert.equal(pkg.dependencies, undefined);
 });
 
@@ -164,7 +164,7 @@ test("无 locale 服务时按浏览器语言兜底", () => {
 
 - [ ] Step 3: 写最小实现
 
-package.json：把 dsh.client.inject 由 ["slots", "@deepseek-ai/dsh-client-locale"] 改为 []。
+package.json：把 dsh.client.inject 由 ["slots", "@deepseek-ai/dsh-client-locale"] 改为 ["slots"]（slots 是 cordis Local 属性，直接访问 ctx.slots 必须在 manifest 声明——quota-watch 先例；locale 用 ctx.inject() 动态获取，不需要声明。【执行期修订 2026-11-12】冒烟实证 inject [] 会报 `cannot get property "slots" without inject`，由 [] 修订为 ["slots"]；歸藏设计的 [] 能工作与其 __ModuleLoader__ 加载路径有关，不适用于本插件。）
 
 scripts/build-id.mjs：
 ~~~js
@@ -320,7 +320,7 @@ export function mountWorkbench(shadow, { getLang, build }) {
 }
 ~~~
 
-src/client/index.mjs（React 组件约定：guizang lib/client.js:12-23、:46-72；require 由 __ModuleLoader__ factory 传入，quota-watch src/client.mjs:43 同款）：
+src/client/index.mjs（React 组件约定：guizang lib/client.js:12-23、:46-72；require 由 __ModuleLoader__ factory 传入，quota-watch src/client.mjs:43 同款；**必须导出 inject = ["slots"]**——客户端 cordis 插件的 inject 列表来自模块自身导出（quota-watch src/client.mjs:10-14 判例），缺了即报 cannot get property "slots" without inject【执行期修订】）：
 ~~~js
 import { makeT, createLangSource } from "./i18n.mjs";
 import { mountWorkbench } from "./components/workbench.mjs";
@@ -2350,7 +2350,7 @@ PROFILE="dsh-l-smoke-$STAMP"
 PROFILE_DIR="$HOME/.dsh/profiles/$PROFILE"
 LIVE_STORE="$HOME/.dsh/profiles/web/data/dsh-l/store.json"
 DSH=/home/ubuntu/.local/share/pnpm/dsh
-PNPM=/home/ubuntu/.local/share/pnpm/pnpm
+PNPM="$(command -v pnpm || echo /home/ubuntu/.local/share/pnpm/pnpm)"   # 实机 pnpm 在 ~/.local/node/bin（2026-11-12 冒烟修订）
 RUNTIME_BIN=/home/ubuntu/.local/share/dsh-runtime/node_modules/@deepseek-ai/dsh/lib/bin.js
 PORT=3095
 BASE="http://127.0.0.1:$PORT"

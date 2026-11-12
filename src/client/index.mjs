@@ -8,6 +8,9 @@ const BUILD = typeof __DSH_L_BUILD__ === "string" ? __DSH_L_BUILD__ : "dev";
 export const PANEL_KEY = "dsh-l.workbench";
 export const name = "dsh-l";
 export const isPlugin = true; // guizang lib/client.js:75 同款导出
+// 客户端 cordis 插件的 inject 列表来自模块自身导出（quota-watch src/client.mjs:10-14 判例）；
+// package.json dsh.client.inject 只负责把宿主模块打进行包。缺此导出即报 cannot get property "slots" without inject。
+export const inject = ["slots"];
 
 function PanelIcon(props) {
   const s = (props && props.size) || 18;
