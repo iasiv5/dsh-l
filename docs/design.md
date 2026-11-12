@@ -31,7 +31,7 @@ host (src/host.mjs, inject: webServer, credentials, agents, agentDefaultModel, t
       key, repo, type, number, title, author, labels: [],
       createdAt, updatedAt, url,
       meta: { comments, reactionsTotal, ageDays },          // issue 侧
-      pull: { draft, additions, deletions, headRef },       // 仅 PR
+      pull: { draft, headRef },                              // 仅 PR（列表端点不含 diff 规模）
       bodyExcerpt: "≤600 字符",
       stage: "inbox|triaged|gating|building|verifying|shipped|closed|held",
       triage: { validity: "high|medium|low", urgency: "P0|P1|P2|P3",
@@ -62,14 +62,16 @@ store API（后续任务的接口契约）：getWatch()/setWatch(repos)、upsert
 
 | 方法 | 路径 | 请求体 | 语义 |
 |---|---|---|---|
+| GET | /dsh-l/health | — | 健康与构建指纹（ok / name / build / dataDir） |
 | GET | /dsh-l/state | — | watch + snapshots + candidates 摘要 + settings |
-| POST | /dsh-l/refresh | — | 摄取全部监看仓（逐仓容错，单仓失败记 perRepo.error 不中断） |
-| GET/PUT | /dsh-l/watch | {repos:[]} | 监看列表 CRUD |
+| POST | /dsh-l/refresh | — | 摄取全部监看仓（逐仓容错，单仓失败记 perRepo.error 不中断；返回 authenticated） |
+| GET/PUT | /dsh-l/watch | {repos:[]} | 监看列表 CRUD（PUT 校验 owner/repo 形状） |
 | GET | /dsh-l/discover | — | 账号仓列表（选择器数据源） |
-| POST | /dsh-l/triage | {keys:[…≤10]} | 批量分诊，结果写回候选 |
-| POST | /dsh-l/candidate/stage | {key, stage, note} | 人工改阶段（含关闭/挂起/推翻分诊） |
-| POST | /dsh-l/candidate/gate | {key, gate, decision, note} | 闸门放行/驳回（v1 仅 G1 有语义，pass 时生成任务包） |
-| GET/PUT | /dsh-l/settings | {intervalMinutes?, triageModel?} | 设置读写；intervalMinutes 变更即时重 arm 定时器 |
+| POST | /dsh-l/triage | {keys:[…≤10], lang} | 批量分诊，结果写回候选（by=llm）；失败 502 |
+| POST | /dsh-l/candidate/override | {key, validity, urgency, action, reason, lang} | 人工推翻分诊（by=human） |
+| POST | /dsh-l/candidate/stage | {key, stage, note} | 人工改阶段（仅 inbox/triaged/gating/shipped/closed/held；building 只能经 G1） |
+| POST | /dsh-l/candidate/gate | {key, gate, decision, note} | 闸门放行/驳回：G1 仅 gating 可操作（否则 409 gate-requires-gating），pass→building+任务包、reject→triaged；G2/G3 v1 返回 409 |
+| GET/PUT | /dsh-l/settings | {intervalMinutes} | 设置读写；变更即时重 arm 定时器 |
 
 处理器写成纯函数 makeHandlers({ store, provider, triage, now })，路由层只做 JSON 编解码——单测不打真 HTTP。
 

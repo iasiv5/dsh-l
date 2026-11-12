@@ -1,0 +1,93 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { createStore } from "../src/store.mjs";
+import { makeHandlers, buildTaskPackage } from "../src/handlers.mjs";
+
+const openStore = () => createStore({ filePath: join(mkdtempSync(join(tmpdir(), "dsh-l-h-")), "s.json") });
+const PROVIDER = (mode = {}) => ({
+  resolveToken: async () => null,
+  listOpenIssues: async ({ repo }) => {
+    if (mode.bad && repo === "o/bad") throw new Error("github api 500 for /repos/o/bad/issues?state=open");
+    return repo === "o/good" ? [{ repo, type: "issue", number: 1, title: "t", author: "a", labels: [], createdAt: "2026-11-01T00:00:00Z", updatedAt: "T", url: "U", meta: {}, pull: null, bodyExcerpt: "" }] : [];
+  },
+  listOpenPulls: async () => [],
+  discoverRepos: async () => [{ fullName: "o/good" }],
+});
+const noTriage = { runTriage: async () => ({ updated: [], failed: "triage-not-wired" }) };
+const seed = (store, n = 1) => store.upsertCandidates([{ repo: "o/r", type: "issue", number: n, title: "t", author: "a", labels: [], createdAt: "2026-11-01T00:00:00Z", updatedAt: "T", url: "U", meta: {}, pull: null, bodyExcerpt: "" }]);
+
+test("postRefresh：单仓失败容错并记 perRepo.error", async () => {
+  const store = openStore();
+  store.setWatch(["o/good", "o/bad"]);
+  const r = await makeHandlers({ store, provider: PROVIDER({ bad: true }), triage: noTriage }).postRefresh();
+  assert.equal(r.perRepo["o/bad"].error, "github api 500 for /repos/o/bad/issues?state=open");
+  assert.equal(r.perRepo["o/good"].error, null);
+  assert.equal(store.listCandidates().length, 1);
+});
+
+test("putWatch 校验仓名形状", async () => {
+  const h = makeHandlers({ store: openStore(), provider: PROVIDER(), triage: noTriage });
+  assert.deepEqual((await h.putWatch({ repos: ["o/r"] })).repos, ["o/r"]);
+  assert.equal((await h.putWatch({ repos: ["bad name"] })).error, "invalid repos");
+});
+
+test("postTriage：1..10 限制；结果写回 by=llm；失败透传", async () => {
+  const store = openStore(); seed(store);
+  const triage = { runTriage: async () => ({ updated: [{ key: "o/r#issue#1", validity: "low", urgency: "P3", action: "close", reason: "spam" }], failed: null }) };
+  const h = makeHandlers({ store, provider: PROVIDER(), triage });
+  assert.deepEqual((await h.postTriage({ keys: ["o/r#issue#1"], lang: "zh-CN" })).updated, ["o/r#issue#1"]);
+  assert.equal(store.getCandidate("o/r#issue#1").triage.by, "llm");
+  assert.equal((await h.postTriage({ keys: Array.from({ length: 11 }, (_, i) => "k" + i) })).error, "keys must be 1..10");
+  const hf = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
+  assert.equal((await hf.postTriage({ keys: ["o/r#issue#1"] })).error, "triage-not-wired");
+});
+
+test("postOverride：人工推翻分诊 by=human，非法值拒绝", async () => {
+  const store = openStore(); seed(store);
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
+  await h.postOverride({ key: "o/r#issue#1", validity: "high", urgency: "P0", action: "start", reason: "我确认", lang: "zh-CN" });
+  assert.equal(store.getCandidate("o/r#issue#1").triage.by, "human");
+  assert.equal((await h.postOverride({ key: "o/r#issue#1", validity: "x", urgency: "P0", action: "start" })).error, "invalid triage");
+});
+
+test("闸门：G1 仅 gating 可放行；pass→building+任务包；reject→triaged；G2/G3 409", async () => {
+  const store = openStore(); seed(store);
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
+  const early = await h.postGate({ key: "o/r#issue#1", gate: "G1", decision: "pass" });
+  assert.deepEqual([early.error, early.status], ["gate-requires-gating", 409]);
+  await h.postStage({ key: "o/r#issue#1", stage: "gating" });
+  const r = await h.postGate({ key: "o/r#issue#1", gate: "G1", decision: "pass", note: "" });
+  assert.equal(r.taskPackage.kind, "dsh-l.task-package");
+  assert.equal(r.taskPackage.emit.type, "build.requested");
+  assert.equal(store.getCandidate("o/r#issue#1").stage, "building");
+  assert.equal((await h.postGate({ key: "o/r#issue#1", gate: "G2", decision: "pass" })).status, 409);
+  seed(store, 2);
+  await h.postStage({ key: "o/r#issue#2", stage: "gating" });
+  await h.postGate({ key: "o/r#issue#2", gate: "G1", decision: "reject", note: "不做" });
+  assert.equal(store.getCandidate("o/r#issue#2").stage, "triaged");
+});
+
+test("postStage：building 只能经 G1 进入；未知候选 404", async () => {
+  const store = openStore(); seed(store);
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
+  assert.equal((await h.postStage({ key: "o/r#issue#1", stage: "building" })).error, "invalid stage");
+  assert.equal((await h.postStage({ key: "nope", stage: "held" })).status, 404);
+});
+
+test("putSettings：intervalMinutes 0..1440 整数，变更回调", async () => {
+  const store = openStore();
+  let changed = 0;
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, onSettingsChange: () => { changed++; } });
+  assert.equal((await h.putSettings({ intervalMinutes: 15 })).intervalMinutes, 15);
+  assert.equal(changed, 1);
+  assert.equal((await h.putSettings({ intervalMinutes: -1 })).error, "invalid settings");
+});
+
+test("buildTaskPackage 形状", () => {
+  const pkg = buildTaskPackage({ key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t", url: "U", triage: null }, () => new Date(0));
+  assert.equal(pkg.repo.cloneUrl, "git@github.com:o/r.git");
+  assert.equal(pkg.gate.at, "1970-01-01T00:00:00.000Z");
+});
