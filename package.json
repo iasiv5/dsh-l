@@ -1,0 +1,37 @@
+{
+  "name": "dsh-l",
+  "version": "0.0.1",
+  "description": "L♾️p Engineering 工作台 — GitHub issue/PR triage & loop orchestration workbench for DeepSeek Harness",
+  "license": "MIT",
+  "type": "module",
+  "main": "./lib/host.js",
+  "exports": {
+    ".": "./lib/host.js",
+    "./client": "./lib/client.js"
+  },
+  "scripts": {
+    "build": "node scripts/build-host.mjs && node scripts/build-client.mjs",
+    "test": "node --test test/"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.2"
+  },
+  "dsh": {
+    "engines": {
+      "dsh": ">=0.2.2-rc.1"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "slots",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  }
+}

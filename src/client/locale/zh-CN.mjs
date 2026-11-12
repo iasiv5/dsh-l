@@ -1,0 +1,49 @@
+// zh-CN UI dictionary. Keys must stay in sync with en.mjs; these two files are the single source of UI copy.
+export const zhCN = {
+  panelLabel: "L♾️p Engineering 工作台",
+  refresh: "刷新",
+  refreshing: "刷新中…",
+  watchedRepos: "监看仓库",
+  repoPicker: {
+    title: "选择要监看的仓库",
+    discover: "从我的 GitHub 账号发现",
+    addManually: "手动添加 owner/repo",
+    save: "保存",
+  },
+  groups: {
+    inbox: "待分诊",
+    triaged: "已分诊",
+    gating: "待拍板",
+    building: "进行中",
+    shipped: "已交付",
+  },
+  filters: {
+    all: "全部",
+    issues: "Issue",
+    pullRequests: "PR",
+    repo: "仓库",
+    urgency: "紧急度",
+  },
+  urgency: { P0: "P0 立即", P1: "P1 高", P2: "P2 中", P3: "P3 低" },
+  validity: { high: "可信", medium: "存疑", low: "不可信", none: "未评" },
+  recommendedActions: { start: "开工", feedback: "等反馈", close: "关闭", hold: "挂起" },
+  gates: { G1: "开工前", G2: "交付前", G3: "发版前" },
+  stages: {
+    ingest: "摄取",
+    backlog: "清单",
+    triage: "分诊",
+    feedback: "反馈门",
+    build: "构建",
+    verify: "验证",
+    ship: "交付",
+  },
+  emptyStates: {
+    backlog: "没有候选。刷新一下，或检查监看仓库列表。",
+    inbox: "没有待分诊的候选。",
+  },
+  errors: {
+    refreshFailed: "刷新失败，请稍后重试。",
+    noToken: "未找到 GitHub 凭据：请配置 token，或在本机登录 gh。",
+  },
+  meta: { candidates: "候选", lastRefreshAt: "上次刷新" },
+}
