@@ -3,7 +3,7 @@
 ## 目标
 
 - 在隔离验证环境交付 dsh-l v1：摄取监看仓（默认 12 个）的 open issue / open PR 成候选清单；LLM 批量分诊给建议、人可推翻；人工阶段迁移；G1 闸门放行产出任务包；刷新按钮与监看仓库选择器；定时轮询默认关。
-- 10 个任务各自独立可验证；Task 10 冒烟（含 UI 探针）通过即 v1 收口。本计划不包含任何在役宿主（127.0.0.1:3080 / deepseek-harness.service）的重启、装机或切换步骤。
+- 11 个任务各自独立可验证；Task 11 冒烟（含 UI 探针）通过即 v1 收口。本计划不包含任何在役宿主（127.0.0.1:3080 / deepseek-harness.service）的重启、装机或切换步骤。
 
 ## 架构快照
 
@@ -2023,7 +2023,7 @@ src/client/index.mjs 修改：增加 import { installActions } from "./component
 - Run: npm run build && npm test
 - Expected: logic 5 条绿；parity 绿；构建零错误。
 - Run: mkdir -p /home/ubuntu/workspace/.dsh-research/dsh-l-evidence && /home/ubuntu/.dsh/profiles/web/node_modules/@iasiv5/dsh-skills/skills/impeccable/scripts/impeccable detect --json src/client > /home/ubuntu/workspace/.dsh-research/dsh-l-evidence/impeccable-detect.json; echo "detect exit=$?"
-- Expected: 结果文件落盘；逐条处理 detect 报告的问题后重跑一次；若 detect 声明不支持该目标类型，原文保留在文件里，改在 Task 10 的 ui.png 上按 craft-floor 人工复核并在提交信息注明。
+- Expected: 结果文件落盘；逐条处理 detect 报告的问题后重跑一次；若 detect 声明不支持该目标类型，原文保留在文件里，改在 Task 11 的 ui.png 上按 craft-floor 人工复核并在提交信息注明。
 
 - [ ] Step 5: 可选 checkpoint commit
 - Run: git add -A && git commit -m "feat(ui): 仓库选择器 + 批量分诊 + 推翻/阶段/闸门 + 管线条"
@@ -2144,14 +2144,164 @@ actions.mjs 的 header 钩子追加设置按钮：点击后在 view.shadow 内�
 
 ---
 
-### Task 10: 隔离 profile 装机冒烟 + UI 探针（049 runbook）
+### Task 10: 分诊模型设置项（下拉选择 + 目录校验）
+
+- 目标：设置对话框新增「分诊模型」下拉：首项「跟随宿主默认（当前：provider / model）」，其余按 provider 分组列出宿主模型目录；保存时校验所选模型在目录内（宿主 GUI 同一规则：dsh-llm README:28「The GUI requires catalog membership for selection and submission」）；分诊会话按设置选模，未设置则跟随宿主默认。
+- 涉及文件：Modify src/triage.mjs（加 resolveTriageSelection）、test/triage.test.mjs（追加）、src/handlers.mjs（加 getModels；putSettings 支持 triageModel 并允许只改其中一个字段）、test/handlers.test.mjs（追加）、src/host.mjs（inject 增 "llm"；buildRuntime 注入 listCatalog 与 hostDefault；路由表加 GET /dsh-l/models；world.createAgent 用 resolveTriageSelection）、src/client/api.mjs（加 models）、src/client/components/actions.mjs（设置对话框加下拉）、src/client/locale/zh-CN.mjs、src/client/locale/en.mjs、docs/design.md（§4 加 /dsh-l/models 行，§5 模型来源改写）
+- 接口契约
+  - Consumes: ctx.llm.listProviders() → LlmProviderInfo[] { id, name }（dsh-llm lib/types/index.d.ts:281、types.d.ts:212–217）；ctx.llm.listModels(provider) → Promise<LlmModelInfo[]> { provider, id, name, … }（index.d.ts:367、types.d.ts:340–346）；ctx.agentDefaultModel.currentSelection() → { provider, model, reasoningEffort? }（dsh-agent-default-model README:50–53）；Task 5 makeHandlers / buildRuntime；Task 6 world.createAgent(sessionId, { model })；Task 9 设置对话框与 putSettings
+  - Produces: resolveTriageSelection(triageModel, defaults) → { provider, model, reasoningEffort }；makeHandlers 新增参数 listCatalog: () => Promise<[{ provider, name, models: [{ id, name }] }]> 与 hostDefault: () => { provider, model }；handlers.getModels() → { providers, hostDefault }；putSettings 接受 { intervalMinutes?, triageModel? }，triageModel 为 null 或 { provider, model }，不在目录内返回 { error: "model-not-in-catalog", status: 400 }；路由 GET /dsh-l/models；api.models()；字典 settings.triageModel、settings.followDefault
+- 验证范围：triage 与 handlers 追加用例全绿；build 绿。
+
+- [ ] Step 1: 写失败测试
+
+test/triage.test.mjs 追加（首行 import 扩为 import { parseTriageOutput, buildPrompt, runTriage, resolveTriageSelection } from "../src/triage.mjs";）：
+~~~js
+test("resolveTriageSelection：未设置跟随宿主默认（含 reasoningEffort）；设置后用设定值且不继承默认的 effort", () => {
+  const defaults = { provider: "p0", model: "m0", reasoningEffort: "high" };
+  assert.deepEqual(resolveTriageSelection(null, defaults), { provider: "p0", model: "m0", reasoningEffort: "high" });
+  assert.deepEqual(resolveTriageSelection({ provider: "p1", model: "m1" }, defaults), { provider: "p1", model: "m1", reasoningEffort: undefined });
+  assert.deepEqual(resolveTriageSelection({ provider: "", model: "m1" }, defaults), { provider: "p0", model: "m0", reasoningEffort: "high" });
+});
+~~~
+
+test/handlers.test.mjs 追加：
+~~~js
+const CATALOG = async () => [{ provider: "p1", name: "P1", models: [{ id: "m1", name: "M1" }] }];
+const DEFAULT = () => ({ provider: "p0", model: "m0" });
+
+test("getModels：目录 + 宿主默认", async () => {
+  const h = makeHandlers({ store: openStore(), provider: PROVIDER(), triage: noTriage, listCatalog: CATALOG, hostDefault: DEFAULT });
+  const r = await h.getModels();
+  assert.equal(r.providers[0].models[0].id, "m1");
+  assert.deepEqual(r.hostDefault, { provider: "p0", model: "m0" });
+});
+
+test("putSettings：triageModel 须在目录内；null 恢复跟随；可只改其中一项", async () => {
+  const store = openStore();
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, listCatalog: CATALOG, hostDefault: DEFAULT });
+  assert.deepEqual((await h.putSettings({ triageModel: { provider: "p1", model: "m1" } })).triageModel, { provider: "p1", model: "m1" });
+  assert.equal(store.getSettings().intervalMinutes, 0);
+  assert.equal((await h.putSettings({ triageModel: { provider: "p1", model: "nope" } })).error, "model-not-in-catalog");
+  assert.equal((await h.putSettings({ triageModel: null })).triageModel, null);
+  assert.equal((await h.putSettings({})).error, "invalid settings");
+});
+
+test("postTriage 把设置中的 triageModel 传给 runTriage", async () => {
+  const store = openStore(); seed(store);
+  store.setSettings({ triageModel: { provider: "p1", model: "m1" } });
+  let seen = null;
+  const triage = { runTriage: async (p) => { seen = p.model; return { updated: [], failed: null }; } };
+  await makeHandlers({ store, provider: PROVIDER(), triage }).postTriage({ keys: ["o/r#issue#1"] });
+  assert.deepEqual(seen, { provider: "p1", model: "m1" });
+});
+~~~
+
+- Run: npm test
+- Expected: triage 报 resolveTriageSelection 不是函数；handlers 报 getModels 不是函数、空体未被拒——红。
+
+- [ ] Step 2: 运行并确认失败
+- Run: npm test
+- Expected: triage、handlers 文件红，其余绿。
+
+- [ ] Step 3: 写最小实现
+
+src/triage.mjs 追加：
+~~~js
+// 设置了且字段齐全才用设定值；否则跟随宿主默认。设定值不继承默认的 reasoningEffort（不同模型的可选值不同）。
+export function resolveTriageSelection(triageModel, defaults) {
+  const valid = triageModel && typeof triageModel.provider === "string" && triageModel.provider !== ""
+    && typeof triageModel.model === "string" && triageModel.model !== "";
+  if (valid) return { provider: triageModel.provider, model: triageModel.model, reasoningEffort: undefined };
+  return { provider: defaults?.provider ?? "", model: defaults?.model ?? "", reasoningEffort: defaults?.reasoningEffort };
+}
+~~~
+
+src/handlers.mjs 修改：
+- makeHandlers 参数表追加 listCatalog = async () => []、hostDefault = () => null。
+- 新增：
+~~~js
+    async getModels() {
+      return { providers: await listCatalog(), hostDefault: hostDefault() };
+    },
+~~~
+- putSettings 整体替换为：
+~~~js
+    async putSettings(body) {
+      const patch = {};
+      if (body && "intervalMinutes" in body) {
+        const minutes = body.intervalMinutes;
+        if (!Number.isInteger(minutes) || minutes < 0 || minutes > 1440) return fail("invalid settings");
+        patch.intervalMinutes = minutes;
+      }
+      if (body && "triageModel" in body) {
+        const sel = body.triageModel;
+        if (sel === null) {
+          patch.triageModel = null;
+        } else {
+          if (!sel || typeof sel.provider !== "string" || typeof sel.model !== "string") return fail("invalid settings");
+          const catalog = await listCatalog();
+          const listed = catalog.some((p) => p.provider === sel.provider && p.models.some((m) => m.id === sel.model));
+          if (!listed) return fail("model-not-in-catalog");
+          patch.triageModel = { provider: sel.provider, model: sel.model };
+        }
+      }
+      if (Object.keys(patch).length === 0) return fail("invalid settings");
+      store.setSettings(patch);
+      onSettingsChange(store.getSettings());
+      return store.getSettings();
+    },
+~~~
+
+src/host.mjs 修改：
+- inject 末尾加 "llm"。
+- buildRuntime 第三参追加 listCatalog、hostDefault，并原样传入 makeHandlers；路由表加 "/dsh-l/models": { GET: handlers.getModels }。
+- apply 内定义并传入：
+~~~js
+const listCatalog = async () => {
+  const providers = ctx.llm?.listProviders?.() ?? [];
+  return Promise.all(providers.map(async (p) => ({
+    provider: p.id,
+    name: p.name,
+    models: (await ctx.llm.listModels(p.id).catch(() => [])).map((m) => ({ id: m.id, name: m.name })),
+  })));
+};
+const hostDefault = () => {
+  const s = ctx.agentDefaultModel?.currentSelection?.();
+  return s ? { provider: s.provider, model: s.model } : null;
+};
+~~~
+- makeTriage 的 world.createAgent 中 configured 一行改为：const configured = resolveTriageSelection(model, ctx.agentDefaultModel?.currentSelection?.() ?? { provider: "", model: "" });（顶部 import { runTriage, resolveTriageSelection } from "./triage.mjs"）。
+
+src/client/api.mjs 追加：models: () => get("dsh-l/models"),
+
+src/client/components/actions.mjs 设置对话框（Task 9 所建）在分钟输入下方加：
+- 打开对话框时 api.models() 取目录；一个 select：首项 value ""，文案 t("settings.followDefault") + "（" + (hostDefault ? hostDefault.provider + " / " + hostDefault.model : "—") + "）"；其后每个 provider 一个 optgroup（label = provider name），option value = provider + "\n" + model.id，文案 = model.name；初值按 state.settings.triageModel 回填。
+- 保存时一次提交 { intervalMinutes, triageModel }：select 值为 "" 则 triageModel 为 null，否则按 "\n" 拆成 { provider, model }；服务端返回 model-not-in-catalog 时在对话框内显示错误并不关闭。
+
+两字典同步加键：settings.triageModel（分诊模型 / Triage model）、settings.followDefault（跟随宿主默认 / Follow host default）。
+
+docs/design.md：§4 路由表加「GET /dsh-l/models —— 宿主模型目录 + 宿主默认」；§5「模型 = …」一句改为「模型 = 设置 settings.triageModel（须在宿主模型目录内）；未设置则跟随宿主默认（agentDefaultModel.currentSelection()）」。
+
+- Change: 选模纯函数；目录路由；设置校验；对话框下拉；字典 2 键；design 同步。
+
+- [ ] Step 4: 运行并确认通过
+- Run: npm run build && npm test
+- Expected: triage、handlers 追加用例全绿；全部 11 个测试文件绿；构建零错误。
+
+- [ ] Step 5: 可选 checkpoint commit
+- Run: git add -A && git commit -m "feat(settings): 分诊模型下拉选择 + 目录校验"
+
+---
+
+### Task 11: 隔离 profile 装机冒烟 + UI 探针（049 runbook）
 
 - 目标：在 3095 端口的 scratch profile 上验证：装进去的是刚构建的产物（指纹）；插件被加载（无拒载 / 未激活日志，health 回显同一指纹）；数据落 scratch profile 而非在役 profile；默认 12 仓；刷新覆盖 12 仓；侧栏出现入口且主栏工作台渲染（浏览器探针截图，工作台宿主元素 data-dsh-l-build 等于指纹）。全部证据落盘保留。
 - 涉及文件：Create scripts/install-smoke.sh、scripts/ui-probe.cjs
 - 接口契约
   - Consumes: 049 runbook 步骤 1–6 与坑位；dsh CLI /home/ubuntu/.local/share/pnpm/dsh；pnpm /home/ubuntu/.local/share/pnpm/pnpm；宿主 bin /home/ubuntu/.local/share/dsh-runtime/node_modules/@deepseek-ai/dsh/lib/bin.js；playwright-core（/home/ubuntu/workspace/dsh-m/node_modules/playwright-core）与启动配方 01_docs/research/2026-10-15-dshm-resize-cdp-assets/sweep.cjs；Task 5 health 字段 build / dataDir；Task 1 指纹注释与 data-dsh-l-build 属性
   - Produces: scripts/install-smoke.sh（证据目录 /home/ubuntu/workspace/.dsh-research/dsh-l-smoke/<时间戳>/，不删除）；scripts/ui-probe.cjs <url> <evidenceDir> <buildId>
-- 验证范围：bash scripts/install-smoke.sh 退出 0 且末行 SMOKE PASS build=<id>；证据目录含 host.log、health.json、state.json、refresh.json、probe.log、ui.png、result.txt。
+- 验证范围：bash scripts/install-smoke.sh 退出 0 且末行 SMOKE PASS build=<id>；证据目录含 host.log、health.json、state.json、refresh.json、models.json、probe.log、ui.png、result.txt。
 
 - [ ] Step 1: 失败检查
 - Run: bash scripts/install-smoke.sh; echo "exit=$?"
@@ -2228,6 +2378,8 @@ hc "$BASE/dsh-l/state?token=$TOKEN" > "$EVID/state.json"
 node -e 'const j=require(process.argv[1]);if(j.watch.repos.length!==12)throw new Error("watch="+j.watch.repos.length);' "$EVID/state.json" || fail "默认监看仓不是 12"
 hc -H "content-type: application/json" -X POST -d '{}' "$BASE/dsh-l/refresh?token=$TOKEN" > "$EVID/refresh.json"
 node -e 'const j=require(process.argv[1]);const n=Object.keys(j.perRepo||{}).length;if(n!==12)throw new Error("perRepo="+n);' "$EVID/refresh.json" || fail "刷新未覆盖 12 仓（见 refresh.json）"
+hc "$BASE/dsh-l/models?token=$TOKEN" > "$EVID/models.json"
+node -e 'const j=require(process.argv[1]);if(!Array.isArray(j.providers))throw new Error("providers not array");if(!("hostDefault" in j))throw new Error("no hostDefault");' "$EVID/models.json" || fail "模型目录接口形状不符（见 models.json）"
 
 # 8. 隔离探针：在役 profile 的 dsh-l 数据未被触碰
 LIVE_AFTER="$(stat -c %Y "$LIVE_STORE" 2>/dev/null || echo absent)"
@@ -2294,8 +2446,9 @@ const path = require("path");
 
 ## 风险与回退
 
-- 宿主接口漂移（DSH 升级后 agents / session 事件 / locale / timer 形态变化）：宿主接口只在 src/host.mjs、src/client/index.mjs、src/client/i18n.mjs 三处触达；Task 10 冒烟即回归探针。回退 = 不挂载（profile bundles 去掉 dsh-l）。
+- 宿主接口漂移（DSH 升级后 agents / session 事件 / locale / timer / llm 目录形态变化）：宿主接口只在 src/host.mjs、src/client/index.mjs、src/client/i18n.mjs 三处触达；Task 11 冒烟即回归探针。回退 = 不挂载（profile bundles 去掉 dsh-l）。
 - 分诊会话残留或卡住：runTriage finally 必 dispose；超时 cancel；宿主默认 ask 策略下工具调用阻塞由超时兜住，判 failed、候选留 inbox 可重跑。
+- 已设定的分诊模型后来从目录消失（provider 停用、模型下架）：保存时校验只管当时；分诊时由宿主报错，postTriage 返回失败、候选留 inbox；设置下拉回填值不在目录时显示为「跟随宿主默认」并提示重选。
 - 速率限制：每次刷新 24 请求；匿名模式（无 token）每小时 60 次——refresh 返回 authenticated:false，逐仓 error 字段可见。
 - 冒烟失败：证据目录保留；KEEP_PROFILE=1 bash scripts/install-smoke.sh 可保留 scratch profile 复查；脚本只杀自己记录的 pid。
 - 本计划不在役装机、不重启在役宿主；在役挂载与发 npm 0.1.0 另开计划并经主人确认。
@@ -2307,7 +2460,7 @@ const path = require("path");
 - 每完成一个任务，运行该任务定义的验证；没有验证的任务不算完成。
 - 遇到阻塞、重复失败或计划与仓库现实不符（尤其宿主接口与判例不符），立即停下说明，不要猜。
 - 当前分支是 main 且主人未明确同意直接在 main 开发时，开工前先确认分支策略。
-- 预计超过 90 秒的命令（Task 10 冒烟）以后台任务起跑。
+- 预计超过 90 秒的命令（Task 11 冒烟）以后台任务起跑。
 - 全部任务完成后，运行最终验证并输出修改摘要。
 
 ## 最终验证
@@ -2315,7 +2468,7 @@ const path = require("path");
 - Run: cd /home/ubuntu/workspace/dsh-l && npm run build && npm test
 - Expected: 构建零错误；11 个测试文件全绿（package-shape、locale-parity、i18n、paths、store、github、http、handlers、triage、poll、logic）。
 - Run（后台任务）: bash scripts/install-smoke.sh
-- Expected: SMOKE PASS build=<与 lib/client.js 指纹一致>；证据目录含 host.log、health.json、state.json、refresh.json、probe.log、ui.png、result.txt。
+- Expected: SMOKE PASS build=<与 lib/client.js 指纹一致>；证据目录含 host.log、health.json、state.json、refresh.json、models.json、probe.log、ui.png、result.txt。
 
 ## 审阅 Checkpoint
 
