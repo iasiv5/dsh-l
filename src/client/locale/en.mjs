@@ -49,4 +49,5 @@ export const en = {
   meta: { candidates: "candidates", lastRefreshAt: "Last refresh" },
   actions: { triageBatch: "Triage inbox", override: "Save my judgment", reason: "Reason", moveTo: "Move to", pass: "Pass", reject: "Reject", copyPackage: "Copy task package" },
   gateV1Hint: "v1 enables G1 only; build, verify, ship and G2/G3 open in v2",
+  settings: { title: "Settings", intervalMinutes: "Auto-refresh interval (minutes, 0 = off)", save: "Save" },
 }

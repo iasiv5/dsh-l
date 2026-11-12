@@ -8,13 +8,14 @@ import { createStore } from "./store.mjs";
 import * as github from "./github.mjs";
 import { makeHandlers } from "./handlers.mjs";
 import { createTrustGuard, makeHttpHandler } from "./http.mjs";
+import { armInterval } from "./poll.mjs";
 
 const execFile = promisify(execFileCb);
 const BUILD = typeof __DSH_L_BUILD__ === "string" ? __DSH_L_BUILD__ : "dev";
 const UNWIRED = { runTriage: async () => ({ updated: [], failed: "triage-not-wired" }) };
 
 export const name = "dsh-l";
-export const inject = ["webServer", "credentials", "agents", "agentDefaultModel"];
+export const inject = ["webServer", "credentials", "agents", "agentDefaultModel", "timer"];
 
 const makeTriage = (ctx, dir) => {
   const world = {
@@ -62,10 +63,19 @@ export function buildRuntime(ctx, config, { makeTriage, onSettingsChange } = {})
 
 export function apply(ctx, config = {}) {
   ctx.effect(() => {
-    const runtime = buildRuntime(ctx, config);
+    let poll = null;
+    const runtime = buildRuntime(ctx, config, { makeTriage, onSettingsChange: () => poll?.rearm() });
+    poll = armInterval({
+      interval: (callback, delay) => ctx.interval(callback, delay),
+      getMinutes: () => runtime.store.getSettings().intervalMinutes,
+      refresh: () => runtime.handlers.postRefresh(),
+    });
     const trust = createTrustGuard(ctx, ctx.logger ?? console);
     const disposers = Object.entries(runtime.table).map(([path, methods]) =>
       ctx.webServer.register({ kind: "exact", path, handler: makeHttpHandler({ methods, trust }) }));
-    return () => { for (const d of disposers) { try { d?.(); } catch {} } };
+    return () => {
+      poll.dispose();
+      for (const d of disposers) { try { d?.(); } catch {} }
+    };
   }, "dsh-l:runtime");
 }

@@ -3,6 +3,38 @@ import { pickTriageBatch, gateState } from "../logic.mjs";
 import { openRepoPicker } from "./repoPicker.mjs";
 import { renderStrip } from "./pipelineStrip.mjs";
 
+export function openSettings(shadow, { t, current, onSaved }) {
+  const overlay = document.createElement("div");
+  overlay.style.cssText = "position:absolute;inset:0;display:flex;align-items:flex-start;justify-content:center;padding-top:10vh;background:color-mix(in srgb,canvas 55%,transparent)";
+  const dialog = document.createElement("div");
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-label", t("settings.title"));
+  dialog.style.cssText = "width:min(360px,92%);display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:10px;background:canvas;color:canvastext;border:1px solid color-mix(in srgb,currentColor 18%,transparent)";
+  const title = document.createElement("h3");
+  title.textContent = t("settings.title");
+  title.style.margin = "0";
+  const label = document.createElement("label");
+  label.textContent = t("settings.intervalMinutes");
+  const input = document.createElement("input");
+  input.type = "number";
+  input.min = "0"; input.max = "1440"; input.step = "1";
+  input.value = String(current?.intervalMinutes ?? 0);
+  const save = document.createElement("button");
+  save.type = "button";
+  save.textContent = t("settings.save");
+  const close = () => overlay.remove();
+  save.onclick = async () => {
+    save.disabled = true;
+    try { await api.putSettings({ intervalMinutes: Number(input.value) }); close(); onSaved?.(); } finally { save.disabled = false; }
+  };
+  overlay.onclick = (e) => { if (e.target === overlay) close(); };
+  overlay.onkeydown = (e) => { if (e.key === "Escape") close(); };
+  dialog.append(title, label, input, save);
+  overlay.append(dialog);
+  shadow.append(overlay);
+  input.focus();
+}
+
 const btn = (text, onClick, disabled = false) => {
   const b = document.createElement("button");
   b.type = "button"; b.textContent = text; b.disabled = disabled; b.onclick = onClick;
@@ -25,6 +57,7 @@ export function installActions({ getLang }) {
   return {
     header(header, { t, state, view }) {
       header.append(btn(t("watchedRepos"), () => openRepoPicker(view.shadow, { t, current: state?.watch?.repos ?? [], onSaved: () => view.refresh() })));
+      header.append(btn(t("settings.title"), () => openSettings(view.shadow, { t, current: state?.settings ?? { intervalMinutes: 0 }, onSaved: () => view.reload() })));
     },
     strip(container, { t, state }) { renderStrip(container, { t, candidates: state?.candidates ?? [] }); },
     bar(bar, { t, state, filters, view }) {

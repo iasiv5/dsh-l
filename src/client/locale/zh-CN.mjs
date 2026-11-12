@@ -49,4 +49,5 @@ export const zhCN = {
   meta: { candidates: "候选", lastRefreshAt: "上次刷新" },
   actions: { triageBatch: "分诊待分诊", override: "保存人工判断", reason: "理由", moveTo: "移到", pass: "放行", reject: "驳回", copyPackage: "复制任务包" },
   gateV1Hint: "v1 仅 G1 可用；构建、验证、交付与 G2/G3 在 v2 开放",
+  settings: { title: "设置", intervalMinutes: "自动刷新间隔（分钟，0 = 关闭）", save: "保存" },
 }
