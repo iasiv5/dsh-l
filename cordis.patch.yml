@@ -1,1 +1,8 @@
-- insert: [id: dsh-l, name: dsh-l]
+# dsh-l bundle patch.
+# Registers the host-side plugin entry; the browser half is supplied by
+# dsh.client in package.json (loaded by dsh-client-modules).
+# 坐位写法必须是 block 序列：方括号流式序列会被解析成两条单键 row，
+# 其中 {id} 幽灵行在宿主 compatibility-preflight 崩出 startsWith undefined（R1-01，2026-11-12 冒烟 6/6 实录）。
+- insert:
+    - id: dsh-l
+      name: dsh-l

@@ -16,6 +16,18 @@ A DeepSeek Harness sidebar workbench plugin: watch the GitHub repositories you c
 
 Domain vocabulary: [GLOSSARY.md](GLOSSARY.md). Architecture: [ADR-0001](docs/adr/0001-park-autoloop-build-thin-layer.md). Full design: [docs/design.md](docs/design.md). Plans: [docs/plans/](docs/plans/).
 
+## Configuration
+
+Tokens resolve in this order: the credential reference configured on the plugin → the local `gh auth token` login → anonymous (public repos only, 60 req/hour rate limit). To pin a token, add a config to the dsh-l row in the profile's `cordis.patch.yml` (the reference is an env-var-style name; the value is resolved through the host credential system):
+
+```yaml
+- insert:
+    - id: dsh-l
+      name: dsh-l
+      config:
+        githubTokenRef: GITHUB_TOKEN
+```
+
 ## Development
 
 ```bash

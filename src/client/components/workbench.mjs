@@ -37,6 +37,7 @@ const el = (tag, cls, text) => {
 export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
   let state = null;
   let error = null;
+  let notice = null;
   let busy = false;
   let disposed = false;
   const filters = { type: "all", repo: "all", urgency: "all" };
@@ -80,6 +81,7 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
     extend?.bar?.(bar, { t, state, filters, view });
     const main = el("main");
     if (error) main.append(el("div", "error", t("errors.refreshFailed") + " (" + error + ")"));
+    if (notice) main.append(el("div", "error", notice));
     const list = filterCandidates(state?.candidates ?? [], filters);
     if (list.length === 0) {
       main.append(el("div", "empty", t("emptyStates.backlog")));
@@ -107,7 +109,10 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
   };
   view.refresh = async () => {
     busy = true; paint();
-    try { await api.refresh(); } catch (e) { error = e.message; }
+    try {
+      const r = await api.refresh();
+      notice = r.authenticated === false ? makeT(getLang())("errors.noToken") : null;
+    } catch (e) { error = e.message; }
     busy = false;
     await view.reload();
   };

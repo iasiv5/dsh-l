@@ -71,7 +71,7 @@ store API（后续任务的接口契约）：getWatch()/setWatch(repos)、upsert
 | POST | /dsh-l/candidate/override | {key, validity, urgency, action, reason, lang} | 人工推翻分诊（by=human） |
 | POST | /dsh-l/candidate/stage | {key, stage, note} | 人工改阶段（仅 inbox/triaged/gating/shipped/closed/held；building 只能经 G1） |
 | POST | /dsh-l/candidate/gate | {key, gate, decision, note} | 闸门放行/驳回：G1 仅 gating 可操作（否则 409 gate-requires-gating），pass→building+任务包、reject→triaged；G2/G3 v1 返回 409 |
-| GET/PUT | /dsh-l/settings | {intervalMinutes} | 设置读写；变更即时重 arm 定时器 |
+| GET/PUT | /dsh-l/settings | {intervalMinutes?, triageModel?} | 设置读写（可只改其中一项；triageModel 须在目录内或 null）；intervalMinutes 变更即时重 arm 定时器 |
 | GET | /dsh-l/models | — | 宿主模型目录 + 宿主默认（分诊模型设置数据源） |
 
 处理器写成纯函数 makeHandlers({ store, provider, triage, now })，路由层只做 JSON 编解码——单测不打真 HTTP。

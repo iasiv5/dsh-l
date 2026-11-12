@@ -40,13 +40,12 @@ export const zhCN = {
   },
   emptyStates: {
     backlog: "没有候选。刷新一下，或检查监看仓库列表。",
-    inbox: "没有待分诊的候选。",
   },
   errors: {
     refreshFailed: "刷新失败，请稍后重试。",
     noToken: "未找到 GitHub 凭据：请配置 token，或在本机登录 gh。",
   },
-  meta: { candidates: "候选", lastRefreshAt: "上次刷新" },
+  meta: { lastRefreshAt: "上次刷新" },
   actions: { triageBatch: "分诊待分诊", override: "保存人工判断", reason: "理由", moveTo: "移到", pass: "放行", reject: "驳回", copyPackage: "复制任务包" },
   gateV1Hint: "v1 仅 G1 可用；构建、验证、交付与 G2/G3 在 v2 开放",
   settings: { title: "设置", intervalMinutes: "自动刷新间隔（分钟，0 = 关闭）", save: "保存", triageModel: "分诊模型", followDefault: "跟随宿主默认", notInCatalog: "（不在目录中）" },

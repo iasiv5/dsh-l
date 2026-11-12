@@ -88,6 +88,12 @@ test("manifest 形状", () => {
   assert.equal(pkg.dependencies, undefined);
 });
 
+test("cordis.patch.yml 为单 row block 序列（含 id 与 name）", () => {
+  const patch = readFileSync("cordis.patch.yml", "utf8");
+  assert.match(patch, /- insert:\n    - id: dsh-l\n      name: dsh-l\n$/);
+  assert.ok(!patch.includes("[id:"), "禁止流式序列：[id: x, name: y] 会解析成两条单键 row，{id} 幽灵行打崩宿主 preflight（R1-01）");
+});
+
 test("构建产物形状与同指纹", () => {
   assert.ok(existsSync("lib/host.js") && existsSync("lib/client.js"));
   const client = readFileSync("lib/client.js", "utf8");
@@ -165,6 +171,8 @@ test("无 locale 服务时按浏览器语言兜底", () => {
 - [ ] Step 3: 写最小实现
 
 package.json：把 dsh.client.inject 由 ["slots", "@deepseek-ai/dsh-client-locale"] 改为 ["slots"]（slots 是 cordis Local 属性，直接访问 ctx.slots 必须在 manifest 声明——quota-watch 先例；locale 用 ctx.inject() 动态获取，不需要声明。【执行期修订 2026-11-12】冒烟实证 inject [] 会报 `cannot get property "slots" without inject`，由 [] 修订为 ["slots"]；歸藏设计的 [] 能工作与其 __ModuleLoader__ 加载路径有关，不适用于本插件。）
+
+【执行期修订⑥ 2026-11-12（实现评审 R1-01）】cordis.patch.yml 必须用 block 序列（quota-watch / stock-kanban / guizang 三判例同款）：flow 序列 `[id: dsh-l, name: dsh-l]` 是 YAML 流式序列＝两条单键 row，其中 {id} 幽灵行在宿主 compatibility-preflight 崩出 `disabling profile plugin row … reading startsWith of undefined`（冒烟 6/6 host.log 每启 2 条；插件靠另一半 {name} row 加载，功能未断但 Task 11「无拒载日志」判据被静默击穿）；smoke 拒载 grep 与 package-shape 测试同步加该模式。
 
 scripts/build-id.mjs：
 ~~~js
@@ -2387,7 +2395,7 @@ node "$RUNTIME_BIN" "$PROFILE" --host 127.0.0.1 --port "$PORT" --no-open > "$EVI
 echo $! > "$EVID/host.pid"
 for _ in $(seq 1 90); do grep -q "127.0.0.1:$PORT/?token=" "$EVID/host.log" && break; sleep 1; done
 grep -q "127.0.0.1:$PORT/?token=" "$EVID/host.log" || fail "宿主未起（见 host.log）"
-if grep -qE "did not activate|skipping profile bundle|waiting for service" "$EVID/host.log"; then fail "插件拒载或未激活（见 host.log）"; fi
+if grep -qE "did not activate|skipping profile bundle|waiting for service|disabling profile plugin row" "$EVID/host.log"; then fail "插件拒载或未激活（见 host.log）"; fi
 
 # 5. token（含连字符，049 坑位二）→ cookie 会话；hc = 带 cookie 与同源头的 curl
 TOKEN="$(grep -m1 -oE 'token=[A-Za-z0-9_-]+' "$EVID/host.log" | cut -d= -f2)"

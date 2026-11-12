@@ -16,6 +16,18 @@ DeepSeek Harness 的侧栏工作台插件：监看你指定的 GitHub 仓库，�
 
 领域词汇见 [GLOSSARY.md](GLOSSARY.md)；架构取舍见 [ADR-0001](docs/adr/0001-park-autoloop-build-thin-layer.md)；详细设计见 [docs/design.md](docs/design.md)；实施计划见 [docs/plans/](docs/plans/)。
 
+## 配置
+
+token 按以下顺序解析：插件配置的凭据引用 → 本机 `gh auth token` 登录态 → 匿名（仅公开仓，限速 60 次/时）。要固定用某个 token，在所属 profile 的 `cordis.patch.yml` 给 dsh-l 行加 config（引用名是环境变量形态，token 值由宿主凭据体系解析）：
+
+```yaml
+- insert:
+    - id: dsh-l
+      name: dsh-l
+      config:
+        githubTokenRef: GITHUB_TOKEN
+```
+
 ## 开发
 
 ```bash

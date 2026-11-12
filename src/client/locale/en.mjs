@@ -40,13 +40,12 @@ export const en = {
   },
   emptyStates: {
     backlog: "No candidates. Refresh, or check the watched-repo list.",
-    inbox: "Nothing waiting for triage.",
   },
   errors: {
     refreshFailed: "Refresh failed. Please retry later.",
     noToken: "No GitHub credential found: configure a token or sign in to gh on this machine.",
   },
-  meta: { candidates: "candidates", lastRefreshAt: "Last refresh" },
+  meta: { lastRefreshAt: "Last refresh" },
   actions: { triageBatch: "Triage inbox", override: "Save my judgment", reason: "Reason", moveTo: "Move to", pass: "Pass", reject: "Reject", copyPackage: "Copy task package" },
   gateV1Hint: "v1 enables G1 only; build, verify, ship and G2/G3 open in v2",
   settings: { title: "Settings", intervalMinutes: "Auto-refresh interval (minutes, 0 = off)", save: "Save", triageModel: "Triage model", followDefault: "Follow host default", notInCatalog: "(not in catalog)" },

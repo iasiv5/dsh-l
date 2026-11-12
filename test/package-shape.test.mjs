@@ -13,6 +13,12 @@ test("manifest 形状", () => {
   assert.equal(pkg.dependencies, undefined);
 });
 
+test("cordis.patch.yml 为单 row block 序列（含 id 与 name）", () => {
+  const patch = readFileSync("cordis.patch.yml", "utf8");
+  assert.match(patch, /- insert:\n    - id: dsh-l\n      name: dsh-l\n$/);
+  assert.ok(!patch.includes("[id:"), "禁止流式序列：[id: x, name: y] 会解析成两条单键 row，{id} 幽灵行打崩宿主 preflight（R1-01）");
+});
+
 test("构建产物形状与同指纹", () => {
   assert.ok(existsSync("lib/host.js") && existsSync("lib/client.js"));
   const client = readFileSync("lib/client.js", "utf8");

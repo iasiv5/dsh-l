@@ -46,7 +46,7 @@ node "$RUNTIME_BIN" "$PROFILE" --host 127.0.0.1 --port "$PORT" --no-open > "$EVI
 echo $! > "$EVID/host.pid"
 for _ in $(seq 1 90); do grep -q "127.0.0.1:$PORT/?token=" "$EVID/host.log" && break; sleep 1; done
 grep -q "127.0.0.1:$PORT/?token=" "$EVID/host.log" || fail "宿主未起（见 host.log）"
-if grep -qE "did not activate|skipping profile bundle|waiting for service" "$EVID/host.log"; then fail "插件拒载或未激活（见 host.log）"; fi
+if grep -qE "did not activate|skipping profile bundle|waiting for service|disabling profile plugin row" "$EVID/host.log"; then fail "插件拒载或未激活（见 host.log）"; fi
 
 # 5. token（含连字符，049 坑位二）→ cookie 会话；hc = 带 cookie 与同源头的 curl
 TOKEN="$(grep -m1 -oE 'token=[A-Za-z0-9_-]+' "$EVID/host.log" | cut -d= -f2)"
