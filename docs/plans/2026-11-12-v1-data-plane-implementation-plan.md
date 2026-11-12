@@ -2147,10 +2147,10 @@ actions.mjs 的 header 钩子追加设置按钮：点击后在 view.shadow 内�
 ### Task 10: 分诊模型设置项（下拉选择 + 目录校验）
 
 - 目标：设置对话框新增「分诊模型」下拉：首项「跟随宿主默认（当前：provider / model）」，其余按 provider 分组列出宿主模型目录；保存时校验所选模型在目录内（宿主 GUI 同一规则：dsh-llm README:28「The GUI requires catalog membership for selection and submission」）；分诊会话按设置选模，未设置则跟随宿主默认。
-- 涉及文件：Modify src/triage.mjs（加 resolveTriageSelection）、test/triage.test.mjs（追加）、src/handlers.mjs（加 getModels；putSettings 支持 triageModel 并允许只改其中一个字段）、test/handlers.test.mjs（追加）、src/host.mjs（inject 增 "llm"；buildRuntime 注入 listCatalog 与 hostDefault；路由表加 GET /dsh-l/models；world.createAgent 用 resolveTriageSelection）、src/client/api.mjs（加 models）、src/client/components/actions.mjs（设置对话框加下拉）、src/client/locale/zh-CN.mjs、src/client/locale/en.mjs、docs/design.md（§4 加 /dsh-l/models 行，§5 模型来源改写）
+- 涉及文件：Modify src/triage.mjs（加 resolveTriageSelection）、test/triage.test.mjs（追加）、src/handlers.mjs（加 getModels；putSettings 支持 triageModel 并允许只改其中一个字段）、test/handlers.test.mjs（追加）、src/host.mjs（inject 增 "llm"；buildRuntime 注入 listCatalog 与 hostDefault；路由表加 GET /dsh-l/models；world.createAgent 用 resolveTriageSelection）、src/client/api.mjs（加 models）、src/client/logic.mjs（加 settingsPatch）、test/logic.test.mjs（追加）、src/client/components/actions.mjs（设置对话框加下拉）、src/client/locale/zh-CN.mjs、src/client/locale/en.mjs、docs/design.md（§4 加 /dsh-l/models 行，§5 模型来源改写）
 - 接口契约
   - Consumes: ctx.llm.listProviders() → LlmProviderInfo[] { id, name }（dsh-llm lib/types/index.d.ts:281、types.d.ts:212–217）；ctx.llm.listModels(provider) → Promise<LlmModelInfo[]> { provider, id, name, … }（index.d.ts:367、types.d.ts:340–346）；ctx.agentDefaultModel.currentSelection() → { provider, model, reasoningEffort? }（dsh-agent-default-model README:50–53）；Task 5 makeHandlers / buildRuntime；Task 6 world.createAgent(sessionId, { model })；Task 9 设置对话框与 putSettings
-  - Produces: resolveTriageSelection(triageModel, defaults) → { provider, model, reasoningEffort }；makeHandlers 新增参数 listCatalog: () => Promise<[{ provider, name, models: [{ id, name }] }]> 与 hostDefault: () => { provider, model }；handlers.getModels() → { providers, hostDefault }；putSettings 接受 { intervalMinutes?, triageModel? }，triageModel 为 null 或 { provider, model }，不在目录内返回 { error: "model-not-in-catalog", status: 400 }；路由 GET /dsh-l/models；api.models()；字典 settings.triageModel、settings.followDefault
+  - Produces: resolveTriageSelection(triageModel, defaults) → { provider, model, reasoningEffort }；makeHandlers 新增参数 listCatalog: () => Promise<[{ provider, name, models: [{ id, name }] }]> 与 hostDefault: () => { provider, model }；handlers.getModels() → { providers, hostDefault }；putSettings 接受 { intervalMinutes?, triageModel? }，triageModel 为 null 或 { provider, model }，不在目录内返回 { error: "model-not-in-catalog", status: 400 }；路由 GET /dsh-l/models；api.models()；settingsPatch(initial, form) → 提交体（下拉值相对初值未变则不含 triageModel）；字典 settings.triageModel、settings.followDefault、settings.notInCatalog
 - 验证范围：triage 与 handlers 追加用例全绿；build 绿。
 
 - [ ] Step 1: 写失败测试
@@ -2198,11 +2198,22 @@ test("postTriage 把设置中的 triageModel 传给 runTriage", async () => {
 ~~~
 
 - Run: npm test
-- Expected: triage 报 resolveTriageSelection 不是函数；handlers 报 getModels 不是函数、空体未被拒——红。
+test/logic.test.mjs 追加（首行 import 扩入 settingsPatch）：
+~~~js
+test("settingsPatch：下拉未变不提交 triageModel；改为跟随 → null；改选 → 对象", () => {
+  const initial = { intervalMinutes: 5, triageModel: { provider: "p1", model: "gone" } };
+  assert.deepEqual(settingsPatch(initial, { intervalMinutes: 10, modelValue: "p1\ngone" }), { intervalMinutes: 10 });
+  assert.deepEqual(settingsPatch(initial, { intervalMinutes: 10, modelValue: "" }), { intervalMinutes: 10, triageModel: null });
+  assert.deepEqual(settingsPatch(initial, { intervalMinutes: 10, modelValue: "p2\nm2" }), { intervalMinutes: 10, triageModel: { provider: "p2", model: "m2" } });
+  assert.deepEqual(settingsPatch({ intervalMinutes: 0, triageModel: null }, { intervalMinutes: 0, modelValue: "" }), { intervalMinutes: 0 });
+});
+~~~
+
+- Expected: triage 报 resolveTriageSelection 不是函数；handlers 报 getModels 不是函数、空体未被拒；logic 报 settingsPatch 不是函数——红。
 
 - [ ] Step 2: 运行并确认失败
 - Run: npm test
-- Expected: triage、handlers 文件红，其余绿。
+- Expected: triage、handlers、logic 文件红，其余绿。
 
 - [ ] Step 3: 写最小实现
 
@@ -2275,11 +2286,24 @@ const hostDefault = () => {
 
 src/client/api.mjs 追加：models: () => get("dsh-l/models"),
 
-src/client/components/actions.mjs 设置对话框（Task 9 所建）在分钟输入下方加：
-- 打开对话框时 api.models() 取目录；一个 select：首项 value ""，文案 t("settings.followDefault") + "（" + (hostDefault ? hostDefault.provider + " / " + hostDefault.model : "—") + "）"；其后每个 provider 一个 optgroup（label = provider name），option value = provider + "\n" + model.id，文案 = model.name；初值按 state.settings.triageModel 回填。
-- 保存时一次提交 { intervalMinutes, triageModel }：select 值为 "" 则 triageModel 为 null，否则按 "\n" 拆成 { provider, model }；服务端返回 model-not-in-catalog 时在对话框内显示错误并不关闭。
+src/client/logic.mjs 追加（R3-01：只在下拉值相对初值有变化时才提交 triageModel，避免已失效模型挡住只改分钟的保存）：
+~~~js
+const modelValueOf = (sel) => (sel ? sel.provider + "\n" + sel.model : "");
 
-两字典同步加键：settings.triageModel（分诊模型 / Triage model）、settings.followDefault（跟随宿主默认 / Follow host default）。
+export function settingsPatch(initial, form) {
+  const patch = { intervalMinutes: form.intervalMinutes };
+  if (form.modelValue === modelValueOf(initial.triageModel)) return patch;
+  if (form.modelValue === "") return { ...patch, triageModel: null };
+  const cut = form.modelValue.indexOf("\n");
+  return { ...patch, triageModel: { provider: form.modelValue.slice(0, cut), model: form.modelValue.slice(cut + 1) } };
+}
+~~~
+
+src/client/components/actions.mjs 设置对话框（Task 9 所建）在分钟输入下方加：
+- 打开对话框时 api.models() 取目录；一个 select：首项 value ""，文案 t("settings.followDefault") + "（" + (hostDefault ? hostDefault.provider + " / " + hostDefault.model : "—") + "）"；其后每个 provider 一个 optgroup（label = provider name），option value = provider + "\n" + model.id，文案 = model.name；初值按 state.settings.triageModel 回填；若已设定的模型不在当前目录，额外加一个 option（value 同其 provider + "\n" + model，文案 = 原值 + t("settings.notInCatalog")）并选中，避免把它误显示成「跟随宿主默认」。
+- 保存时提交 settingsPatch(state.settings, { intervalMinutes, modelValue: select.value })：下拉未改不带 triageModel（只改分钟不会被失效模型挡住）；服务端返回 model-not-in-catalog 时在对话框内显示错误并不关闭。
+
+两字典同步加键：settings.triageModel（分诊模型 / Triage model）、settings.followDefault（跟随宿主默认 / Follow host default）、settings.notInCatalog（（不在目录中）/ (not in catalog)）。
 
 docs/design.md：§4 路由表加「GET /dsh-l/models —— 宿主模型目录 + 宿主默认」；§5「模型 = …」一句改为「模型 = 设置 settings.triageModel（须在宿主模型目录内）；未设置则跟随宿主默认（agentDefaultModel.currentSelection()）」。
 
@@ -2287,7 +2311,7 @@ docs/design.md：§4 路由表加「GET /dsh-l/models —— 宿主模型目录 
 
 - [ ] Step 4: 运行并确认通过
 - Run: npm run build && npm test
-- Expected: triage、handlers 追加用例全绿；全部 11 个测试文件绿；构建零错误。
+- Expected: triage、handlers、logic 追加用例全绿；全部 11 个测试文件绿；构建零错误。
 
 - [ ] Step 5: 可选 checkpoint commit
 - Run: git add -A && git commit -m "feat(settings): 分诊模型下拉选择 + 目录校验"
@@ -2448,7 +2472,7 @@ const path = require("path");
 
 - 宿主接口漂移（DSH 升级后 agents / session 事件 / locale / timer / llm 目录形态变化）：宿主接口只在 src/host.mjs、src/client/index.mjs、src/client/i18n.mjs 三处触达；Task 11 冒烟即回归探针。回退 = 不挂载（profile bundles 去掉 dsh-l）。
 - 分诊会话残留或卡住：runTriage finally 必 dispose；超时 cancel；宿主默认 ask 策略下工具调用阻塞由超时兜住，判 failed、候选留 inbox 可重跑。
-- 已设定的分诊模型后来从目录消失（provider 停用、模型下架）：保存时校验只管当时；分诊时由宿主报错，postTriage 返回失败、候选留 inbox；设置下拉回填值不在目录时显示为「跟随宿主默认」并提示重选。
+- 已设定的分诊模型后来从目录消失（provider 停用、模型下架）：保存时校验只管当时；分诊时由宿主报错，postTriage 返回失败、候选留 inbox；设置下拉回填值不在目录时保留为「原值（不在目录中）」选项并选中；用户不改它时保存不提交 triageModel（R3-01），改选或改回跟随才提交。
 - 速率限制：每次刷新 24 请求；匿名模式（无 token）每小时 60 次——refresh 返回 authenticated:false，逐仓 error 字段可见。
 - 冒烟失败：证据目录保留；KEEP_PROFILE=1 bash scripts/install-smoke.sh 可保留 scratch profile 复查；脚本只杀自己记录的 pid。
 - 本计划不在役装机、不重启在役宿主；在役挂载与发 npm 0.1.0 另开计划并经主人确认。
