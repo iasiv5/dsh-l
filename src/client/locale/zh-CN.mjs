@@ -16,6 +16,7 @@ export const zhCN = {
     gating: "待拍板",
     building: "进行中",
     shipped: "已交付",
+    closed: "已关闭 / 挂起",
   },
   filters: {
     all: "全部",

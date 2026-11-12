@@ -16,6 +16,7 @@ export const en = {
     gating: "Awaiting decision",
     building: "In progress",
     shipped: "Shipped",
+    closed: "Closed & held",
   },
   filters: {
     all: "All",
