@@ -126,6 +126,15 @@ test("postTriage 失败：502 透传且候选留原阶段、history 记 triage.e
   assert.equal(c.history.at(-1).detail, "triage-not-wired");
 });
 
+test("postTriage 崩溃（runTriage 抛错）：同样 502 + triage.error 落痕，不裸 500", async () => {
+  const store = openStore(); seed(store);
+  const boom = { runTriage: async () => { throw new Error("agents.create exploded"); } };
+  const r = await makeHandlers({ store, provider: PROVIDER(), triage: boom }).postTriage({ keys: ["o/r#issue#1"] });
+  assert.equal(r.status, 502);
+  assert.match(r.error, /triage-crashed: agents\.create exploded/);
+  assert.equal(store.getCandidate("o/r#issue#1").history.at(-1).event, "triage.error");
+});
+
 const CATALOG = async () => [{ provider: "p1", name: "P1", models: [{ id: "m1", name: "M1" }] }];
 const DEFAULT = () => ({ provider: "p0", model: "m0" });
 

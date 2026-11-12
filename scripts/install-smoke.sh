@@ -67,6 +67,78 @@ node -e 'const j=require(process.argv[1]);const n=Object.keys(j.perRepo||{}).len
 # 7b. 模型目录探针（Task 10 的 /dsh-l/models 形状）
 hc "$BASE/dsh-l/models?token=$TOKEN" > "$EVID/models.json"
 node -e 'const j=require(process.argv[1]);if(!Array.isArray(j.providers))throw new Error("providers not array");if(!("hostDefault" in j))throw new Error("no hostDefault");' "$EVID/models.json" || fail "模型目录接口形状不符（见 models.json）"
+node -e 'const j=require(process.argv[1]);if(!("sweep" in j))throw new Error("no sweep field");' "$EVID/refresh.json" || fail "refresh 缺 sweep 字段（上游回收未上线）"
+
+# 7c. 全环探针（2026-11-13 契约对表后）：override → stage → G1 pass → 任务包 golden → state 回溯
+hc "$BASE/dsh-l/state?token=$TOKEN" > "$EVID/state2.json"
+KEY="$(node -e 'const j=require(process.argv[1]);const c=(j.candidates||[])[0];if(!c)throw new Error("no candidates");process.stdout.write(c.key);' "$EVID/state2.json" 2>/dev/null || true)"
+[ -n "$KEY" ] || fail "刷新后无候选，无法走全环（见 state2.json）"
+post() { hc --max-time 30 -H "content-type: application/json" -X POST -d "$2" "$BASE/dsh-l/$1?token=$TOKEN"; }
+post candidate/override "{\"key\":\"$KEY\",\"validity\":\"high\",\"urgency\":\"P1\",\"action\":\"start\",\"reason\":\"smoke override\",\"lang\":\"zh-CN\"}" > "$EVID/override.json"
+node -e 'const j=require(process.argv[1]);if(j.ok!==true)throw new Error(JSON.stringify(j));' "$EVID/override.json" || fail "override 失败（见 override.json）"
+post candidate/stage "{\"key\":\"$KEY\",\"stage\":\"gating\",\"note\":\"smoke\"}" > "$EVID/stage.json"
+node -e 'const j=require(process.argv[1]);if(j.ok!==true)throw new Error(JSON.stringify(j));' "$EVID/stage.json" || fail "stage 失败（见 stage.json）"
+post candidate/gate "{\"key\":\"$KEY\",\"gate\":\"G1\",\"decision\":\"pass\",\"note\":\"smoke\"}" > "$EVID/gate.json"
+node -e '
+const j=require(process.argv[1]), key=process.argv[2];
+const p=j.taskPackage; if(!p) throw new Error("no taskPackage: "+JSON.stringify(j));
+const ek=Object.keys(p.emit).sort().join(",");
+if(ek!=="id,link,subject,summary,type") throw new Error("emit keys: "+ek+"（信封外字段会被 autoloop 拒收）");
+if(p.emit.type!=="build.requested"||p.emit.subject!==key||!p.emit.id) throw new Error("emit content: "+JSON.stringify(p.emit));
+const gk=Object.keys(p.gate).sort().join(",");
+if(gk!=="at,decision,gate,via") throw new Error("gate keys: "+gk);
+if(!p.repo.defaultBranch||!String(p.repo.cloneUrl).startsWith("git@github.com:")) throw new Error("repo block: "+JSON.stringify(p.repo));
+' "$EVID/gate.json" "$KEY" || fail "任务包 golden 不符（见 gate.json）"
+hc "$BASE/dsh-l/state?token=$TOKEN" > "$EVID/state3.json"
+node -e '
+const j=require(process.argv[1]), key=process.argv[2];
+const c=(j.candidates||[]).find(x=>x.key===key);
+if(!c) throw new Error("candidate vanished");
+if(c.stage!=="building") throw new Error("stage="+c.stage);
+if(c.gates.G1?.decision!=="pass") throw new Error("gates.G1="+JSON.stringify(c.gates.G1));
+if(!c.taskPackage) throw new Error("taskPackage 未挂候选");
+const evs=c.history.map(h=>h.event);
+if(!evs.includes("triage.human")) throw new Error("缺 override 落痕: "+evs.join(","));
+if(!evs.includes("gate.G1")) throw new Error("缺 gate 落痕: "+evs.join(","));
+if(!Array.isArray(j.ingestLog)||j.ingestLog.length<1) throw new Error("ingestLog 缺失");
+' "$EVID/state3.json" "$KEY" || fail "state 回溯断言失败（见 state3.json）"
+
+# 7d. 设置往返（PUT → GET 读取 → 归零；rearm 经 onSettingsChange 链路不打断服务即算通过）
+hc --max-time 15 -H "content-type: application/json" -X PUT -d '{"intervalMinutes":5}' "$BASE/dsh-l/settings?token=$TOKEN" > "$EVID/settings5.json"
+node -e 'const j=require(process.argv[1]);if(j.intervalMinutes!==5)throw new Error(JSON.stringify(j));' "$EVID/settings5.json" || fail "设置 PUT 5 失败"
+hc "$BASE/dsh-l/settings?token=$TOKEN" > "$EVID/settings-get.json"
+node -e 'const j=require(process.argv[1]);if(j.intervalMinutes!==5)throw new Error(JSON.stringify(j));' "$EVID/settings-get.json" || fail "设置读回不为 5（持久化断链）"
+hc --max-time 15 -H "content-type: application/json" -X PUT -d '{"intervalMinutes":0}' "$BASE/dsh-l/settings?token=$TOKEN" > "$EVID/settings0.json"
+node -e 'const j=require(process.argv[1]);if(j.intervalMinutes!==0)throw new Error(JSON.stringify(j));' "$EVID/settings0.json" || fail "设置归零失败"
+
+# 7e. 真 LLM 分诊探针：happy path 或 fail-closed 落痕，二者必居其一才算接线正确
+TKEY="$(node -e 'const j=require(process.argv[1]);const key=process.argv[2];const inbox=(j.candidates||[]).filter(c=>c.stage==="inbox");const c=inbox[0]||(j.candidates||[]).find(x=>x.key!==key);if(!c)process.exit(0);process.stdout.write(c.key);' "$EVID/state3.json" "$KEY")"
+TRIAGE_VERDICT="skipped（无第二条候选）"
+if [ -n "$TKEY" ]; then
+  MODEL_ARG="$(node -e 'const j=require(process.argv[1]);for(const p of j.providers||[])for(const m of p.models||[]){process.stdout.write(JSON.stringify({provider:p.provider,model:m.id}));process.exit(0);}' "$EVID/models.json" 2>/dev/null || true)"
+  if [ -n "$MODEL_ARG" ]; then
+    hc --max-time 15 -H "content-type: application/json" -X PUT -d "{\"triageModel\":$MODEL_ARG}" "$BASE/dsh-l/settings?token=$TOKEN" > "$EVID/settings-model.json" || true
+  fi
+  hc --max-time 400 -H "content-type: application/json" -X POST -d "{\"keys\":[\"$TKEY\"],\"lang\":\"zh-CN\"}" "$BASE/dsh-l/triage?token=$TOKEN" > "$EVID/triage.json" || echo '{"error":"curl-failed"}' > "$EVID/triage.json"
+  hc "$BASE/dsh-l/state?token=$TOKEN" > "$EVID/state4.json"
+  TRIAGE_VERDICT="$(node -e '
+  const fs=require("fs");
+  const read=(f)=>{try{return JSON.parse(fs.readFileSync(f,"utf8"))}catch{return null}};
+  const j=read(process.argv[1]), s=read(process.argv[2]), key=process.argv[3];
+  const c=s&&(s.candidates||[]).find(x=>x.key===key);
+  const evs=c?c.history.map(h=>h.event):[];
+  if(j&&Array.isArray(j.updated)&&j.updated.includes(key)&&c&&c.triage&&c.triage.by==="llm"){
+    process.stdout.write("PASS-happy（updated+by=llm，reason=\""+String(c.triage.reason||"").slice(0,40)+"\"）");process.exit(0);
+  }
+  if(j&&j.error&&evs.includes("triage.error")){
+    const last=c.history.filter(h=>h.event==="triage.error").at(-1);
+    process.stdout.write("PASS-fail-closed（502 error=\""+String(j.error).slice(0,60)+"\"，history triage.error=\""+String(last&&last.detail).slice(0,60)+"\"）");process.exit(0);
+  }
+  process.stdout.write("FAIL（resp="+(j?JSON.stringify(j).slice(0,120):"unparseable")+" events="+evs.join(",")+"）");process.exit(1);
+  ' "$EVID/triage.json" "$EVID/state4.json" "$TKEY" || true)"
+  case "$TRIAGE_VERDICT" in FAIL*) fail "真分诊接线不正确：$TRIAGE_VERDICT（见 triage.json / state4.json）";; esac
+fi
+echo "triage verdict: $TRIAGE_VERDICT" | tee -a "$EVID/result.txt"
 
 # 8. 隔离探针：在役 profile 的 dsh-l 数据未被触碰
 LIVE_AFTER="$(stat -c %Y "$LIVE_STORE" 2>/dev/null || echo absent)"

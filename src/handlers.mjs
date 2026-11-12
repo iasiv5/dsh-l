@@ -92,7 +92,15 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       const lang = langOf(body?.lang);
       const candidates = keys.map((k) => store.getCandidate(k)).filter(Boolean);
       if (candidates.length === 0) return fail("no candidates", 404);
-      const result = await triage.runTriage({ candidates, lang, model: store.getSettings().triageModel });
+      let result;
+      try {
+        result = await triage.runTriage({ candidates, lang, model: store.getSettings().triageModel });
+      } catch (err) {
+        // 崩溃路径同样落痕（http 层只会裸 500，不留痕对「回溯」不可见）。
+        const msg = String(err?.message ?? err);
+        for (const c of candidates) store.recordHistory(c.key, "triage.error", msg);
+        return fail("triage-crashed: " + msg, 502);
+      }
       if (result.failed) {
         // design.md §5：失败也留痕（候选留原阶段，可重跑）——不落痕的失败对「回溯」不可见。
         for (const c of candidates) store.recordHistory(c.key, "triage.error", result.failed);

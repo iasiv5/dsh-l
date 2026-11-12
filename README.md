@@ -75,7 +75,7 @@ GitHub token 按以下顺序解析：插件配置的凭据引用 → 本机 `gh 
 ```bash
 npm install
 npm run build   # 产出 lib/host.js + lib/client.js（带构建指纹）
-npm test        # 68 用例
+npm test        # 69 用例
 bash scripts/install-smoke.sh   # 隔离 profile 装机冒烟（不触在役宿主）
 ```
 
