@@ -2307,7 +2307,7 @@ src/client/components/actions.mjs 设置对话框（Task 9 所建）在分钟输
 
 docs/design.md：§4 路由表加「GET /dsh-l/models —— 宿主模型目录 + 宿主默认」；§5「模型 = …」一句改为「模型 = 设置 settings.triageModel（须在宿主模型目录内）；未设置则跟随宿主默认（agentDefaultModel.currentSelection()）」。
 
-- Change: 选模纯函数；目录路由；设置校验；对话框下拉；字典 2 键；design 同步。
+- Change: 选模纯函数；目录路由；设置校验；对话框下拉；字典 3 键；design 同步。
 
 - [ ] Step 4: 运行并确认通过
 - Run: npm run build && npm test
