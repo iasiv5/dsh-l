@@ -1,6 +1,8 @@
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
+import { randomUUID } from "node:crypto";
 import { join } from "node:path";
+import { runTriage } from "./triage.mjs";
 import { dataDir } from "./paths.mjs";
 import { createStore } from "./store.mjs";
 import * as github from "./github.mjs";
@@ -12,14 +14,34 @@ const BUILD = typeof __DSH_L_BUILD__ === "string" ? __DSH_L_BUILD__ : "dev";
 const UNWIRED = { runTriage: async () => ({ updated: [], failed: "triage-not-wired" }) };
 
 export const name = "dsh-l";
-export const inject = ["webServer", "credentials"];
+export const inject = ["webServer", "credentials", "agents", "agentDefaultModel"];
+
+const makeTriage = (ctx, dir) => {
+  const world = {
+    async createAgent(sessionId, { model } = {}) {
+      // autoloop dsh/src/host.ts:83-97：程序化会话须在 setup 里显式选模，宿主默认选择补齐。
+      const defaults = ctx.agentDefaultModel?.currentSelection?.() ?? { provider: "", model: "" };
+      const configured = { provider: defaults.provider, model: model ?? defaults.model, reasoningEffort: defaults.reasoningEffort };
+      return ctx.agents.create({
+        sessionId,
+        meta: { cwd: dir },
+        agentOptions: configured,
+        setup: (_agentCtx, agent) => { agent.model?.select?.(configured); },
+      });
+    },
+    onSessionEvent: (handler) => ctx.on("session/event", (session, event) => handler(String(session?.id ?? ""), event)),
+    userMessage: (text) => ({ id: randomUUID(), role: "user", content: [{ type: "text", text }], source: { kind: "user" } }),
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  };
+  return { runTriage: (params) => runTriage(world, params) };
+};
 
 export function buildRuntime(ctx, config, { makeTriage, onSettingsChange } = {}) {
   const dir = dataDir();
   const store = createStore({ filePath: join(dir, "store.json") });
   const handlers = makeHandlers({
     store, provider: github,
-    triage: makeTriage ? makeTriage(dir) : UNWIRED,
+    triage: makeTriage ? makeTriage(ctx, dir) : UNWIRED,
     credentials: ctx.credentials, tokenRef: config?.githubTokenRef ?? null,
     execFile, fetch: globalThis.fetch, onSettingsChange,
   });
