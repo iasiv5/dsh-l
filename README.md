@@ -1,4 +1,4 @@
-# L♾️p Engineering 工作台（dsh-l）
+# Loop Engineering 工作台（dsh-l）
 
 **把你的 GitHub 仓库变成一条看得见的环：候选进来、分诊排序、拍板开工、编码验证、交付落地——交付产生的新候选再回到清单，环继续转。**
 

@@ -1,4 +1,4 @@
-# L♾️p Engineering Workbench (dsh-l)
+# Loop Engineering Workbench (dsh-l)
 
 **Turn your GitHub repositories into a visible loop: candidates come in, get triaged and prioritized, gates are cleared, code is built and verified, changes ship — and the new issues shipping creates flow back into the backlog. The loop keeps turning.**
 

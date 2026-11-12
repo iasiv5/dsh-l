@@ -1,4 +1,4 @@
-# L♾️p Engineering 工作台（dsh-l）
+# Loop Engineering 工作台（dsh-l）
 
 GitHub issue/PR 的分诊与 Loop 编排工作台的领域词汇表。工作台管「看清楚、排优先级、拍板」；干活与落地交给执行引擎。
 

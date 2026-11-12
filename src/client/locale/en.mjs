@@ -1,6 +1,6 @@
 // en UI dictionary. Keys must stay in sync with zh-CN.mjs; these two files are the single source of UI copy.
 export const en = {
-  panelLabel: "L♾️p Engineering Workbench",
+  panelLabel: "Loop Engineering Workbench",
   refresh: "Refresh",
   refreshing: "Refreshing…",
   watchedRepos: "Watched repos",

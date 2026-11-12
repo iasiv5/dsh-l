@@ -1,6 +1,6 @@
 // zh-CN UI dictionary. Keys must stay in sync with en.mjs; these two files are the single source of UI copy.
 export const zhCN = {
-  panelLabel: "L♾️p Engineering 工作台",
+  panelLabel: "Loop Engineering 工作台",
   refresh: "刷新",
   refreshing: "刷新中…",
   watchedRepos: "监看仓库",

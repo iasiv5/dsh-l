@@ -2,7 +2,7 @@
 
 ## Product
 
-L♾️p Engineering 工作台（dsh-l）：DeepSeek Harness 的侧栏工作台插件。把你监看的 GitHub 仓库中所有 open issue / open PR 摄取成候选清单，用 LLM 分诊出真实性、紧急度与建议动作，三道闸门全部人工放行，开工时产出可交接的任务包。工作台管「看清楚、排优先级、拍板」；干活与落地交给执行引擎（v2+）。
+Loop Engineering 工作台（dsh-l）：DeepSeek Harness 的侧栏工作台插件。把你监看的 GitHub 仓库中所有 open issue / open PR 摄取成候选清单，用 LLM 分诊出真实性、紧急度与建议动作，三道闸门全部人工放行，开工时产出可交接的任务包。工作台管「看清楚、排优先级、拍板」；干活与落地交给执行引擎（v2+）。
 
 差异化：不是 issue viewer——分诊建议 + 闸门纪律 + 任务包契约构成「环」的驾驶舱；刻意不做通用中台（见 ADR-0001）。
 
@@ -33,7 +33,7 @@ web——DSH web 宿主侧栏：main slot 主栏整页 + sidebar.panellist（ord
 - GitHub only（v1）；provider 接口预留 GitLab 适配位。token 复用本机 gh 登录态，可用 credentials 记录覆写。
 - 中英双语：接宿主 locale 服务 + zh-CN / en 双字典，无私有语言开关；分诊理由语言跟随界面语言。
 - 任务包 schema 是工作台与执行引擎的交接契约，对齐 agent-autoloop 事件语义（ADR-0001）。
-- npm dsh-l 已由 iasiv5 占位 0.0.1；显示名「L♾️p Engineering 工作台」。
+- npm dsh-l 已由 iasiv5 占位 0.0.1；显示名「Loop Engineering 工作台」。
 - 面板 label 用解析式注册（label 随 lang 解析，歸藏设计同款）。
 
 ## Roadmap

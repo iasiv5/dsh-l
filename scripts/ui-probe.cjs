@@ -16,7 +16,7 @@ const path = require("path");
     const page = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
     page.on("console", (m) => log("console." + m.type() + " " + m.text()));
     await page.goto(url, { waitUntil: "domcontentloaded" });
-    const entry = page.getByRole("button", { name: /L♾️p Engineering/ });
+    const entry = page.getByRole("button", { name: /Loop Engineering/ });
     await entry.first().waitFor({ timeout: 45000 });
     log("PASS sidebar entry visible");
     // R2-01：相对路径解析基准取证——工作台首屏 state 请求必须 2xx，并记下实际解析出的 URL。
