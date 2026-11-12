@@ -76,7 +76,7 @@ GitHub token 按以下顺序解析：插件配置的凭据引用 → 本机 `gh 
 npm install
 npm run build   # 产出 lib/host.js + lib/client.js（带构建指纹）
 npm test        # 69 用例
-bash scripts/install-smoke.sh   # 隔离 profile 装机冒烟（不触在役宿主）
+bash scripts/install-smoke.sh   # 隔离 profile 装机冒烟（不触在役宿主）；含全环探针，分诊在无 LLM 凭据的隔离环境走 fail-closed 裁决（预期行为，补 DEEPSEEK_API_KEY 可得 happy path）
 ```
 
 设计文档见 [docs/design.md](docs/design.md)，领域词汇见 [GLOSSARY.md](GLOSSARY.md)，架构取舍见 [docs/adr/0001](docs/adr/0001-park-autoloop-build-thin-layer.md)。

@@ -151,4 +151,5 @@ inbox →（分诊）→ triaged →（人工安排）→ gating →（G1 放行
 
 - 单测（node --test）：store 全 API、provider（注入 fetch/execFile 桩）、parseTriageOutput golden、handlers 纯函数、client 纯逻辑（分组/过滤）。
 - 包形状测试：断言 package.json 的 exports/dsh 元数据与 cordis.patch.yml（quota-watch package-shape 先例）。
-- 装机冒烟：隔离 scratch profile（049 runbook）+ GET /dsh-l/state 200 + 面板出现。
+- 装机冒烟：隔离 scratch profile（049 runbook）+ GET /dsh-l/state 200 + 面板出现。全环探针含 override→stage→G1 任务包 golden→state 回溯→设置往返→真 agent 分诊双裁决（PASS-happy=updated+by=llm / PASS-fail-closed=502+triage.error 落痕）。
+- 隔离环境的 LLM 预期（2026-11-13 实录）：scratch 宿主无 LLM 凭据时 llm-deepseek 报 `MISSING_CREDENTIAL`，分诊走 fail-closed 裁决——这是**预期**而非插件缺陷；happy path 需 `DEEPSEEK_API_KEY`（宿主凭据服务或启动 env，错误信息明示）。真机实录：2026-11-13 冒烟 10/10 PASS，分诊 PASS-fail-closed，任务包 golden 在真实仓（iasiv5/dsh-m）现场验证通过。
