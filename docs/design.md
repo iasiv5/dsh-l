@@ -69,6 +69,7 @@ store API（后续任务的接口契约）：getWatch()/setWatch(repos)、upsert
 | POST | /dsh-l/triage | {keys:[…≤10]} | 批量分诊，结果写回候选 |
 | POST | /dsh-l/candidate/stage | {key, stage, note} | 人工改阶段（含关闭/挂起/推翻分诊） |
 | POST | /dsh-l/candidate/gate | {key, gate, decision, note} | 闸门放行/驳回（v1 仅 G1 有语义，pass 时生成任务包） |
+| GET/PUT | /dsh-l/settings | {intervalMinutes?, triageModel?} | 设置读写；intervalMinutes 变更即时重 arm 定时器 |
 
 处理器写成纯函数 makeHandlers({ store, provider, triage, now })，路由层只做 JSON 编解码——单测不打真 HTTP。
 

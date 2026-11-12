@@ -594,14 +594,21 @@ import { createStore } from "../src/store.mjs";
 import { makeHandlers, buildTaskPackage } from "../src/handlers.mjs";
 
 const openStore = () => createStore({ filePath: join(mkdtempSync(join(tmpdir(), "dsh-l-h")), "s.json") });
-const okFetch = async () => ({ ok: true, json: async () => [] });
-const failFetch = async () => ({ ok: false, status: 500, json: async () => ({}) });
 const noTriage = { runTriage: async () => ({ updated: [], failed: "not-configured" }) };
+const PROVIDER = (mode = {}) => ({
+  resolveToken: async () => null,
+  listOpenIssues: async ({ repo }) => {
+    if (mode.bad && repo === "o/bad") throw new Error("github api 500 for /repos/o/bad/issues?state=open");
+    return [];
+  },
+  listOpenPulls: async () => [],
+  discoverRepos: async () => [],
+});
 
 test("postRefresh 单仓失败容错且记 perRepo.error", async () => {
   const store = openStore();
   store.setWatch(["o/good", "o/bad"]);
-  const h = makeHandlers({ store, provider: PROVIDER({ good: okFetch, bad: failFetch }), triage: noTriage });
+  const h = makeHandlers({ store, provider: PROVIDER({ bad: true }), triage: noTriage });
   const r = await h.postRefresh();
   assert.equal(r.perRepo["o/bad"].error, "github api 500 for /repos/o/bad/issues?state=open");
   assert.equal(r.perRepo["o/good"].error, null);
@@ -621,42 +628,20 @@ test("postTriage 上限 10 并把结果写回 store", async () => {
   const r = await h.postTriage({ keys: ["o/r#issue#1"], lang: "zh-CN" });
   assert.deepEqual(r.updated, ["o/r#issue#1"]);
   assert.equal(store.getCandidate("o/r#issue#1").triage.validity, "low");
-  assert.equal(await (async () => { try { return await h.postTriage({ keys: Array.from({ length: 11 }, (_, i) => "k" + i) }); } catch { return { error: "throw" }; } })().then((x) => x.error !== undefined), true);
+  const over = await h.postTriage({ keys: Array.from({ length: 11 }, (_, i) => "k" + i) });
+  assert.equal(over.error, "keys must be 1..10");
 });
 
 test("postGate G1 pass 生成任务包", async () => {
   const store = openStore();
   store.upsertCandidates([{ repo: "o/r", type: "issue", number: 2, title: "t", author: "a", labels: [], createdAt: "2026-11-01T00:00:00Z", updatedAt: "T", url: "U", meta: {}, pull: null, bodyExcerpt: "" }]);
   const h = makeHandlers({ store, provider: PROVIDER({}), triage: noTriage });
-  const r = await h.postGate("o/r#issue#2", { gate: "G1", decision: "pass", note: "" });
+  const r = await h.postGate({ key: "o/r#issue#2", gate: "G1", decision: "pass", note: "" });
   assert.equal(r.taskPackage.kind, "dsh-l.task-package");
   assert.equal(r.taskPackage.emit.type, "build.requested");
 });
 
-const PROVIDER = (fns) => ({
-  resolveToken: async () => null,
-  listOpenIssues: ({ repo, fetch }) => (fns.good && repo === "o/good" ? (0, fns.good)().then ? fetch : fetch, undefined) ?? [],
-});
-```
-注意：上面 PROVIDER 桩的最后一行不能这么写——直接用显式实现替换（测试文件里按下面形状写）：
-```js
-const PROVIDER = (mode) => ({
-  resolveToken: async () => null,
-  listOpenIssues: async ({ repo }) => {
-    if (mode.bad && repo === "o/bad") throw new Error("github api 500 for /repos/o/bad/issues?state=open");
-    return [];
-  },
-  listOpenPulls: async () => [],
-  discoverRepos: async () => [],
-});
-const PROVIDER_FETCH = (good, bad) => ({
-  resolveToken: async () => "tk",
-  listOpenIssues: ({ repo, fetch }) => simpleIssues(repo, fetch, good, bad),
-  listOpenPulls: async () => [],
-  discoverRepos: async () => [],
-});
-```
-为避免双桩混乱，最终测试文件只保留 PROVIDER(mode) 形态（bad 分支直接 throw 与真实错误串一致），删除 PROVIDER_FETCH 与 okFetch/failFetch。
+
 
 - Run: `npm test`
 - Expected: ERR_MODULE_NOT_FOUND（../src/handlers.mjs）。
@@ -670,7 +655,7 @@ const PROVIDER_FETCH = (good, bad) => ({
 src/handlers.mjs：
 ```js
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
-const STAGES = new Set(["inbox", "triaged", "gating", "closed", "held"]);
+const STAGES = new Set(["inbox", "triaged", "gating", "shipped", "closed", "held"]);
 const GATES = new Set(["G1", "G2", "G3"]);
 const URGENCY = new Set(["P0", "P1", "P2", "P3"]);
 const VALIDITY = new Set(["high", "medium", "low"]);
@@ -1406,10 +1391,10 @@ export function armInterval({ ctx, store, refresh }) {
     }
   };
   apply();
-  return () => off?.();
+  return { dispose: () => off?.(), rearm: apply };
 }
 ```
-host.mjs：ctx.effect 内补 `const disarm = armInterval({ ctx, store, refresh: handlers.postRefresh });`，清理链加入 disarm；设置变更即时生效的路径：postSettings 路由（route("/dsh-l/settings", ["GET","PUT"], …) 调 store.setSettings 后重新 armInterval——host 侧持 armInterval 返回的 re-arm 句柄：把 armInterval 改为返回 `{ dispose, rearm }`，rearm=apply）。
+host.mjs：ctx.effect 内补 `const poll = armInterval({ ctx, store, refresh: handlers.postRefresh });`，清理链加入 poll.dispose；设置变更即时生效：新增 route("/dsh-l/settings", ["GET","PUT"], …)（GET 读 store.getSettings，PUT 校验 intervalMinutes 为非负整数后 store.setSettings 并 poll.rearm()）。
 workbench.mjs：页头齿轮按钮开设置弹层（number input + 保存走 PUT /dsh-l/settings）；api.mjs 增 `settings: (patch) => send("/dsh-l/settings", patch, "PUT")`。
 两字典加键 settings.title / settings.intervalMinutes / settings.save（zh：设置 / 自动刷新间隔（分钟，0=关）/ 保存；en: Settings / Auto-refresh interval (minutes, 0 = off) / Save）。
 
