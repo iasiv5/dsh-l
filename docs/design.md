@@ -6,12 +6,12 @@
 
 ```
 client (src/client/, Shadow DOM)
-  ├─ slots: "main" 整页工作台 + "sidebar.panellist" (order:7, label 解析式)
+  ├─ slots: "main" 整页工作台 + "sidebar.panellist" (order:30, label 解析式；组件为 React 组件)
   ├─ i18n: 宿主 locale 服务 → zh-CN / en 字典
   └─ fetch → host 路由（同源）
-host (src/host.mjs, inject: webServer, storage, credentials, timer, agents)
+host (src/host.mjs, inject: webServer, credentials, agents, agentDefaultModel, timer)
   ├─ 路由 /dsh-l/*  →  store + provider + triage
-  ├─ store (src/store.mjs)   → ctx.storage 域 dsh-l（~/.dsh/storages/dsh-l.json）
+  ├─ store (src/store.mjs)   → <profile>/data/dsh-l/store.json（profile 私有，见 §2）
   ├─ provider (src/github.mjs) → api.github.com REST（token: credentials 覆写 → gh 登录态 → 匿名）
   ├─ triage (src/triage.mjs)   → ctx.agents 短命会话批量分诊
   └─ timer (ctx.interval)     → 定时摄取，默认关
@@ -19,7 +19,7 @@ host (src/host.mjs, inject: webServer, storage, credentials, timer, agents)
 
 ## 2. 存储结构（store.mjs）
 
-单一 JSON 文档（ctx.storage 域 dsh-l），结构版本字段 version；不写迁移，格式指纹变化时重建投影。
+单一 JSON 文档，落 <profile>/data/dsh-l/store.json（所属 profile 由模块位置上溯 dsh.profile 声明确定，DSH_L_DATA 可覆盖；两个 profile 互不共享）；结构版本字段 version。
 
 ```js
 {
@@ -76,7 +76,7 @@ store API（后续任务的接口契约）：getWatch()/setWatch(repos)、upsert
 ## 5. 分诊（triage.mjs）
 
 - 触发：手动「分诊」批量按钮，一批 ≤10 条候选。
-- 执行：ctx.agents.create 短命会话（不设工作目录；approval 策略 never——纯推理轮，无工具需求）；模型 = settings.triageModel ?? 宿主当前默认（agentDefaultModel.currentSelection()）。
+- 执行：ctx.agents.create 短命会话（sessionId 自生成、meta.cwd = 插件数据目录、agentOptions 与 setup 选模按 autoloop host.ts 判例）；不设置 approval 策略、保持宿主默认 ask：提示词含不可信的 issue/PR 正文，若被注入诱导调用工具，调用会阻塞至超时并判失败（fail-closed）；模型 = settings.triageModel ?? 宿主当前默认（agentDefaultModel.currentSelection()）。
 - Prompt：候选摘要（title / bodyExcerpt / labels / ageDays / comments / reactions / PR: draft+diff 规模），要求唯一输出一个 json 围栏数组：
 
 ```json

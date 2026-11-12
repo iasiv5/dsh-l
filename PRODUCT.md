@@ -12,7 +12,7 @@ iasi（GitHub iasiv5），独立维护者，一人维护 12+ 个 DSH 插件仓�
 
 ## Platform
 
-web——DSH web 宿主侧栏：main slot 主栏整页 + sidebar.panellist（order: 7，官方条目之后，与自动化任务 / 上下文洞察 / 歸藏设计同列）。无独立 URL 路由。
+web——DSH web 宿主侧栏：main slot 主栏整页 + sidebar.panellist（order: 30，排在全部官方条目之后：插件管理 0–2、自动化任务 10、上下文洞察 20，与自动化任务 / 上下文洞察 / 歸藏设计同列）。无独立 URL 路由。
 
 ## Stack
 
