@@ -67,8 +67,8 @@ store API（后续任务的接口契约）：getWatch()/setWatch(repos)、upsert
 | GET/PUT | /dsh-l/watch | {repos:[]} | 监看列表 CRUD |
 | GET | /dsh-l/discover | — | 账号仓列表（选择器数据源） |
 | POST | /dsh-l/triage | {keys:[…≤10]} | 批量分诊，结果写回候选 |
-| POST | /dsh-l/candidates/{key}/stage | {stage, note} | 人工改阶段（含关闭/挂起/推翻分诊） |
-| POST | /dsh-l/candidates/{key}/gate | {gate:"G1", decision:"pass"|"reject", note} | 闸门放行/驳回（v1 仅 G1 有语义，pass 时生成任务包） |
+| POST | /dsh-l/candidate/stage | {key, stage, note} | 人工改阶段（含关闭/挂起/推翻分诊） |
+| POST | /dsh-l/candidate/gate | {key, gate, decision, note} | 闸门放行/驳回（v1 仅 G1 有语义，pass 时生成任务包） |
 
 处理器写成纯函数 makeHandlers({ store, provider, triage, now })，路由层只做 JSON 编解码——单测不打真 HTTP。
 
@@ -84,7 +84,7 @@ store API（后续任务的接口契约）：getWatch()/setWatch(repos)、upsert
 ```
 
 输出语言 = 工作台当前界面语言（prompt 内约束）。
-- 回执读取：会话静止（whenIdle）后经 sessionPersistence 读最后一条 assistant 消息，抽出最后一个合法 JSON 数组；解析失败 → 该批标记失败（history 记 error），候选留 inbox，可重跑。API 用法以 autoloop docs/dsh-api-mapping.md §3–§6 为准（钉 0.2.2-rc.1）。
+- 回执读取：订阅宿主 session/event 事件流（autoloop dsh/src/bridge.ts 同款窄接口），以该会话 turn/end（reason.kind=completed）为完成证据、取末条 assistant/message 文本——不用 whenIdle 猜测结果（api-mapping §4 纪律）；解析失败 → 该批标记失败（history 记 error），候选留 inbox，可重跑。
 - 解析器独立纯函数 parseTriageOutput(text)，golden 用例单测。
 
 ## 6. 任务包 schema（交接契约，ADR-0001）
