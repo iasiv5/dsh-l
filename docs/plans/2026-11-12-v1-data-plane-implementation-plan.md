@@ -2257,7 +2257,12 @@ const path = require("path");
     const entry = page.getByRole("button", { name: /L♾️p Engineering/ });
     await entry.first().waitFor({ timeout: 45000 });
     log("PASS sidebar entry visible");
+    // R2-01：相对路径解析基准取证——工作台首屏 state 请求必须 2xx，并记下实际解析出的 URL。
+    const stateResp = page.waitForResponse((r) => new URL(r.url()).pathname.endsWith("/dsh-l/state"), { timeout: 20000 });
     await entry.first().click();
+    const resp = await stateResp;
+    if (resp.status() < 200 || resp.status() >= 300) throw new Error("state " + resp.status() + " " + resp.url());
+    log("PASS state request " + resp.status() + " " + resp.url());
     const host = page.locator("[data-dsh-l-build]");
     await host.first().waitFor({ timeout: 20000 });
     const seen = await host.first().getAttribute("data-dsh-l-build");
@@ -2280,7 +2285,7 @@ const path = require("path");
 
 - [ ] Step 4: 运行并确认通过
 - Run（后台任务，预计超过 90 秒）: bash scripts/install-smoke.sh; echo "exit=$?"
-- Expected: 末行 SMOKE PASS build=<id> evidence=<dir>，exit=0；probe.log 含四条 PASS；ui.png 可见侧栏入口与工作台。
+- Expected: 末行 SMOKE PASS build=<id> evidence=<dir>，exit=0；probe.log 含五条 PASS（入口、state 请求 2xx 及其解析 URL、工作台指纹、刷新按钮、截图）；ui.png 可见侧栏入口与工作台。
 
 - [ ] Step 5: 可选 checkpoint commit
 - Run: git add -A && git commit -m "chore(smoke): 隔离装机冒烟 + UI 探针（指纹/隔离/挂载可观测）"
