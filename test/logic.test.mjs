@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { groupCandidates, filterCandidates, pickTriageBatch, gateState, stageCounts } from "../src/client/logic.mjs";
+import { groupCandidates, filterCandidates, pickTriageBatch, gateState, stageCounts, settingsPatch } from "../src/client/logic.mjs";
 
 const t = (k) => k;
 let seq = 0;
@@ -33,4 +33,12 @@ test("gateState：仅 gating 可操作 G1；G2/G3 恒禁用", () => {
 test("stageCounts：七段计数", () => {
   const counts = stageCounts([{ stage: "inbox", triage: null }, { stage: "triaged", triage: {} }, { stage: "gating", triage: {} }, { stage: "building", triage: {} }]);
   assert.deepEqual(counts, { ingest: 4, backlog: 1, triage: 3, feedback: 1, build: 1, verify: 0, ship: 0 });
+});
+
+test("settingsPatch：下拉未变不提交 triageModel；改为跟随 → null；改选 → 对象", () => {
+  const initial = { intervalMinutes: 5, triageModel: { provider: "p1", model: "gone" } };
+  assert.deepEqual(settingsPatch(initial, { intervalMinutes: 10, modelValue: "p1\ngone" }), { intervalMinutes: 10 });
+  assert.deepEqual(settingsPatch(initial, { intervalMinutes: 10, modelValue: "" }), { intervalMinutes: 10, triageModel: null });
+  assert.deepEqual(settingsPatch(initial, { intervalMinutes: 10, modelValue: "p2\nm2" }), { intervalMinutes: 10, triageModel: { provider: "p2", model: "m2" } });
+  assert.deepEqual(settingsPatch({ intervalMinutes: 0, triageModel: null }, { intervalMinutes: 0, modelValue: "" }), { intervalMinutes: 0 });
 });

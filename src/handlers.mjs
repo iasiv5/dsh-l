@@ -23,7 +23,7 @@ export function buildTaskPackage(candidate, now = () => new Date()) {
   };
 }
 
-export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {} }) {
+export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null }) {
   const token = () => provider.resolveToken({ credentials, tokenRef, execFile });
   return {
     async getState() {
@@ -48,6 +48,9 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       store.upsertCandidates(merged);
       store.setSnapshots(perRepo);
       return { perRepo, total: merged.length, authenticated: tk !== null };
+    },
+    async getModels() {
+      return { providers: await listCatalog(), hostDefault: hostDefault() };
     },
     async getWatch() { return store.getWatch(); },
     async putWatch(body) {
@@ -105,9 +108,26 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
     },
     async getSettings() { return store.getSettings(); },
     async putSettings(body) {
-      const minutes = body?.intervalMinutes;
-      if (!Number.isInteger(minutes) || minutes < 0 || minutes > 1440) return fail("invalid settings");
-      store.setSettings({ intervalMinutes: minutes });
+      const patch = {};
+      if (body && "intervalMinutes" in body) {
+        const minutes = body.intervalMinutes;
+        if (!Number.isInteger(minutes) || minutes < 0 || minutes > 1440) return fail("invalid settings");
+        patch.intervalMinutes = minutes;
+      }
+      if (body && "triageModel" in body) {
+        const sel = body.triageModel;
+        if (sel === null) {
+          patch.triageModel = null;
+        } else {
+          if (!sel || typeof sel.provider !== "string" || typeof sel.model !== "string") return fail("invalid settings");
+          const catalog = await listCatalog();
+          const listed = catalog.some((p) => p.provider === sel.provider && p.models.some((m) => m.id === sel.model));
+          if (!listed) return fail("model-not-in-catalog");
+          patch.triageModel = { provider: sel.provider, model: sel.model };
+        }
+      }
+      if (Object.keys(patch).length === 0) return fail("invalid settings");
+      store.setSettings(patch);
       onSettingsChange(store.getSettings());
       return store.getSettings();
     },

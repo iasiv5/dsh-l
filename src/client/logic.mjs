@@ -44,3 +44,13 @@ export function stageCounts(list) {
     ship: n((c) => c.stage === "shipped"),
   };
 }
+
+const modelValueOf = (sel) => (sel ? sel.provider + "\n" + sel.model : "");
+
+export function settingsPatch(initial, form) {
+  const patch = { intervalMinutes: form.intervalMinutes };
+  if (form.modelValue === modelValueOf(initial.triageModel)) return patch;
+  if (form.modelValue === "") return { ...patch, triageModel: null };
+  const cut = form.modelValue.indexOf("\n");
+  return { ...patch, triageModel: { provider: form.modelValue.slice(0, cut), model: form.modelValue.slice(cut + 1) } };
+}

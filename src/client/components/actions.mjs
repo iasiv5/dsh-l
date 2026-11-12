@@ -1,5 +1,5 @@
 import { api } from "../api.mjs";
-import { pickTriageBatch, gateState } from "../logic.mjs";
+import { pickTriageBatch, gateState, settingsPatch } from "../logic.mjs";
 import { openRepoPicker } from "./repoPicker.mjs";
 import { renderStrip } from "./pipelineStrip.mjs";
 
@@ -19,17 +19,61 @@ export function openSettings(shadow, { t, current, onSaved }) {
   input.type = "number";
   input.min = "0"; input.max = "1440"; input.step = "1";
   input.value = String(current?.intervalMinutes ?? 0);
+  const modelSel = document.createElement("select");
+  modelSel.setAttribute("aria-label", t("settings.triageModel"));
+  const initialModel = current?.triageModel ?? null;
+  const valueOf = (sel) => (sel ? sel.provider + "\n" + sel.model : "");
+  const fill = (providers, hostDefault) => {
+    modelSel.innerHTML = "";
+    const follow = document.createElement("option");
+    follow.value = "";
+    follow.textContent = t("settings.followDefault") + "（" + (hostDefault ? hostDefault.provider + " / " + hostDefault.model : "—") + "）";
+    modelSel.append(follow);
+    let listed = false;
+    for (const p of providers) {
+      const og = document.createElement("optgroup");
+      og.label = p.name || p.provider;
+      for (const m of p.models) {
+        const o = document.createElement("option");
+        o.value = p.provider + "\n" + m.id;
+        o.textContent = m.name || m.id;
+        if (initialModel && p.provider === initialModel.provider && m.id === initialModel.model) listed = true;
+        og.append(o);
+      }
+      modelSel.append(og);
+    }
+    if (initialModel && !listed) {
+      const o = document.createElement("option");
+      o.value = valueOf(initialModel);
+      o.textContent = initialModel.provider + " / " + initialModel.model + " " + t("settings.notInCatalog");
+      modelSel.append(o);
+    }
+    modelSel.value = valueOf(initialModel);
+  };
+  fill([], null);
+  api.models().then((r) => fill(r.providers, r.hostDefault)).catch(() => {});
+  const modelLabel = document.createElement("label");
+  modelLabel.textContent = t("settings.triageModel");
+  const err = document.createElement("div");
+  err.style.cssText = "font-size:12px;display:none";
   const save = document.createElement("button");
   save.type = "button";
   save.textContent = t("settings.save");
   const close = () => overlay.remove();
   save.onclick = async () => {
     save.disabled = true;
-    try { await api.putSettings({ intervalMinutes: Number(input.value) }); close(); onSaved?.(); } finally { save.disabled = false; }
+    err.style.display = "none";
+    try {
+      await api.putSettings(settingsPatch(current ?? {}, { intervalMinutes: Number(input.value), modelValue: modelSel.value }));
+      close(); onSaved?.();
+    } catch (e) {
+      err.textContent = e.message;
+      err.style.display = "block";
+    } finally { save.disabled = false; }
   };
   overlay.onclick = (e) => { if (e.target === overlay) close(); };
   overlay.onkeydown = (e) => { if (e.key === "Escape") close(); };
-  dialog.append(title, label, input, save);
+  dialog.append(title, label, input, modelLabel, modelSel, err, save);
   overlay.append(dialog);
   shadow.append(overlay);
   input.focus();

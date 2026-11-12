@@ -2,7 +2,7 @@ import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { runTriage } from "./triage.mjs";
+import { runTriage, resolveTriageSelection } from "./triage.mjs";
 import { dataDir } from "./paths.mjs";
 import { createStore } from "./store.mjs";
 import * as github from "./github.mjs";
@@ -15,14 +15,13 @@ const BUILD = typeof __DSH_L_BUILD__ === "string" ? __DSH_L_BUILD__ : "dev";
 const UNWIRED = { runTriage: async () => ({ updated: [], failed: "triage-not-wired" }) };
 
 export const name = "dsh-l";
-export const inject = ["webServer", "credentials", "agents", "agentDefaultModel", "timer"];
+export const inject = ["webServer", "credentials", "agents", "agentDefaultModel", "timer", "llm"];
 
 const makeTriage = (ctx, dir) => {
   const world = {
     async createAgent(sessionId, { model } = {}) {
       // autoloop dsh/src/host.ts:83-97：程序化会话须在 setup 里显式选模，宿主默认选择补齐。
-      const defaults = ctx.agentDefaultModel?.currentSelection?.() ?? { provider: "", model: "" };
-      const configured = { provider: defaults.provider, model: model ?? defaults.model, reasoningEffort: defaults.reasoningEffort };
+      const configured = resolveTriageSelection(model, ctx.agentDefaultModel?.currentSelection?.() ?? { provider: "", model: "" });
       return ctx.agents.create({
         sessionId,
         meta: { cwd: dir },
@@ -37,14 +36,14 @@ const makeTriage = (ctx, dir) => {
   return { runTriage: (params) => runTriage(world, params) };
 };
 
-export function buildRuntime(ctx, config, { makeTriage, onSettingsChange } = {}) {
+export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () => [], hostDefault = () => null, onSettingsChange } = {}) {
   const dir = dataDir();
   const store = createStore({ filePath: join(dir, "store.json") });
   const handlers = makeHandlers({
     store, provider: github,
     triage: makeTriage ? makeTriage(ctx, dir) : UNWIRED,
     credentials: ctx.credentials, tokenRef: config?.githubTokenRef ?? null,
-    execFile, fetch: globalThis.fetch, onSettingsChange,
+    execFile, fetch: globalThis.fetch, onSettingsChange, listCatalog, hostDefault,
   });
   const table = {
     "/dsh-l/health": { GET: async () => ({ ok: true, name, build: BUILD, dataDir: dir }) },
@@ -57,6 +56,7 @@ export function buildRuntime(ctx, config, { makeTriage, onSettingsChange } = {})
     "/dsh-l/candidate/stage": { POST: handlers.postStage },
     "/dsh-l/candidate/gate": { POST: handlers.postGate },
     "/dsh-l/settings": { GET: handlers.getSettings, PUT: handlers.putSettings },
+    "/dsh-l/models": { GET: handlers.getModels },
   };
   return { dir, store, handlers, table };
 }
@@ -64,7 +64,19 @@ export function buildRuntime(ctx, config, { makeTriage, onSettingsChange } = {})
 export function apply(ctx, config = {}) {
   ctx.effect(() => {
     let poll = null;
-    const runtime = buildRuntime(ctx, config, { makeTriage, onSettingsChange: () => poll?.rearm() });
+    const listCatalog = async () => {
+      const providers = ctx.llm?.listProviders?.() ?? [];
+      return Promise.all(providers.map(async (p) => ({
+        provider: p.id,
+        name: p.name,
+        models: (await ctx.llm.listModels(p.id).catch(() => [])).map((m) => ({ id: m.id, name: m.name })),
+      })));
+    };
+    const hostDefault = () => {
+      const s = ctx.agentDefaultModel?.currentSelection?.();
+      return s ? { provider: s.provider, model: s.model } : null;
+    };
+    const runtime = buildRuntime(ctx, config, { makeTriage, listCatalog, hostDefault, onSettingsChange: () => poll?.rearm() });
     poll = armInterval({
       interval: (callback, delay) => ctx.interval(callback, delay),
       getMinutes: () => runtime.store.getSettings().intervalMinutes,

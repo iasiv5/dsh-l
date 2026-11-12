@@ -91,3 +91,32 @@ test("buildTaskPackage 形状", () => {
   assert.equal(pkg.repo.cloneUrl, "git@github.com:o/r.git");
   assert.equal(pkg.gate.at, "1970-01-01T00:00:00.000Z");
 });
+
+const CATALOG = async () => [{ provider: "p1", name: "P1", models: [{ id: "m1", name: "M1" }] }];
+const DEFAULT = () => ({ provider: "p0", model: "m0" });
+
+test("getModels：目录 + 宿主默认", async () => {
+  const h = makeHandlers({ store: openStore(), provider: PROVIDER(), triage: noTriage, listCatalog: CATALOG, hostDefault: DEFAULT });
+  const r = await h.getModels();
+  assert.equal(r.providers[0].models[0].id, "m1");
+  assert.deepEqual(r.hostDefault, { provider: "p0", model: "m0" });
+});
+
+test("putSettings：triageModel 须在目录内；null 恢复跟随；可只改其中一项", async () => {
+  const store = openStore();
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, listCatalog: CATALOG, hostDefault: DEFAULT });
+  assert.deepEqual((await h.putSettings({ triageModel: { provider: "p1", model: "m1" } })).triageModel, { provider: "p1", model: "m1" });
+  assert.equal(store.getSettings().intervalMinutes, 0);
+  assert.equal((await h.putSettings({ triageModel: { provider: "p1", model: "nope" } })).error, "model-not-in-catalog");
+  assert.equal((await h.putSettings({ triageModel: null })).triageModel, null);
+  assert.equal((await h.putSettings({})).error, "invalid settings");
+});
+
+test("postTriage 把设置中的 triageModel 传给 runTriage", async () => {
+  const store = openStore(); seed(store);
+  store.setSettings({ triageModel: { provider: "p1", model: "m1" } });
+  let seen = null;
+  const triage = { runTriage: async (p) => { seen = p.model; return { updated: [], failed: null }; } };
+  await makeHandlers({ store, provider: PROVIDER(), triage }).postTriage({ keys: ["o/r#issue#1"] });
+  assert.deepEqual(seen, { provider: "p1", model: "m1" });
+});

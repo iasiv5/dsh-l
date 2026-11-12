@@ -72,13 +72,14 @@ store API（后续任务的接口契约）：getWatch()/setWatch(repos)、upsert
 | POST | /dsh-l/candidate/stage | {key, stage, note} | 人工改阶段（仅 inbox/triaged/gating/shipped/closed/held；building 只能经 G1） |
 | POST | /dsh-l/candidate/gate | {key, gate, decision, note} | 闸门放行/驳回：G1 仅 gating 可操作（否则 409 gate-requires-gating），pass→building+任务包、reject→triaged；G2/G3 v1 返回 409 |
 | GET/PUT | /dsh-l/settings | {intervalMinutes} | 设置读写；变更即时重 arm 定时器 |
+| GET | /dsh-l/models | — | 宿主模型目录 + 宿主默认（分诊模型设置数据源） |
 
 处理器写成纯函数 makeHandlers({ store, provider, triage, now })，路由层只做 JSON 编解码——单测不打真 HTTP。
 
 ## 5. 分诊（triage.mjs）
 
 - 触发：手动「分诊」批量按钮，一批 ≤10 条候选。
-- 执行：ctx.agents.create 短命会话（sessionId 自生成、meta.cwd = 插件数据目录、agentOptions 与 setup 选模按 autoloop host.ts 判例）；不设置 approval 策略、保持宿主默认 ask：提示词含不可信的 issue/PR 正文，若被注入诱导调用工具，调用会阻塞至超时并判失败（fail-closed）；模型 = settings.triageModel ?? 宿主当前默认（agentDefaultModel.currentSelection()）。
+- 执行：ctx.agents.create 短命会话（sessionId 自生成、meta.cwd = 插件数据目录、agentOptions 与 setup 选模按 autoloop host.ts 判例）；不设置 approval 策略、保持宿主默认 ask：提示词含不可信的 issue/PR 正文，若被注入诱导调用工具，调用会阻塞至超时并判失败（fail-closed）；模型 = 设置 settings.triageModel（须在宿主模型目录内）；未设置则跟随宿主默认（agentDefaultModel.currentSelection()）。
 - Prompt：候选摘要（title / bodyExcerpt / labels / ageDays / comments / reactions / PR: draft+diff 规模），要求唯一输出一个 json 围栏数组：
 
 ```json

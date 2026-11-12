@@ -15,6 +15,7 @@ export const api = {
   refresh: () => send("dsh-l/refresh", {}),
   putWatch: (repos) => send("dsh-l/watch", { repos }, "PUT"),
   discover: () => get("dsh-l/discover"),
+  models: () => get("dsh-l/models"),
   triage: (keys, lang) => send("dsh-l/triage", { keys, lang }),
   override: (payload) => send("dsh-l/candidate/override", payload),
   stage: (key, stage, note) => send("dsh-l/candidate/stage", { key, stage, note }),
