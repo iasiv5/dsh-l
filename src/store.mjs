@@ -8,6 +8,7 @@ export const DEFAULT_WATCH_REPOS = [
   "iasiv5/dsh-skip-browser-auth", "iasiv5/dsh-surf", "iasiv5/dsh-agent-autoloop",
 ];
 const HISTORY_LIMIT = 50;
+const INGEST_LOG_LIMIT = 50;
 
 export const candidateKey = (repo, type, number) => repo + "#" + type + "#" + number;
 
@@ -16,6 +17,8 @@ const emptyDoc = (now) => ({
   watch: { repos: [...DEFAULT_WATCH_REPOS], updatedAt: now().toISOString() },
   candidates: {},
   snapshots: { lastIngestAt: null, perRepo: {} },
+  repos: {},          // "owner/repo" → { defaultBranch, cloneUrl, fetchedAt }，任务包 repo 块数据源
+  ingestLog: [],      // 每次摄取一条（上限 50，FIFO）——「刷新有历史可回溯」的载体
   settings: { intervalMinutes: 0, triageModel: null },
 });
 
@@ -80,5 +83,46 @@ export function createStore({ filePath, now = () => new Date() }) {
     setSettings(patch) { doc.settings = { ...doc.settings, ...patch }; persist(); },
     getSnapshots: () => doc.snapshots,
     setSnapshots(perRepo) { doc.snapshots = { lastIngestAt: now().toISOString(), perRepo }; persist(); },
+    // 摄取日志：追加一条并 FIFO 截到上限（design.md §2）。
+    appendIngestLog(entry) {
+      doc.ingestLog.push({ at: now().toISOString(), ...entry });
+      if (doc.ingestLog.length > INGEST_LOG_LIMIT) doc.ingestLog.splice(0, doc.ingestLog.length - INGEST_LOG_LIMIT);
+      persist();
+    },
+    getIngestLog: () => doc.ingestLog,
+    // 候选级事件落痕（分诊失败等 design.md §5 承诺的 error 记录）。
+    recordHistory(key, event, detail = "") {
+      const c = need(key);
+      touch(c, event, detail);
+      persist();
+    },
+    // 仓库事实（任务包 repo 块数据源）。
+    setRepoFacts(repo, facts) { doc.repos[repo] = { ...facts, fetchedAt: now().toISOString() }; persist(); },
+    getRepoFacts: (repo) => doc.repos[repo] ?? null,
+    // 上游回收（design.md §8）：某仓摄取成功后，该仓已不在 open 集合里的候选——
+    // 未拍板阶段（inbox/triaged）自动移入 closed（event=upstream-closed）；
+    // 拍板后仍在途的阶段（gating/held/building/verifying）不代作主，只追加一次 upstream-gone 提示（去重）；
+    // closed/shipped 消失上游属预期，不动。
+    sweepUpstream(repo, liveKeys) {
+      const live = new Set(liveKeys);
+      const closed = [];
+      const flagged = [];
+      for (const c of Object.values(doc.candidates)) {
+        if (c.repo !== repo || live.has(c.key)) continue;
+        if (c.stage === "inbox" || c.stage === "triaged") {
+          c.stage = "closed";
+          touch(c, "upstream-closed", "");
+          closed.push(c.key);
+        } else if (c.stage !== "closed" && c.stage !== "shipped") {
+          const last = c.history[c.history.length - 1];
+          if (last?.event !== "upstream-gone") {
+            touch(c, "upstream-gone", "");
+            flagged.push(c.key);
+          }
+        }
+      }
+      if (closed.length || flagged.length) persist();
+      return { closed, flagged };
+    },
   };
 }

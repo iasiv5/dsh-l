@@ -39,6 +39,20 @@ test("非 2xx 抛带路径的错误", async () => {
   await assert.rejects(github.listOpenPulls({ repo: "o/x", token: null, fetch: f }), /github api 404 for \/repos\/o\/x\/pulls/);
 });
 
+test("getRepo 取真实默认分支与 SSH 克隆地址，带 token", async () => {
+  const { f, calls } = fetchPages(page({ default_branch: "master", ssh_url: "git@github.com:o/r.git" }));
+  const r = await github.getRepo({ repo: "o/r", token: "tk", fetch: f });
+  assert.deepEqual(r, { defaultBranch: "master", cloneUrl: "git@github.com:o/r.git" });
+  assert.ok(calls[0].url.startsWith("https://api.github.com/repos/o/r"));
+  assert.equal(calls[0].init.headers.authorization, "Bearer tk");
+});
+
+test("getRepo 字段缺失时兜底 main 与 SSH 惯例地址", async () => {
+  const { f } = fetchPages(page({}));
+  const r = await github.getRepo({ repo: "o/r", token: null, fetch: f });
+  assert.deepEqual(r, { defaultBranch: "main", cloneUrl: "git@github.com:o/r.git" });
+});
+
 test("token 解析顺序：配置引用 → gh → null；非法引用名跳过", async () => {
   const cred = (v) => ({ resolve: async (ref) => (ref === "GH_TOKEN" && v ? { value: v, source: "env" } : undefined) });
   const gh = (out) => async () => ({ stdout: out });

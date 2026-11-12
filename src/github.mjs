@@ -46,6 +46,14 @@ export async function listOpenPulls({ repo, token, fetch }) {
   }));
 }
 
+export async function getRepo({ repo, token, fetch: f = globalThis.fetch }) {
+  // 任务包 repo 块的数据源：真实默认分支与克隆地址，替代 v1 早期对 "main" 的硬编码。
+  const res = await f(API_BASE + "/repos/" + repo, { headers: headers(token) });
+  if (!res.ok) throw new Error("github api " + res.status + " for /repos/" + repo);
+  const r = await res.json();
+  return { defaultBranch: r.default_branch ?? "main", cloneUrl: r.ssh_url ?? ("git@github.com:" + repo + ".git") };
+}
+
 export async function discoverRepos({ token, fetch }) {
   const rows = await pagedGet("/user/repos?affiliation=owner&sort=pushed", { token, fetch });
   return rows.map((r) => ({ fullName: r.full_name, pushedAt: r.pushed_at, visibility: r.visibility }));

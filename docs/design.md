@@ -9,7 +9,7 @@ client (src/client/, Shadow DOM)
   ├─ slots: "main" 整页工作台 + "sidebar.panellist" (order:30, label 解析式；组件为 React 组件)
   ├─ i18n: 宿主 locale 服务 → zh-CN / en 字典
   └─ fetch → host 路由（同源）
-host (src/host.mjs, inject: webServer, credentials, agents, agentDefaultModel, timer)
+host (src/host.mjs, inject: webServer, credentials, agents, agentDefaultModel, timer, llm)
   ├─ 路由 /dsh-l/*  →  store + provider + triage
   ├─ store (src/store.mjs)   → <profile>/data/dsh-l/store.json（profile 私有，见 §2）
   ├─ provider (src/github.mjs) → api.github.com REST（token: credentials 覆写 → gh 登录态 → 匿名）
@@ -43,11 +43,15 @@ host (src/host.mjs, inject: webServer, credentials, agents, agentDefaultModel, t
     }
   },
   snapshots: { lastIngestAt: "iso", perRepo: { "owner/repo": { issues, pulls, fetchedAt, error } } },
+  repos: { "owner/repo": { defaultBranch, cloneUrl, fetchedAt } },  // 仓库事实，任务包 repo 块数据源
+  ingestLog: [ { at, total, authenticated, failedRepos, closed, flagged } ],  // 每次摄取一条，上限 50（FIFO）
   settings: { intervalMinutes: 0, triageModel: null }        // 0=关；null=宿主默认模型
 }
 ```
 
-store API（后续任务的接口契约）：getWatch()/setWatch(repos)、upsertCandidates(list)（摄取合并：已存在者仅刷新可变字段并保留 stage/triage/gates/history）、listCandidates()、getCandidate(key)、setStage(key, stage, note)、setTriage(key, result, by)、setGate(key, gate, decision, note)、getSettings()/setSettings(patch)、getSnapshots()。所有变更追加 history。
+候选 history 每条上限 50（FIFO 截断——有意为之的界，换取 store.json 常量级体积；截断会丢最老记录，此取舍记录在案）。
+
+store API（后续任务的接口契约）：getWatch()/setWatch(repos)、upsertCandidates(list)（摄取合并：已存在者仅刷新可变字段并保留 stage/triage/gates/history）、listCandidates()、getCandidate(key)、setStage(key, stage, note)、setTriage(key, result, by)、setGate(key, gate, decision, note, taskPackage?, via?)、getSettings()/setSettings(patch)、getSnapshots()/setSnapshots(perRepo)、appendIngestLog(entry)/getIngestLog()、recordHistory(key, event, detail)、setRepoFacts(repo, facts)/getRepoFacts(repo)、sweepUpstream(repo, liveKeys)。所有候选变更追加 history（含分诊失败 triage.error 与上游回收 upstream-closed/upstream-gone）。
 
 ## 3. GitHub provider（github.mjs）
 
@@ -55,16 +59,17 @@ store API（后续任务的接口契约）：getWatch()/setWatch(repos)、upsert
 - listOpenIssues({ repo, token, fetch })：GET /repos/{repo}/issues?state=open&per_page=100（分页至 <100；剔除含 pull_request 字段的行——REST issues 会混入 PR）。
 - listOpenPulls({ repo, token, fetch })：GET /repos/{repo}/pulls?state=open&per_page=100。
 - discoverRepos({ token, fetch })：GET /user/repos?affiliation=owner&sort=pushed&per_page=100，供选择器。
+- getRepo({ repo, token, fetch })：GET /repos/{repo}，取 defaultBranch（default_branch）与 cloneUrl（ssh_url）——任务包 repo 块的数据源；字段缺失回退 main + SSH 惯例地址。
 - 域名白名单硬编码 https://api.github.com；token 只进 Authorization 头，不落日志、不进存储。
-- 速率账：12 仓 × 2 端点 = 24 请求/刷新；token 上限 5000/h，5 分钟一刷也仅 288/h。
+- 速率账：12 仓 × 3 端点 = 36 请求/刷新（issues/pulls/repos）；token 上限 5000/h，5 分钟一刷也仅 432/h。
 
 ## 4. Host 路由
 
 | 方法 | 路径 | 请求体 | 语义 |
 |---|---|---|---|
 | GET | /dsh-l/health | — | 健康与构建指纹（ok / name / build / dataDir） |
-| GET | /dsh-l/state | — | watch + snapshots + candidates 摘要 + settings |
-| POST | /dsh-l/refresh | — | 摄取全部监看仓（逐仓容错，单仓失败记 perRepo.error 不中断；返回 authenticated） |
+| GET | /dsh-l/state | — | watch + snapshots + candidates 摘要 + settings + ingestLog（回溯入口） |
+| POST | /dsh-l/refresh | — | 摄取全部监看仓（逐仓容错，单仓失败记 perRepo.error 不中断；返回 authenticated）；成功仓同步仓库事实并做上游回收（见 §8），每次摄取追加一条 ingestLog |
 | GET/PUT | /dsh-l/watch | {repos:[]} | 监看列表 CRUD（PUT 校验 owner/repo 形状） |
 | GET | /dsh-l/discover | — | 账号仓列表（选择器数据源） |
 | POST | /dsh-l/triage | {keys:[…≤10], lang} | 批量分诊，结果写回候选（by=llm）；失败 502 |
@@ -88,25 +93,32 @@ store API（后续任务的接口契约）：getWatch()/setWatch(repos)、upsert
 ```
 
 输出语言 = 工作台当前界面语言（prompt 内约束）。
-- 回执读取：订阅宿主 session/event 事件流（autoloop dsh/src/bridge.ts 同款窄接口），以该会话 turn/end（reason.kind=completed）为完成证据、取末条 assistant/message 文本——不用 whenIdle 猜测结果（api-mapping §4 纪律）；解析失败 → 该批标记失败（history 记 error），候选留 inbox，可重跑。
+- 回执读取：订阅宿主 session/event 事件流（autoloop dsh/src/bridge.ts 同款窄接口），以该会话 turn/end（reason.kind=completed）为完成证据、取末条 assistant/message 文本——不用 whenIdle 猜测结果（api-mapping §4 纪律）；解析失败 → 该批标记失败（history 对每条候选记 `triage.error` 事件后 502 返回），候选留原阶段，可重跑。
 - 解析器独立纯函数 parseTriageOutput(text)，golden 用例单测。
 
 ## 6. 任务包 schema（交接契约，ADR-0001）
 
-G1 放行时生成并挂到候选（v1 即生效——契约先于执行器落地；UI 提供「复制任务包 JSON」）：
+G1 放行时生成并挂到候选（v1 即生效——契约先于执行器落地；UI 提供「复制任务包 JSON」）。2026-11-12 契约对表审核后定稿如下（与实现一字不差，golden 守卫见 test/task-package.test.mjs）：
 
 ```js
 {
   version: 1,
   kind: "dsh-l.task-package",
   candidate: { key, repo, type, number, title, url },
-  triage: { validity, urgency, action, reason },
-  gate: { gate: "G1", passedBy: "human", at: "iso" },
+  triage: { validity, urgency, action, reason },          // 无分诊放行时为 null
+  gate: { gate: "G1", decision: "pass", via: "workbench-ui", at: "iso" },
   instructions: { goal: "一句话目标", constraints: [], definitionOfDone: [] },
   repo: { defaultBranch: "main", cloneUrl: "git@github.com:….git", localPath: null },
-  emit: { source: "dsh-l", type: "build.requested", at: "iso" }   // 对齐 autoloop 事件信封字段
+  emit: { id, type, subject, summary, link }              // 对齐 autoloop 事件信封，见下
 }
 ```
+
+裁决记录（对表审核，逐字段）：
+
+- **gate 块取实现形**（`decision`+`via`，弃原稿 `passedBy`）：与 store 的闸门记录（setGate）同构，一处形状跨存储与任务包复用；包只在 pass 时产生，`decision:"pass"` 冗余但显式。
+- **emit 块对齐 autoloop 真实信封**（原稿 `{source,type,at}` 作废）：实测 dsh-agent-autoloop `protocol/validate.ts` 的 FIELDS 白名单为 `id/type/subject/summary/detail/link/hops`，**未知字段直接拒收**，`id`、`type` 必填——原稿的 `source`、`at` 均在信封外且缺必填 `id`，发给 autoloop 会被打回。定稿：`id = "dsh-l:{candidate.key}:G1:{at}"`（确定性 → autoloop 按 (source,id) 幂等去重）、`type = "build.requested"`、`subject = candidate.key`（autoloop 按 subject 分 lane）、`summary = title`、`link = url`。`source` 是摄入方密钥身份，不在信封内；时间戳由 autoloop 侧记 received_at。
+- **repo 块取真实事实**：defaultBranch/cloneUrl 来自刷新时 GET /repos/{repo}（§3）；失败回退 `main` + SSH 惯例地址并保留旧事实——替代早期硬编码 "main"。
+- **instructions 是 v1 floor**：goal 复用候选标题、constraints/DoD 空数组，由执行器侧（v2）补全；分诊理由已在 triage 块内。
 
 ## 7. UI 结构（Operate 模式）
 
@@ -120,6 +132,8 @@ G1 放行时生成并挂到候选（v1 即生效——契约先于执行器落�
 ## 8. 阶段状态机
 
 inbox →（分诊）→ triaged →（人工安排）→ gating →（G1 放行）→ building（v2）→ verifying（v2）→ shipped；任意阶段可 closed / held；verifying 失败 → 回炉 building（限 3 次，v2 生效）。v1 仅落地 inbox/triaged/gating/closed/held/shipped 的展示与人工迁移，building/verifying 只读灰显。每次迁移记 history。
+
+上游关闭（sweepUpstream）：摄取某仓成功后，该仓已不在 open 集合里的候选——未拍板阶段（inbox/triaged）自动转 closed（event=`upstream-closed`）；在途阶段（gating/held/building/verifying）不代作主，记一次 `upstream-gone` 提示（连续刷新去重）待人工处理；closed/shipped 消失上游属预期，不动。只对摄取成功的仓执行（失败仓 open 集合未知，回收会误伤）；移出监看的仓不回收，候选保留至重新监看或人工关闭。
 
 ## 9. 安全
 

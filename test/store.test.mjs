@@ -57,3 +57,47 @@ test("持久化：重开读回", () => {
   createStore({ filePath }).setWatch(["o/r"]);
   assert.deepEqual(createStore({ filePath }).getWatch().repos, ["o/r"]);
 });
+
+test("recordHistory 落痕；ingestLog 追加并 FIFO 截到 50", () => {
+  const s = open();
+  s.upsertCandidates([raw(4)]);
+  const key = candidateKey("iasiv5/dsh-skins", "issue", 4);
+  s.recordHistory(key, "triage.error", "parse-failed");
+  const last = s.getCandidate(key).history.at(-1);
+  assert.equal(last.event, "triage.error");
+  assert.equal(last.detail, "parse-failed");
+  for (let i = 0; i < 60; i++) s.appendIngestLog({ total: i, authenticated: false, failedRepos: [], closed: 0, flagged: 0 });
+  assert.equal(s.getIngestLog().length, 50);
+  assert.equal(s.getIngestLog().at(-1).total, 59);
+});
+
+test("repo 事实：写入读回，未知的仓返回 null", () => {
+  const s = open();
+  s.setRepoFacts("o/r", { defaultBranch: "trunk", cloneUrl: "git@github.com:o/r.git" });
+  assert.equal(s.getRepoFacts("o/r").defaultBranch, "trunk");
+  assert.equal(s.getRepoFacts("o/unknown"), null);
+});
+
+test("sweepUpstream：inbox/triaged 自动关闭，在途阶段提示一次，closed/shipped 与他仓不动", () => {
+  const s = open();
+  s.upsertCandidates([raw(10), raw(11), raw(12), raw(13), raw(14), { ...raw(15), repo: "o/other" }]);
+  const k = (n) => candidateKey("iasiv5/dsh-skins", "issue", n);
+  s.setStage(k(11), "gating", "拍板了");     // 在途：只提示
+  s.setStage(k(12), "closed", "done");       // 已关：不动
+  s.setStage(k(13), "shipped", "v2");        // 已交付：不动
+  s.setTriage(k(14), { validity: "high", urgency: "P2", action: "start", reason: "r", lang: "zh-CN" }, "llm"); // → triaged
+  s.setStage(candidateKey("o/other", "issue", 15), "gating", "他仓");
+  const live = [k(10)]; // 只有 #10 仍 open
+  const r1 = s.sweepUpstream("iasiv5/dsh-skins", live);
+  assert.deepEqual(r1.closed, [k(14)]);
+  assert.deepEqual(r1.flagged, [k(11)]);
+  assert.equal(s.getCandidate(k(10)).stage, "inbox");
+  assert.equal(s.getCandidate(k(14)).stage, "closed");
+  assert.equal(s.getCandidate(k(14)).history.at(-1).event, "upstream-closed");
+  assert.equal(s.getCandidate(k(12)).history.at(-1).event, "stage");
+  assert.equal(s.getCandidate(k(13)).history.at(-1).event, "stage");
+  assert.equal(s.getCandidate(candidateKey("o/other", "issue", 15)).history.at(-1).event, "stage");
+  // 再扫一遍：提示去重，结果稳定
+  const r2 = s.sweepUpstream("iasiv5/dsh-skins", live);
+  assert.deepEqual(r2, { closed: [], flagged: [] });
+});

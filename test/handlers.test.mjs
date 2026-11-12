@@ -11,9 +11,11 @@ const PROVIDER = (mode = {}) => ({
   resolveToken: async () => null,
   listOpenIssues: async ({ repo }) => {
     if (mode.bad && repo === "o/bad") throw new Error("github api 500 for /repos/o/bad/issues?state=open");
+    if (mode.empty) return [];
     return repo === "o/good" ? [{ repo, type: "issue", number: 1, title: "t", author: "a", labels: [], createdAt: "2026-11-01T00:00:00Z", updatedAt: "T", url: "U", meta: {}, pull: null, bodyExcerpt: "" }] : [];
   },
   listOpenPulls: async () => [],
+  getRepo: async ({ repo }) => ({ defaultBranch: "trunk", cloneUrl: "git@github.com:" + repo + ".git" }),
   discoverRepos: async () => [{ fullName: "o/good" }],
 });
 const noTriage = { runTriage: async () => ({ updated: [], failed: "triage-not-wired" }) };
@@ -59,9 +61,11 @@ test("闸门：G1 仅 gating 可放行；pass→building+任务包；reject→tr
   const early = await h.postGate({ key: "o/r#issue#1", gate: "G1", decision: "pass" });
   assert.deepEqual([early.error, early.status], ["gate-requires-gating", 409]);
   await h.postStage({ key: "o/r#issue#1", stage: "gating" });
+  store.setRepoFacts("o/r", { defaultBranch: "trunk", cloneUrl: "git@github.com:o/r.git" });
   const r = await h.postGate({ key: "o/r#issue#1", gate: "G1", decision: "pass", note: "" });
   assert.equal(r.taskPackage.kind, "dsh-l.task-package");
   assert.equal(r.taskPackage.emit.type, "build.requested");
+  assert.equal(r.taskPackage.repo.defaultBranch, "trunk");
   assert.equal(store.getCandidate("o/r#issue#1").stage, "building");
   assert.equal((await h.postGate({ key: "o/r#issue#1", gate: "G2", decision: "pass" })).status, 409);
   seed(store, 2);
@@ -87,9 +91,39 @@ test("putSettings：intervalMinutes 0..1440 整数，变更回调", async () => 
 });
 
 test("buildTaskPackage 形状", () => {
-  const pkg = buildTaskPackage({ key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t", url: "U", triage: null }, () => new Date(0));
+  const pkg = buildTaskPackage({ key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t", url: "U", triage: null }, null, () => new Date(0));
   assert.equal(pkg.repo.cloneUrl, "git@github.com:o/r.git");
   assert.equal(pkg.gate.at, "1970-01-01T00:00:00.000Z");
+});
+
+test("postRefresh：上游已关闭候选回收 + ingestLog 落痕 + state 可回溯", async () => {
+  const store = openStore();
+  store.setWatch(["o/good"]);
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
+  await h.postRefresh();
+  assert.equal(store.getCandidate("o/good#issue#1").stage, "inbox");
+  assert.equal(store.getRepoFacts("o/good").defaultBranch, "trunk");
+  const h2 = makeHandlers({ store, provider: PROVIDER({ empty: true }), triage: noTriage });
+  const r2 = await h2.postRefresh();
+  assert.deepEqual(r2.sweep.closed, ["o/good#issue#1"]);
+  assert.equal(store.getCandidate("o/good#issue#1").stage, "closed");
+  assert.equal(store.getCandidate("o/good#issue#1").history.at(-1).event, "upstream-closed");
+  const log = (await h2.getState()).ingestLog;
+  assert.equal(log.length, 2);
+  assert.deepEqual(log.at(-1).failedRepos, []);
+  assert.equal(log.at(-1).closed, 1);
+});
+
+test("postTriage 失败：502 透传且候选留原阶段、history 记 triage.error", async () => {
+  const store = openStore(); seed(store);
+  const hf = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
+  const r = await hf.postTriage({ keys: ["o/r#issue#1"] });
+  assert.equal(r.error, "triage-not-wired");
+  assert.equal(r.status, 502);
+  const c = store.getCandidate("o/r#issue#1");
+  assert.equal(c.stage, "inbox");
+  assert.equal(c.history.at(-1).event, "triage.error");
+  assert.equal(c.history.at(-1).detail, "triage-not-wired");
 });
 
 const CATALOG = async () => [{ provider: "p1", name: "P1", models: [{ id: "m1", name: "M1" }] }];

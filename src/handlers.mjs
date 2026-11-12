@@ -1,3 +1,5 @@
+import { candidateKey } from "./store.mjs";
+
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 const MANUAL_STAGES = new Set(["inbox", "triaged", "gating", "shipped", "closed", "held"]);
 const VALIDITY = new Set(["high", "medium", "low"]);
@@ -7,8 +9,18 @@ const fail = (error, status = 400) => ({ error, status });
 const validTriage = (r) => Boolean(r) && VALIDITY.has(r.validity) && URGENCY.has(r.urgency) && ACTION.has(r.action);
 const langOf = (v) => (v === "en" ? "en" : "zh-CN");
 
-export function buildTaskPackage(candidate, now = () => new Date()) {
+export function buildTaskPackage(candidate, repoInfo = null, now = () => new Date()) {
   const at = now().toISOString();
+  // emit 块 = 一条可原样 POST 给 autoloop /v1/events 的事件（source 身份由摄入方密钥承担，不在信封内；
+  // id 确定性 → 重发去重；信封字段白名单 id/type/subject/summary/detail/link/hops，见
+  // dsh-agent-autoloop protocol/validate.ts FIELDS —— 未知字段会被拒收）。
+  const emit = {
+    id: "dsh-l:" + candidate.key + ":G1:" + at,
+    type: "build.requested",
+    subject: candidate.key,
+    summary: candidate.title,
+    link: candidate.url,
+  };
   return {
     version: 1,
     kind: "dsh-l.task-package",
@@ -17,9 +29,14 @@ export function buildTaskPackage(candidate, now = () => new Date()) {
       ? { validity: candidate.triage.validity, urgency: candidate.triage.urgency, action: candidate.triage.action, reason: candidate.triage.reason }
       : null,
     gate: { gate: "G1", decision: "pass", via: "workbench-ui", at },
+    // v1 floor：goal 复用候选标题，constraints/DoD 留空由执行器侧补全（design.md §6 裁决记录）。
     instructions: { goal: candidate.title, constraints: [], definitionOfDone: [] },
-    repo: { defaultBranch: "main", cloneUrl: "git@github.com:" + candidate.repo + ".git", localPath: null },
-    emit: { source: "dsh-l", type: "build.requested", at },
+    repo: {
+      defaultBranch: repoInfo?.defaultBranch ?? "main",
+      cloneUrl: repoInfo?.cloneUrl ?? ("git@github.com:" + candidate.repo + ".git"),
+      localPath: null,
+    },
+    emit,
   };
 }
 
@@ -27,12 +44,13 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
   const token = () => provider.resolveToken({ credentials, tokenRef, execFile });
   return {
     async getState() {
-      return { watch: store.getWatch(), snapshots: store.getSnapshots(), settings: store.getSettings(), candidates: store.listCandidates() };
+      return { watch: store.getWatch(), snapshots: store.getSnapshots(), settings: store.getSettings(), candidates: store.listCandidates(), ingestLog: store.getIngestLog() };
     },
     async postRefresh() {
       const tk = await token();
       const perRepo = {};
       const merged = [];
+      let sweep = { closed: [], flagged: [] };
       for (const repo of store.getWatch().repos) {
         try {
           const [issues, pulls] = await Promise.all([
@@ -41,13 +59,21 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
           ]);
           merged.push(...issues, ...pulls);
           perRepo[repo] = { issues: issues.length, pulls: pulls.length, fetchedAt: now().toISOString(), error: null };
+          // 仓库事实（任务包 repo 块）：失败不影响摄取本体，保留旧事实。
+          try { store.setRepoFacts(repo, await provider.getRepo({ repo, token: tk, fetch })); } catch {}
+          // 上游回收只对摄取成功的仓执行（失败仓的 open 集合未知，回收会误伤）。
+          const liveKeys = [...issues, ...pulls].map((c) => candidateKey(c.repo, c.type, c.number));
+          const s = store.sweepUpstream(repo, liveKeys);
+          sweep.closed.push(...s.closed); sweep.flagged.push(...s.flagged);
         } catch (err) {
           perRepo[repo] = { issues: 0, pulls: 0, fetchedAt: now().toISOString(), error: String(err?.message ?? err) };
         }
       }
       store.upsertCandidates(merged);
       store.setSnapshots(perRepo);
-      return { perRepo, total: merged.length, authenticated: tk !== null };
+      const failedRepos = Object.entries(perRepo).filter(([, r]) => r.error).map(([repo]) => repo);
+      store.appendIngestLog({ total: merged.length, authenticated: tk !== null, failedRepos, closed: sweep.closed.length, flagged: sweep.flagged.length });
+      return { perRepo, total: merged.length, authenticated: tk !== null, sweep };
     },
     async getModels() {
       return { providers: await listCatalog(), hostDefault: hostDefault() };
@@ -67,7 +93,11 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       const candidates = keys.map((k) => store.getCandidate(k)).filter(Boolean);
       if (candidates.length === 0) return fail("no candidates", 404);
       const result = await triage.runTriage({ candidates, lang, model: store.getSettings().triageModel });
-      if (result.failed) return fail(result.failed, 502);
+      if (result.failed) {
+        // design.md §5：失败也留痕（候选留原阶段，可重跑）——不落痕的失败对「回溯」不可见。
+        for (const c of candidates) store.recordHistory(c.key, "triage.error", result.failed);
+        return fail(result.failed, 502);
+      }
       const updated = [];
       for (const row of result.updated) {
         if (!keys.includes(row.key) || !store.getCandidate(row.key) || !validTriage(row)) continue;
@@ -97,7 +127,7 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       if (!c) return fail("not found", 404);
       if (c.stage !== "gating") return fail("gate-requires-gating", 409);
       if (decision === "pass") {
-        const pkg = buildTaskPackage(c, now);
+        const pkg = buildTaskPackage(c, store.getRepoFacts(c.repo), now);
         store.setGate(key, "G1", "pass", note ?? "", pkg, "workbench-ui");
         store.setStage(key, "building", "G1 pass");
         return { ok: true, taskPackage: pkg };
