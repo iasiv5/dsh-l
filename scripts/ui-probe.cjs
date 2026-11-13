@@ -16,6 +16,8 @@ const path = require("path");
     const page = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
     page.on("console", (m) => log("console." + m.type() + " " + m.text()));
     await page.goto(url, { waitUntil: "domcontentloaded" });
+    // 宿主首启 Preview Notice 弹窗会盖住面板：出现即点掉（在役 profile 已读过则无此弹窗，静默跳过）
+    await page.getByRole("button", { name: /^(Continue|继续)$/ }).first().click({ timeout: 4000 }).catch(() => {});
     const entry = page.getByRole("button", { name: /Loop Engineering/ });
     await entry.first().waitFor({ timeout: 45000 });
     log("PASS sidebar entry visible");
@@ -36,6 +38,26 @@ const path = require("path");
     const board = await boardBtn.first().waitFor({ timeout: 6000 }).then(() => "board").catch(() => null);
     const view = board ?? await gateBtn.first().waitFor({ timeout: 6000 }).then(() => "gate");
     log("PASS view=" + view + (view === "gate" ? " (account not bound)" : " (account bound)"));
+    // 遮挡/裁剪诊断：卡片矩形 vs 宿主矩形 vs 视口；elementsFromPoint 找盖在卡片上的外部元素
+    const geo = await page.evaluate(() => {
+      const hosts = [...document.querySelectorAll("*")].filter((e) => e.shadowRoot && e.shadowRoot.querySelector(".gate"));
+      if (!hosts.length) return { error: "no gate host found" };
+      const host = hosts[0];
+      const card = host.shadowRoot.querySelector(".gate");
+      const r = card.getBoundingClientRect();
+      const hr = host.getBoundingClientRect();
+      const cx = r.x + r.width / 2, cy = r.y + r.height / 2;
+      const fmt = (e) => e.tagName + (typeof e.className === "string" && e.className ? "." + e.className.trim().split(/\s+/).join(".") : "");
+      return {
+        card: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) },
+        host: { x: Math.round(hr.x), y: Math.round(hr.y), w: Math.round(hr.width), h: Math.round(hr.height) },
+        viewport: { w: innerWidth, h: innerHeight },
+        clippedTop: r.y < hr.y, clippedBottom: r.y + r.height > hr.y + hr.height,
+        stackTop: document.elementsFromPoint(cx, cy).map(fmt).slice(0, 6),
+      };
+    });
+    log("GEO " + JSON.stringify(geo));
+    if (view === "gate") await page.locator(".gate").first().scrollIntoViewIfNeeded().catch(() => {});
     await page.screenshot({ path: path.join(evid, "ui.png"), fullPage: false });
     log("PASS screenshot");
   } catch (e) {
