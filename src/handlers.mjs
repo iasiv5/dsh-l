@@ -41,37 +41,105 @@ export function buildTaskPackage(candidate, repoInfo = null, now = () => new Dat
   };
 }
 
-export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null }) {
-  const token = () => provider.resolveToken({ credentials, tokenRef, execFile });
+export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null }) {
+  const token = () => provider.resolveToken({ credentials, tokenRef, execFile, ghPath: ghBin });
   // 收活闸门：未绑定 GitHub 账号前，仓库勾选与摄取一律拒绝（design.md §4）。
   const requireAuth = () => (store.getAuth()?.account ? null : fail("auth-required", 401));
+  // 登录状态机（进程内存，不落 store）：gh 后台安装与设备流授权的进行时状态。
+  // 宿主重启即回到 idle——登录闸按 getAuth 重新判定，无残留半态。
+  let ghInstallState = { phase: "idle" };            // idle|installing|done|failed(+version/error)
+  let deviceState = { phase: "idle" };               // idle|pending|authorizing|authorized|expired|failed(+userCode/verificationUri/login/error)
+  let viewerCache = null;                            // token→login 探测缓存（每进程一次；改绑极低频，可接受）
   return {
     async getState() {
       return { watch: store.getWatch(), snapshots: store.getSnapshots(), settings: store.getSettings(), candidates: store.listCandidates(), ingestLog: store.getIngestLog(), auth: store.getAuth() };
     },
     async getAuth() {
-      // 廉价状态：只探测 gh 安装与凭据可得性，不打 GitHub 网络；绑定回显来自 store。
-      return { ...store.getAuth(), installed: await provider.ghAvailable({ execFile }), tokenAvailable: (await token()) !== null };
+      // gh 安装（PATH 优先、插件私有 bin 兜底）+ 凭据可得性；token 可得时顺带探一次身份（缓存）。
+      const installed = await provider.ghAvailable({ execFile, ghPath: ghBin });
+      const tk = await token();
+      if (tk && viewerCache === null) {
+        try { viewerCache = (await provider.getViewer({ token: tk, fetch })).login ?? null; } catch { viewerCache = null; }
+      }
+      return { ...store.getAuth(), installed, tokenAvailable: tk !== null, viewerLogin: tk ? viewerCache : null, install: { ...ghInstallState }, device: { ...deviceState } };
     },
     async postAuthBind(body) {
+      // account 可选：无参绑定（登录闸「进入工作台」大按钮）直接采用 token 身份；
+      // 显式传 account 仍做一致性校验（API 兼容与冒烟用）。
       const account = String(body?.account ?? "").trim();
-      if (!ACCOUNT_RE.test(account)) return fail("invalid account");
+      if (account && !ACCOUNT_RE.test(account)) return fail("invalid account");
       const tk = await token();
-      if (!tk) return (await provider.ghAvailable({ execFile })) ? fail("gh-not-authorized", 409) : fail("gh-not-installed", 409);
+      if (!tk) return (await provider.ghAvailable({ execFile, ghPath: ghBin })) ? fail("gh-not-authorized", 409) : fail("gh-not-installed", 409);
       let viewer;
       try {
         viewer = await provider.getViewer({ token: tk, fetch });
       } catch (err) {
         return fail("token-invalid (" + String(err?.message ?? err) + ")", 409);
       }
-      if (String(viewer.login ?? "").toLowerCase() !== account.toLowerCase()) return fail("account-mismatch: " + viewer.login, 409);
-      store.setAuth({ account, login: viewer.login });
+      const login = String(viewer.login ?? "");
+      if (account && account.toLowerCase() !== login.toLowerCase()) return fail("account-mismatch: " + login, 409);
+      store.setAuth({ account: account || login, login });
       return store.getAuth();
     },
     async postAuthLogout() {
       // 工作台级退出：只清绑定，watch/候选/设置全保留；绝不调 gh auth logout、不撤销本机凭据。
       store.clearAuth();
       return { ok: true };
+    },
+    async postAuthInstallGh() {
+      // 页内一键安装：官方 release 二进制装入插件数据目录（无 root）。立即返回，进度经 getAuth 轮询。
+      if (ghInstallState.phase === "installing") return { started: true, phase: "installing" };
+      ghInstallState = { phase: "installing" };
+      provider.ghInstall({ fetch, execFile, destFile: ghBin, tmpDir: ghTmp })
+        .then((r) => { ghInstallState = { phase: "done", version: r.version }; })
+        .catch((err) => { ghInstallState = { phase: "failed", error: String(err?.message ?? err).slice(0, 200) }; });
+      return { started: true, phase: "installing" };
+    },
+    async postAuthDeviceStart() {
+      // 页内设备流授权：出 user_code + 验证链接，后台轮询；授权成功即移交 gh 凭据库并自动绑定。
+      const tk = await token();
+      if (tk) return fail("already-authorized", 409);
+      if (deviceState.phase === "pending" || deviceState.phase === "authorizing") return { ...deviceState };
+      let d;
+      try {
+        d = await provider.deviceCodeStart({ fetch });
+      } catch (err) {
+        return fail("device-start-failed: " + String(err?.message ?? err).slice(0, 160), 502);
+      }
+      deviceState = { phase: "pending", userCode: d.userCode, verificationUri: d.verificationUri, expiresAt: new Date(d.expiresAt).toISOString() };
+      const run = async () => {
+        let wait = d.interval ?? 5;
+        while (Date.now() < d.expiresAt && deviceState.phase === "pending") {
+          await new Promise((r) => setTimeout(r, wait * 1000));
+          if (deviceState.phase !== "pending") return;
+          let out;
+          try { out = await provider.deviceCodePoll({ deviceCode: d.deviceCode, fetch }); } catch { continue; }
+          if (out.token) {
+            deviceState = { phase: "authorizing", userCode: deviceState.userCode, verificationUri: deviceState.verificationUri };
+            try {
+              await provider.ghLoginWithToken({ token: out.token, spawn, candidates: ["gh", ...(ghBin ? [ghBin] : [])] });
+              const tk2 = await token();
+              const viewer = await provider.getViewer({ token: tk2, fetch });
+              viewerCache = viewer.login ?? null;
+              store.setAuth({ account: viewerCache, login: viewerCache });
+              deviceState = { phase: "authorized", login: viewerCache };
+            } catch (err) {
+              deviceState = { phase: "failed", error: String(err?.message ?? err).slice(0, 200) };
+            }
+            return;
+          }
+          if (out.error === "slow_down") { wait += 5; continue; }
+          if (out.error === "authorization_pending") continue;
+          deviceState = { phase: "failed", error: String(out.error).slice(0, 120) };
+          return;
+        }
+        if (deviceState.phase === "pending") deviceState = { phase: "expired" };
+      };
+      run();
+      return { ...deviceState };
+    },
+    async getAuthDevice() {
+      return { ...deviceState };
     },
     async postRefresh() {
       const gate = requireAuth(); if (gate) return gate;

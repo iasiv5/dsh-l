@@ -188,9 +188,51 @@ test("postAuthBind：身份一致（大小写不敏感）才绑定；state 回�
   assert.equal(r.login, "IasiV5");
   assert.ok(r.verifiedAt);
   assert.equal((await h.getState()).auth.account, "iasiv5");
-  assert.deepEqual(await h.getAuth(), { account: "iasiv5", login: "IasiV5", verifiedAt: r.verifiedAt, installed: true, tokenAvailable: true });
+  const st = await h.getAuth();
+  assert.equal(st.account, "iasiv5");
+  assert.equal(st.installed, true);
+  assert.equal(st.tokenAvailable, true);
+  assert.equal(st.install.phase, "idle");
+  assert.equal(st.device.phase, "idle");
   await h.postRefresh();                        // 绑定后摄取不再 401
   assert.equal((await h.getDiscover()).repos[0].fullName, "o/good");
+});
+
+test("postAuthBind 免填账号：直接采用 token 身份（登录闸大按钮路径）", async () => {
+  const store = openStore();
+  const h = makeHandlers({ store, provider: PROVIDER({ token: "tk", viewerLogin: "IasiV5" }), triage: noTriage });
+  const r = await h.postAuthBind({});
+  assert.equal(r.account, "IasiV5");
+  assert.equal(r.login, "IasiV5");
+  // 显式传错账号仍拦截（API 兼容）
+  assert.match((await h.postAuthBind({ account: "someone-else" })).error, /^account-mismatch/);
+});
+
+test("postAuthDeviceStart：已有凭据 409；无凭据出 pending 并可回到 idle 形状", async () => {
+  const mk = (mode) => makeHandlers({ store: openStore(), provider: PROVIDER(mode), triage: noTriage });
+  assert.equal((await mk({ token: "tk", viewerLogin: "o" }).postAuthDeviceStart()).status, 409);
+  const h = mk({});
+  const r = await h.postAuthDeviceStart();
+  assert.match(r.error, /^device-start-failed: /);
+  assert.equal((await h.getAuthDevice()).phase, "idle");
+});
+
+test("postAuthInstallGh：后台安装经 getAuth 可见 installing→done", async () => {
+  const store = openStore();
+  let release;
+  const provider = {
+    ...PROVIDER({}),
+    ghInstall: () => new Promise((res) => { release = () => res({ version: "2.99.0" }); }),
+    ghAvailable: async () => false,
+  };
+  const h = makeHandlers({ store, provider, triage: noTriage, ghBin: "/tmp/gh", ghTmp: "/tmp/ghtmp" });
+  assert.equal((await h.postAuthInstallGh()).started, true);
+  assert.equal((await h.getAuth()).install.phase, "installing");
+  release();
+  await new Promise((r) => setTimeout(r, 0));
+  const st = await h.getAuth();
+  assert.equal(st.install.phase, "done");
+  assert.equal(st.install.version, "2.99.0");
 });
 
 test("postAuthBind 错误映射：invalid account / gh-not-installed / gh-not-authorized / token-invalid / account-mismatch", async () => {

@@ -32,7 +32,7 @@ const path = require("path");
     log("PASS workbench mounted build=" + seen);
     // 收活闸门后首屏两种形态：未绑定=登录闸（连接按钮），已绑定=工作台（刷新按钮）
     const boardBtn = page.getByRole("button", { name: /^(刷新|Refresh)$/ });
-    const gateBtn = page.getByRole("button", { name: /^(连接并校验|Connect & verify)$/ });
+    const gateBtn = page.locator("article.gate button.cta");
     const board = await boardBtn.first().waitFor({ timeout: 6000 }).then(() => "board").catch(() => null);
     const view = board ?? await gateBtn.first().waitFor({ timeout: 6000 }).then(() => "gate");
     log("PASS view=" + view + (view === "gate" ? " (account not bound)" : " (account bound)"));

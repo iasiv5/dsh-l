@@ -62,7 +62,10 @@ store API（后续任务的接口契约）：getWatch()/setWatch(repos)、upsert
 - discoverRepos({ token, fetch })：GET /user/repos?affiliation=owner&sort=pushed&per_page=100，供选择器。
 - getRepo({ repo, token, fetch })：GET /repos/{repo}，取 defaultBranch（default_branch）与 cloneUrl（ssh_url）——任务包 repo 块的数据源；字段缺失回退 main + SSH 惯例地址。
 - getViewer({ token, fetch })：GET /user，取 token 真实身份（login）——收活绑定校验的数据源；失效/无权 401 抛错。
-- ghAvailable({ execFile })：execFile gh --version 探测本机 gh CLI 是否安装，登录闸状态展示用（不触网络）。
+- ghAvailable({ execFile, ghPath }) / resolveToken({…, ghPath })：gh 探测与调用走候选序列——系统 PATH 的 gh 优先，插件私有安装（数据目录 bin/gh）兜底。
+- deviceCodeStart({ fetch }) / deviceCodePoll({ deviceCode, fetch })：GitHub OAuth 设备流（client_id 用 GitHub CLI 官方公开常量，scope=repo read:org）——登录闸页内授权登录的数据源；pending/slow_down 的节奏由 handlers 控制。
+- ghLoginWithToken({ token, spawn, candidates })：设备流成果经 stdin 管道移交 gh 自身凭据库（gh auth login --with-token），token 不落盘、不进参数与日志；spawn ENOENT 换下一候选，非零退出即真实失败。
+- ghInstall({ fetch, execFile, destFile, tmpDir })：gh CLI 一键后台安装——取 cli/cli latest release 的 linux 二进制（amd64/arm64），下载解包装入插件数据目录 bin/gh（无 root、不动系统 PATH）。
 - 域名白名单硬编码 https://api.github.com；token 只进 Authorization 头，不落日志、不进存储。
 - 速率账：12 仓 × 3 端点 = 36 请求/刷新（issues/pulls/repos）；token 上限 5000/h，5 分钟一刷也仅 432/h。
 
@@ -75,6 +78,8 @@ store API（后续任务的接口契约）：getWatch()/setWatch(repos)、upsert
 | GET | /dsh-l/auth | — | 收活连接状态：gh CLI 是否安装（ghAvailable）、凭据是否可得（tokenAvailable）与当前绑定（account/login/verifiedAt，未绑定为 null）；不打 GitHub 网络 |
 | POST | /dsh-l/auth/bind | {account} | 绑定校验：token 就绪 → GET /user 比对身份（大小写不敏感）→ 成功落 auth 并回显；失败 409 区分 gh-not-installed / gh-not-authorized / token-invalid (…) / account-mismatch: <login>；非法用户名 400 |
 | POST | /dsh-l/auth/logout | — | 工作台级退出：只清 auth 绑定（watch/候选/设置全保留），不动本机 gh 登录态 |
+| POST | /dsh-l/auth/install-gh | — | 一键后台安装 gh CLI（官方 release → 插件数据目录 bin/gh）；立即返回，进度经 GET /dsh-l/auth 轮询（install.phase: idle/installing/done/failed） |
+| GET/POST | /dsh-l/auth/device | — | 设备流授权：POST 出 user_code + verification_uri 并后台轮询（pending/authorizing→authorized 自动移交 gh 凭据库并绑定；expired/failed 带原因）；GET 查询当前状态。已有凭据时 POST 409 already-authorized |
 | POST | /dsh-l/refresh | — | **须先绑定账号，否则 401 auth-required**；摄取全部监看仓（逐仓容错，单仓失败记 perRepo.error 不中断；返回 authenticated）；成功仓同步仓库事实并做上游回收（见 §8），每次摄取追加一条 ingestLog |
 | GET/PUT | /dsh-l/watch | {repos:[]} | **须先绑定账号**；监看列表 CRUD（PUT 校验 owner/repo 形状） |
 | GET | /dsh-l/discover | — | **须先绑定账号**；账号仓列表（选择器数据源） |
@@ -147,7 +152,8 @@ inbox →（分诊）→ triaged →（人工安排）→ gating →（G1 放行
 
 - 凭据：token 经 ctx.credentials 记录（可选覆写）或 gh 进程读取；不落存储、不打日志。auth 绑定块只存用户名与校验时间，不含任何凭据材料。
 - 退出语义：logout 只清工作台绑定，绝不调用 gh auth logout、不撤销本机凭据；收活闸门（refresh/watch/discover 未绑定一律 401）在服务端强制，UI 只是呈现。
-- 出网：仅 api.github.com；未来飞书通道仅 open.feishu.cn webhook。
+- 出网：api.github.com（API 与 gh release 查询）+ github.com（设备流 /login/device/code、/login/oauth/access_token 与 gh 安装包下载）；未来飞书通道仅 open.feishu.cn webhook。
+- 设备流 token：经 stdin 管道移交 gh 凭据库，插件不落盘、不记日志；登录状态机的安装/授权进行时状态在进程内存，宿主重启自动回到 idle（登录闸按 getAuth 重新判定，无残留半态）。
 - 写操作全部经人工手势（按钮），无自动写 GitHub。
 
 ## 10. v2/v3 接缝

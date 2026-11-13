@@ -13,8 +13,11 @@ const send = (path, body, method = "POST") => fetch(path, {
 export const api = {
   state: () => get("dsh-l/state"),
   auth: () => get("dsh-l/auth"),
-  bind: (account) => send("dsh-l/auth/bind", { account }),
+  bind: (account) => send("dsh-l/auth/bind", account ? { account } : {}),
   logout: () => send("dsh-l/auth/logout", {}),
+  installGh: () => send("dsh-l/auth/install-gh", {}),
+  deviceStart: () => send("dsh-l/auth/device", {}),
+  deviceStatus: () => get("dsh-l/auth/device"),
   refresh: () => send("dsh-l/refresh", {}),
   putWatch: (repos) => send("dsh-l/watch", { repos }, "PUT"),
   discover: () => get("dsh-l/discover"),

@@ -1,4 +1,4 @@
-import { execFile as execFileCb } from "node:child_process";
+import { execFile as execFileCb, spawn as spawnCb } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
@@ -44,6 +44,7 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     triage: makeTriage ? makeTriage(ctx, dir) : UNWIRED,
     credentials: ctx.credentials, tokenRef: config?.githubTokenRef ?? null,
     execFile, fetch: globalThis.fetch, onSettingsChange, listCatalog, hostDefault,
+    ghBin: join(dir, "bin", "gh"), ghTmp: join(dir, "tmp"), spawn: spawnCb,
   });
   const table = {
     "/dsh-l/health": { GET: async () => ({ ok: true, name, build: BUILD, dataDir: dir }) },
@@ -58,6 +59,8 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     "/dsh-l/auth": { GET: handlers.getAuth },
     "/dsh-l/auth/bind": { POST: handlers.postAuthBind },
     "/dsh-l/auth/logout": { POST: handlers.postAuthLogout },
+    "/dsh-l/auth/install-gh": { POST: handlers.postAuthInstallGh },
+    "/dsh-l/auth/device": { GET: handlers.getAuthDevice, POST: handlers.postAuthDeviceStart },
     "/dsh-l/settings": { GET: handlers.getSettings, PUT: handlers.putSettings },
     "/dsh-l/models": { GET: handlers.getModels },
   };

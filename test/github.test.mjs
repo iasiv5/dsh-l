@@ -79,3 +79,76 @@ test("ghAvailable：--version 探测，异常按未安装", async () => {
   assert.equal(await github.ghAvailable({ execFile: ok }), true);
   assert.equal(await github.ghAvailable({ execFile: boom }), false);
 });
+
+
+test("resolveToken/ghAvailable 支持 ghPath 兜底（插件私有 bin）", async () => {
+  const onlyPath = async (cmd) => { if (cmd === "/custom/gh") return { stdout: "gk" }; throw new Error("no"); };
+  assert.equal(await github.resolveToken({ credentials: null, tokenRef: null, execFile: onlyPath, ghPath: "/custom/gh" }), "gk");
+  const pathOk = async (cmd) => { if (cmd === "gh") return { stdout: "v" }; throw new Error("no"); };
+  assert.equal(await github.ghAvailable({ execFile: pathOk, ghPath: "/custom/gh" }), true);
+  const noneOk = async () => { throw new Error("no"); };
+  assert.equal(await github.ghAvailable({ execFile: noneOk, ghPath: "/custom/gh" }), false);
+});
+
+test("deviceCodeStart：POST /login/device/code 映射 user_code/verification_uri/interval", async () => {
+  const calls = [];
+  const f = async (url, init) => {
+    calls.push({ url, init });
+    return { ok: true, status: 200, json: async () => ({ device_code: "DC", user_code: "ABCD-1234", verification_uri: "https://github.com/login/device", expires_in: 900, interval: 5 }) };
+  };
+  const d = await github.deviceCodeStart({ fetch: f });
+  assert.deepEqual([d.deviceCode, d.userCode, d.verificationUri], ["DC", "ABCD-1234", "https://github.com/login/device"]);
+  assert.ok(calls[0].url.startsWith("https://github.com/login/device/code"));
+  assert.deepEqual(JSON.parse(calls[0].init.body).client_id, github.GH_CLIENT_ID);
+});
+
+test("deviceCodePoll：access_token 与 pending error 双路径", async () => {
+  const ok = async () => ({ ok: true, status: 200, json: async () => ({ access_token: "tk" }) });
+  assert.deepEqual(await github.deviceCodePoll({ deviceCode: "DC", fetch: ok }), { token: "tk" });
+  const pending = async () => ({ ok: true, status: 200, json: async () => ({ error: "authorization_pending" }) });
+  assert.deepEqual(await github.deviceCodePoll({ deviceCode: "DC", fetch: pending }), { error: "authorization_pending" });
+});
+
+test("ghLoginWithToken：token 走 stdin；spawn ENOENT 换下一候选；非零退出抛真实错误", async () => {
+  const { EventEmitter } = await import("node:events");
+  const mkChild = (code, failSpawn) => {
+    const child = new EventEmitter();
+    child.stdin = { write: () => {}, end: () => {} };
+    queueMicrotask(() => { if (failSpawn) child.emit("error", new Error("ENOENT")); else child.emit("close", code); });
+    return child;
+  };
+  let used = [];
+  const spawnOk = (cmd) => { used.push(cmd); return mkChild(0, false); };
+  assert.deepEqual(await github.ghLoginWithToken({ token: "tk", spawn: spawnOk, candidates: ["gh"] }), { ok: true });
+  const spawnFallback = (cmd) => { used.push(cmd); return mkChild(0, cmd === "gh"); };
+  assert.deepEqual(await github.ghLoginWithToken({ token: "tk", spawn: spawnFallback, candidates: ["gh", "/custom/gh"] }), { ok: true });
+  assert.deepEqual(used.slice(-2), ["gh", "/custom/gh"]);
+  const spawnFail = () => mkChild(1, false);
+  await assert.rejects(github.ghLoginWithToken({ token: "tk", spawn: spawnFail, candidates: ["gh"] }), /failed \(1\)/);
+});
+
+test("ghInstall：latest release → 下载 → tar 解包 → 移动 destFile（全链 stub）", async () => {
+  const fsMod = await import("node:fs");
+  const pathMod = await import("node:path");
+  const osMod = await import("node:os");
+  const dir = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "dsh-l-ghi-"));
+  const slug = "gh_2.99.0_linux_amd64";
+  const calls = [];
+  const f = async (url) => {
+    calls.push(url);
+    if (url.endsWith("/releases/latest")) return { ok: true, status: 200, json: async () => ({ tag_name: "v2.99.0" }) };
+    return { ok: true, status: 200, body: new ReadableStream({ start(c) { c.enqueue(Buffer.from("tarball")); c.close(); } }) };
+  };
+  const execFile = async (cmd, args) => {
+    if (cmd !== "tar") throw new Error("unexpected " + cmd);
+    const inner = pathMod.join(args[3], slug, "bin", "gh");
+    fsMod.mkdirSync(pathMod.join(inner, ".."), { recursive: true });
+    fsMod.writeFileSync(inner, "binary");
+    return { stdout: "" };
+  };
+  const destFile = pathMod.join(dir, "bin", "gh");
+  const r = await github.ghInstall({ fetch: f, execFile, destFile, tmpDir: dir, arch: "x64" });
+  assert.deepEqual(r, { version: "2.99.0", destFile });
+  assert.ok(fsMod.existsSync(destFile));
+  assert.ok(calls[1].includes("/cli/cli/releases/download/v2.99.0/gh_2.99.0_linux_amd64.tar.gz"));
+});

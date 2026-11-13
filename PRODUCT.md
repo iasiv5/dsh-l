@@ -31,7 +31,7 @@ web——DSH web 宿主侧栏：main slot 主栏整页 + sidebar.panellist（ord
 - 三道闸门（G1 开工前 / G2 交付前 / G3 发版前）永远人工放行；G3 永久人工（npm 发版不可撤）。
 - 分诊结果是建议，v1 绝不自动触发任何下游动作。
 - 收活闸门：未绑定 GitHub 账号前，仓库勾选与摄取一律 401 拒绝；退出只解绑工作台，不动本机 gh 登录态。
-- GitHub only（v1）；provider 接口预留 GitLab 适配位。token 复用本机 gh 登录态，可用 credentials 记录覆写。
+- GitHub only（v1）；provider 接口预留 GitLab 适配位。token 复用本机 gh 登录态，可用 credentials 记录覆写；登录页可一键后台安装 gh CLI 与设备流授权（token 移交 gh 凭据库，插件不存副本），凭据就绪时免填用户名一键进入。
 - 中英双语：接宿主 locale 服务 + zh-CN / en 双字典，无私有语言开关；分诊理由语言跟随界面语言。
 - 任务包 schema 是工作台与执行引擎的交接契约，对齐 agent-autoloop 事件语义（ADR-0001）。
 - npm dsh-l 已由 iasiv5 占位 0.0.1；显示名「Loop Engineering 工作台」。

@@ -1,22 +1,12 @@
 import { api } from "../api.mjs";
 
-// handlers 用错误串前缀携带细节（account-mismatch: <login> / token-invalid (…)），这里按前缀取词典文案。
+// handlers 用错误串前缀携带细节，这里按前缀取词典文案。
 const errText = (t, message) => {
   const m = String(message ?? "");
-  if (m === "invalid account") return t("auth.errInvalidAccount");
-  if (m === "auth-required") return t("auth.errAuthRequired");
   if (m.startsWith("gh-not-installed")) return t("auth.errGhNotInstalled");
   if (m.startsWith("gh-not-authorized")) return t("auth.errGhNotAuthorized");
   if (m.startsWith("token-invalid")) return t("auth.errTokenInvalid");
-  if (m.startsWith("account-mismatch")) return t("auth.errAccountMismatch");
   return t("errors.refreshFailed") + " (" + m + ")";
-};
-
-const code = (text) => { const c = document.createElement("code"); c.textContent = text; return c; };
-const link = (href, text) => {
-  const a = document.createElement("a");
-  a.href = href; a.target = "_blank"; a.rel = "noreferrer noopener"; a.textContent = text;
-  return a;
 };
 
 // 作者化图标 = icon.svg 原样（彩色渐变无限环+双节点），衬底由 .gateMark 蓝调 plate 提供。
@@ -29,9 +19,6 @@ const MARK = '<svg width="26" height="26" viewBox="0 0 36 36" fill="none" aria-h
   + '<linearGradient id="dshl-mk-t" x1="9.1" y1="12.45" x2="26.9" y2="23.55" gradientUnits="userSpaceOnUse">'
   + '<stop stop-color="#45E7A4"/><stop offset="1" stop-color="#05909D"/></linearGradient></defs></svg>';
 
-const WARN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-  + '<path d="M12 3 2.5 20h19z"/><path d="M12 10v4"/><path d="M12 17.2v.1"/></svg>';
-
 const svg = (markup) => { const s = document.createElement("span"); s.innerHTML = markup; return s.firstElementChild; };
 
 const pill = (t, key, okKey, missKey, ok) => {
@@ -43,106 +30,211 @@ const pill = (t, key, okKey, missKey, ok) => {
   return p;
 };
 
+// 登录闸 = 一台状态机，每个状态只有一个主行动（CTA），全程零手动输入：
+//   未装 gh   → 「一键安装 gh CLI」（后台装到插件私有目录）
+//   已装未授权 → 「授权登录 GitHub」（设备流：授权码 + 浏览器验证，成功自动绑定）
+//   已授权    → 「{login} · 进入工作台」（一键绑定进入）
 export function renderLoginGate(shadow, { t, status, onConnected }) {
-  const wrap = document.createElement("div");
-  wrap.className = "gateWrap";
+  let local = status ?? {};
+  let timer = null;
+  let dead = false;
 
-  const gate = document.createElement("article");
-  gate.className = "gate";
+  const stop = () => { if (timer) { clearTimeout(timer); timer = null; } };
 
-  const head = document.createElement("div");
-  head.className = "gateHead";
-  const mark = document.createElement("div");
-  mark.className = "gateMark";
-  mark.append(svg(MARK));
-  const pills = document.createElement("div");
-  pills.className = "gateStatus";
-  pills.style.margin = "0";
-  if (status && typeof status === "object") {
+  const draw = () => {
+    if (dead) return;
+    shadow.innerHTML = "";
+    const wrap = document.createElement("div");
+    wrap.className = "gateWrap";
+    const gate = document.createElement("article");
+    gate.className = "gate";
+
+    const head = document.createElement("div");
+    head.className = "gateHead";
+    const mark = document.createElement("div");
+    mark.className = "gateMark";
+    mark.append(svg(MARK));
+    const pills = document.createElement("div");
+    pills.className = "gateStatus";
+    pills.style.margin = "0";
     pills.append(
-      pill(t, "auth.ghCli", "auth.ghInstalled", "auth.ghMissing", status.installed === true),
-      pill(t, "auth.credential", "auth.credReady", "auth.credMissing", status.tokenAvailable === true),
+      pill(t, "auth.ghCli", "auth.ghInstalled", "auth.ghMissing", local.installed === true),
+      pill(t, "auth.credential", "auth.credReady", "auth.credMissing", local.tokenAvailable === true),
     );
-  }
-  head.append(mark, pills);
-  gate.append(head);
+    head.append(mark, pills);
+    gate.append(head);
 
-  const h = document.createElement("h3");
-  h.textContent = t("auth.loginTitle");
-  gate.append(h);
+    const h = document.createElement("h3");
+    h.textContent = t("auth.loginTitle");
+    const intro = document.createElement("p");
+    intro.className = "intro";
+    intro.textContent = t("auth.loginIntro");
+    gate.append(h, intro);
 
-  const intro = document.createElement("p");
-  intro.className = "intro";
-  intro.textContent = t("auth.loginIntro");
-  gate.append(intro);
-
-  const steps = document.createElement("ol");
-  steps.className = "steps";
-  const li = (text, ...nodes) => {
-    const n = document.createElement("li");
-    const body = document.createElement("span");
-    body.append(document.createTextNode(text), ...nodes);
-    n.append(body);
-    return n;
-  };
-  steps.append(
-    li(t("auth.stepInstall"), link("https://cli.github.com", "cli.github.com")),
-    li(t("auth.stepLogin"), code("gh auth login")),
-    li(t("auth.stepBind")),
-  );
-  gate.append(steps);
-
-  const form = document.createElement("form");
-  const label = document.createElement("label");
-  label.append(document.createTextNode(t("auth.accountLabel")));
-  const input = document.createElement("input");
-  input.name = "account";
-  input.autocomplete = "username";
-  input.spellcheck = false;
-  input.placeholder = t("auth.accountPlaceholder");
-  label.append(input);
-  const connect = document.createElement("button");
-  connect.className = "primary";
-  connect.type = "submit";
-  connect.textContent = t("auth.connect");
-  form.append(label, connect);
-  gate.append(form);
-
-  const err = document.createElement("p");
-  err.className = "err";
-  err.setAttribute("role", "alert");
-  gate.append(err);
-
-  const note = document.createElement("p");
-  note.className = "note";
-  note.textContent = t("auth.logoutHint");
-  gate.append(note);
-
-  form.onsubmit = async (e) => {
-    e.preventDefault();
-    const account = input.value.trim();
+    const err = document.createElement("p");
+    err.className = "err";
+    err.setAttribute("role", "alert");
     err.style.display = "none";
-    if (!account) {
-      err.textContent = t("auth.errInvalidAccount");
-      err.style.display = "block";
-      input.focus();
+
+    const installing = local.install?.phase === "installing";
+    const installFailed = local.install?.phase === "failed";
+    const hasGh = local.installed === true;
+    const hasToken = local.tokenAvailable === true;
+    const dv = local.device ?? {};
+    const pending = dv.phase === "pending";
+    const handing = dv.phase === "authorizing";
+
+    const cta = document.createElement("button");
+    cta.className = "cta";
+    cta.type = "button";
+
+    if (installing) {
+      cta.disabled = true;
+      cta.textContent = t("auth.installing");
+      gate.append(cta);
+    } else if (!hasGh) {
+      cta.textContent = installFailed ? t("auth.installRetry") : t("auth.installBtn");
+      cta.onclick = async () => {
+        cta.disabled = true;
+        try {
+          await api.installGh();
+          local = { ...local, install: { phase: "installing" } };
+        } catch (e) {
+          err.textContent = errText(t, e?.message);
+          err.style.display = "block";
+        }
+        draw();
+        schedule();
+      };
+      gate.append(cta);
+      const note = document.createElement("p");
+      note.className = "note";
+      note.textContent = t("auth.installNote");
+      gate.append(note);
+      if (installFailed) {
+        err.textContent = t("auth.installFailed") + " (" + (local.install?.error ?? "") + ")";
+        err.style.display = "block";
+      }
+    } else if (hasToken) {
+      cta.textContent = (local.viewerLogin ?? "GitHub") + " · " + t("auth.enterBtn");
+      cta.onclick = async () => {
+        cta.disabled = true;
+        cta.textContent = t("auth.entering");
+        try {
+          await api.bind();
+          stop();
+          onConnected?.();
+          return;
+        } catch (e) {
+          err.textContent = errText(t, e?.message);
+          err.style.display = "block";
+          draw();
+          schedule();
+        }
+      };
+      gate.append(cta);
+      const note = document.createElement("p");
+      note.className = "note";
+      note.textContent = t("auth.readyNote");
+      gate.append(note);
+    } else if (pending || handing) {
+      const codeBox = document.createElement("div");
+      codeBox.className = "gateCode";
+      const codeEl = document.createElement("b");
+      codeEl.textContent = dv.userCode ?? "····-····";
+      const copyBtn = document.createElement("button");
+      copyBtn.type = "button";
+      copyBtn.textContent = t("auth.copy");
+      copyBtn.onclick = () => navigator.clipboard?.writeText(dv.userCode ?? "").catch(() => {});
+      codeBox.append(codeEl, copyBtn);
+      const line = document.createElement("p");
+      line.className = "intro";
+      line.textContent = handing ? t("auth.deviceHanding") : t("auth.deviceWaiting");
+      const link = document.createElement("a");
+      link.className = "gateLink";
+      link.href = dv.verificationUri ?? "https://github.com/login/device";
+      link.target = "_blank";
+      link.rel = "noreferrer noopener";
+      link.textContent = dv.verificationUri ?? "https://github.com/login/device";
+      gate.append(codeBox, line, link);
+      const note = document.createElement("p");
+      note.className = "note";
+      note.textContent = t("auth.deviceNote");
+      gate.append(note);
+    } else {
+      cta.textContent = t("auth.deviceBtn");
+      cta.onclick = async () => {
+        cta.disabled = true;
+        try {
+          const d = await api.deviceStart();
+          local = { ...local, device: d };
+        } catch (e) {
+          err.textContent = errText(t, e?.message);
+          err.style.display = "block";
+        }
+        draw();
+        schedule();
+      };
+      gate.append(cta);
+      const note = document.createElement("p");
+      note.className = "note";
+      note.textContent = t("auth.deviceNote");
+      gate.append(note);
+      if (dv.phase === "expired") {
+        err.textContent = t("auth.deviceExpired");
+        err.style.display = "block";
+      } else if (dv.phase === "failed") {
+        err.textContent = t("auth.deviceFailed") + " (" + (dv.error ?? "") + ")";
+        err.style.display = "block";
+      }
+    }
+
+    gate.append(err);
+    if (!["pending", "authorizing"].includes(dv.phase ?? "") && !installing && !hasToken) {
+      const note = document.createElement("p");
+      note.className = "note";
+      note.textContent = t("auth.logoutHint");
+      gate.append(note);
+    }
+    wrap.append(gate);
+    shadow.append(wrap);
+  };
+
+  const schedule = () => {
+    stop();
+    if (local?.install?.phase === "installing") {
+      timer = setTimeout(async () => {
+        try { local = await api.auth(); } catch {}
+        draw();
+        schedule();
+      }, 2000);
       return;
     }
-    connect.disabled = true;
-    connect.textContent = t("auth.connecting");
-    try {
-      await api.bind(account);
+    const ph = local?.device?.phase;
+    if (ph === "authorized") {
+      dead = true;
+      stop();
       onConnected?.();
-    } catch (e2) {
-      err.textContent = errText(t, e2?.message);
-      err.style.display = "block";
-      connect.disabled = false;
-      connect.textContent = t("auth.connect");
-      input.focus();
+      return;
+    }
+    if (ph === "pending" || ph === "authorizing") {
+      timer = setTimeout(async () => {
+        try {
+          const d = await api.deviceStatus();
+          local = { ...local, device: d };
+        } catch {}
+        if (local?.device?.phase === "authorized") {
+          dead = true;
+          stop();
+          onConnected?.();
+          return;
+        }
+        draw();
+        schedule();
+      }, ph === "authorizing" ? 1500 : 4000);
     }
   };
 
-  wrap.append(gate);
-  shadow.append(wrap);
-  input.focus();
+  draw();
+  schedule();
 }
