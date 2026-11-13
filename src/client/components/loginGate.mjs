@@ -19,11 +19,15 @@ const link = (href, text) => {
   return a;
 };
 
-// 作者化图标 = icon.svg 同款无限环+双节点（收活→交付），描边随主题色，家族识别统一。
-const MARK = '<svg width="26" height="26" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" aria-hidden="true">'
-  + '<path d="M18 18C13.4 10.6 3.6 10.6 3.6 18C3.6 25.4 13.4 25.4 18 18C22.6 10.6 32.4 10.6 32.4 18C32.4 25.4 22.6 25.4 18 18"/>'
-  + '<circle cx="9.1" cy="12.45" r="2.8" fill="currentColor" stroke="none"/>'
-  + '<circle cx="26.9" cy="23.55" r="2.8" fill="currentColor" stroke="none"/></svg>';
+// 作者化图标 = icon.svg 原样（彩色渐变无限环+双节点），衬底由 .gateMark 蓝调 plate 提供。
+const MARK = '<svg width="26" height="26" viewBox="0 0 36 36" fill="none" aria-hidden="true">'
+  + '<path d="M18 18C13.4 10.6 3.6 10.6 3.6 18C3.6 25.4 13.4 25.4 18 18C22.6 10.6 32.4 10.6 32.4 18C32.4 25.4 22.6 25.4 18 18" stroke="url(#dshl-mk-b)" stroke-width="4" stroke-linecap="round"/>'
+  + '<circle cx="9.1" cy="12.45" r="2.8" fill="url(#dshl-mk-t)"/>'
+  + '<circle cx="26.9" cy="23.55" r="2.8" fill="url(#dshl-mk-t)"/>'
+  + '<defs><linearGradient id="dshl-mk-b" x1="3.6" y1="10.6" x2="32.4" y2="25.4" gradientUnits="userSpaceOnUse">'
+  + '<stop stop-color="#69B9FF"/><stop offset="1" stop-color="#324DE2"/></linearGradient>'
+  + '<linearGradient id="dshl-mk-t" x1="9.1" y1="12.45" x2="26.9" y2="23.55" gradientUnits="userSpaceOnUse">'
+  + '<stop stop-color="#45E7A4"/><stop offset="1" stop-color="#05909D"/></linearGradient></defs></svg>';
 
 const WARN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
   + '<path d="M12 3 2.5 20h19z"/><path d="M12 10v4"/><path d="M12 17.2v.1"/></svg>';

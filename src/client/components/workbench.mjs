@@ -34,7 +34,8 @@ const CSS = [
   "@media (prefers-reduced-motion:reduce){.gate{animation:none}}",
   "@keyframes gate-in{from{transform:translateY(8px);opacity:.6}}",
   ".gateHead{display:flex;align-items:center;justify-content:space-between;gap:10px}",
-  ".gateMark{width:44px;height:44px;display:grid;place-items:center;border-radius:11px;background:color-mix(in srgb,currentColor 7%,transparent);border:1px solid color-mix(in srgb,currentColor 12%,transparent)}",
+  /* 图标衬底：取图标主蓝做 tint plate——浅皮淡蓝瓷面、深皮深蓝绒面，柔影托起彩色图标 */
+  ".gateMark{width:46px;height:46px;display:grid;place-items:center;border-radius:12px;background:color-mix(in srgb,#324DE2 9%,canvas);border:1px solid color-mix(in srgb,#324DE2 20%,canvas);box-shadow:0 2px 6px rgb(50 77 226 /.16),0 8px 20px -8px rgb(50 77 226 /.28)}",
   ".gateMark svg{display:block}",
   ".gate h3{font-size:16px;font-weight:650;margin:14px 0 0;letter-spacing:-.01em}",
   ".gate .intro{margin:6px 0 0;font-size:13.5px;line-height:1.55;color:color-mix(in srgb,currentColor 62%,transparent)}",
