@@ -16,8 +16,6 @@ const path = require("path");
     const page = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
     page.on("console", (m) => log("console." + m.type() + " " + m.text()));
     await page.goto(url, { waitUntil: "domcontentloaded" });
-    // 宿主首启 Preview Notice 弹窗会盖住面板：出现即点掉（在役 profile 已读过则无此弹窗，静默跳过）
-    await page.getByRole("button", { name: /^(Continue|继续)$/ }).first().click({ timeout: 4000 }).catch(() => {});
     const entry = page.getByRole("button", { name: /Loop Engineering/ });
     await entry.first().waitFor({ timeout: 45000 });
     log("PASS sidebar entry visible");
@@ -57,6 +55,15 @@ const path = require("path");
       };
     });
     log("GEO " + JSON.stringify(geo));
+    // 宿主首启 Preview Notice 在应用启动后才渲染且盖在面板上：取证前点掉并确认遮罩消失（在役已读过则跳过）
+    const dismiss = page.locator("button", { hasText: /^(Continue|继续)$/ }).first();
+    if (await dismiss.isVisible().catch(() => false)) {
+      await dismiss.click().catch(() => {});
+      log("notice dismissed");
+    }
+    await page.waitForFunction(() => !document.querySelector("[class*='_mask_']"), null, { timeout: 4000 }).catch(() => {});
+    const maskLeft = await page.evaluate(() => Boolean(document.querySelector("[class*='_mask_']")));
+    log("mask after dismiss: " + maskLeft);
     if (view === "gate") await page.locator(".gate").first().scrollIntoViewIfNeeded().catch(() => {});
     await page.screenshot({ path: path.join(evid, "ui.png"), fullPage: false });
     log("PASS screenshot");
