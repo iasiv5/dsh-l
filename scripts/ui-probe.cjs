@@ -67,6 +67,27 @@ const path = require("path");
     if (view === "gate") await page.locator(".gate").first().scrollIntoViewIfNeeded().catch(() => {});
     await page.screenshot({ path: path.join(evid, "ui.png"), fullPage: false });
     log("PASS screenshot");
+    // 移动端取证：390x844 视口重开页面，最佳努力（手机布局侧栏在抽屉里，入口可能不可点）
+    try {
+      const mpage = await (await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })).newPage();
+      mpage.on("console", (m) => log("m.console." + m.type() + " " + m.text()));
+      await mpage.goto(url, { waitUntil: "domcontentloaded" });
+      await mpage.getByRole("button", { name: /^(Continue|继续)$/ }).first().click({ timeout: 3000 }).catch(() => {});
+      const mentry = mpage.getByRole("button", { name: /Loop Engineering/ });
+      await mentry.first().click({ timeout: 6000 });
+      const mcard = mpage.locator("article.gate").first();
+      const mbox = await mcard.boundingBox();
+      const mgeo = await mpage.evaluate(() => {
+        const card = [...document.querySelectorAll("*")].find((e) => e.shadowRoot && e.shadowRoot.querySelector(".gate"));
+        const c = card.shadowRoot.querySelector(".gate").getBoundingClientRect();
+        return { inView: c.top >= 0 && c.bottom <= innerHeight && c.left >= 0 && c.right <= innerWidth, vw: innerWidth, vh: innerHeight, top: Math.round(c.top), bottom: Math.round(c.bottom) };
+      });
+      await mcard.waitFor({ timeout: 8000 });
+      await mpage.screenshot({ path: path.join(evid, "ui-mobile.png"), fullPage: false });
+      log("PASS mobile geo=" + JSON.stringify(mgeo));
+    } catch (e) {
+      log("SKIP mobile: " + (e && e.message).slice(0, 120));
+    }
   } catch (e) {
     log("FAIL " + (e && e.message));
     process.exitCode = 1;
