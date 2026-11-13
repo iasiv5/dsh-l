@@ -43,7 +43,10 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
 
   const draw = () => {
     if (dead) return;
-    shadow.innerHTML = "";
+    // 只清自己拥有的 .gateWrap——shadow 里的 <style> 是 workbench 注入的，抹掉会让整台裸奔成纯文本
+    for (const el of [...shadow.children]) {
+      if (el.classList?.contains("gateWrap")) el.remove();
+    }
     const wrap = document.createElement("div");
     wrap.className = "gateWrap";
     const gate = document.createElement("article");
