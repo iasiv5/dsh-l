@@ -1,17 +1,18 @@
 <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="dsh-l">
   <!-- dsh-l Loop Engineering 工作台：无限环 = 收活→分诊→拍板→交付再回清单的「环」本身。
        蓝渐变主线（家族同款蓝青双色渐变）；两枚青色节点落在环的对角——
-       左上=候选收进（ingest），右下=G1 放行交付（ship），环上两点即工作台的两端动作 -->
-  <path d="M18 17C14 11 6.5 11 6.5 17C6.5 23 14 23 18 17C22 11 29.5 11 29.5 17C29.5 23 22 23 18 17"
-        stroke="url(#b)" stroke-width="3.2" stroke-linecap="round" fill="none"/>
-  <circle cx="10.75" cy="12.5" r="2.3" fill="url(#t)"/>
-  <circle cx="25.25" cy="21.5" r="2.3" fill="url(#t)"/>
+       左上=候选收进（ingest），右下=G1 放行交付（ship）。
+       占空对齐家族（quota-watch 仪表弧外径 77%）：环体横向 3.6→32.4（80%），笔画 4，节点 r2.8 -->
+  <path d="M18 18C13.4 10.6 3.6 10.6 3.6 18C3.6 25.4 13.4 25.4 18 18C22.6 10.6 32.4 10.6 32.4 18C32.4 25.4 22.6 25.4 18 18"
+        stroke="url(#b)" stroke-width="4" stroke-linecap="round" fill="none"/>
+  <circle cx="9.1" cy="12.45" r="2.8" fill="url(#t)"/>
+  <circle cx="26.9" cy="23.55" r="2.8" fill="url(#t)"/>
   <defs>
-    <linearGradient id="b" x1="6.5" y1="11" x2="29.5" y2="23" gradientUnits="userSpaceOnUse">
+    <linearGradient id="b" x1="3.6" y1="10.6" x2="32.4" y2="25.4" gradientUnits="userSpaceOnUse">
       <stop stop-color="#69B9FF"/>
       <stop offset="1" stop-color="#324DE2"/>
     </linearGradient>
-    <linearGradient id="t" x1="10.75" y1="12.5" x2="25.25" y2="21.5" gradientUnits="userSpaceOnUse">
+    <linearGradient id="t" x1="9.1" y1="12.45" x2="26.9" y2="23.55" gradientUnits="userSpaceOnUse">
       <stop stop-color="#45E7A4"/>
       <stop offset="1" stop-color="#05909D"/>
     </linearGradient>

@@ -15,7 +15,10 @@ export const inject = ["slots"];
 function PanelIcon(props) {
   const s = (props && props.size) || 18;
   return h("svg", { width: s, height: s, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round" },
-    h("path", { d: "M12 12c-2-2.7-3.6-4-5.5-4a4 4 0 0 0 0 8c1.9 0 3.5-1.3 5.5-4zm0 0c2 2.7 3.6 4 5.5 4a4 4 0 0 0 0-8c-1.9 0-3.5 1.3-5.5 4z" }));
+    // icon.svg 同款无限环+双节点，currentColor 随主题（侧栏深底可读）
+    h("path", { d: "M18 18C13.4 10.6 3.6 10.6 3.6 18C3.6 25.4 13.4 25.4 18 18C22.6 10.6 32.4 10.6 32.4 18C32.4 25.4 22.6 25.4 18 18" }),
+    h("circle", { cx: 9.1, cy: 12.45, r: 2.8, fill: "currentColor", stroke: "none" }),
+    h("circle", { cx: 26.9, cy: 23.55, r: 2.8, fill: "currentColor", stroke: "none" }));
 }
 
 export function apply(ctx) {

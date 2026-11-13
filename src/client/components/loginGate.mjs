@@ -19,10 +19,11 @@ const link = (href, text) => {
   return a;
 };
 
-// 作者化 SVG（描边风格，与面板图标同一笔画语言）：环上的一个节点 = 收活入口的标识别。
-const MARK = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
-  + '<circle cx="6" cy="18" r="2.6"/><circle cx="6" cy="6" r="2.6"/><circle cx="18" cy="12" r="2.6"/>'
-  + '<path d="M6 8.6v6.8"/><path d="M8.5 16.4c4 .6 6.5-1 7.6-3.2"/><path d="M8.6 7.2c2.2-.5 4.4.5 5.6 2.4"/></svg>';
+// 作者化图标 = icon.svg 同款无限环+双节点（收活→交付），描边随主题色，家族识别统一。
+const MARK = '<svg width="26" height="26" viewBox="0 0 36 36" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" aria-hidden="true">'
+  + '<path d="M18 18C13.4 10.6 3.6 10.6 3.6 18C3.6 25.4 13.4 25.4 18 18C22.6 10.6 32.4 10.6 32.4 18C32.4 25.4 22.6 25.4 18 18"/>'
+  + '<circle cx="9.1" cy="12.45" r="2.8" fill="currentColor" stroke="none"/>'
+  + '<circle cx="26.9" cy="23.55" r="2.8" fill="currentColor" stroke="none"/></svg>';
 
 const WARN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">'
   + '<path d="M12 3 2.5 20h19z"/><path d="M12 10v4"/><path d="M12 17.2v.1"/></svg>';
