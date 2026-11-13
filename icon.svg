@@ -1,18 +1,17 @@
 <svg width="36" height="36" viewBox="0 0 36 36" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="dsh-l">
-  <!-- dsh-l Loop Engineering 工作台：无限环 = 收活→分诊→拍板→交付再回清单的「环」本身。
-       蓝渐变主线（家族同款蓝青双色渐变）；两枚青色节点落在环的对角——
-       左上=候选收进（ingest），右下=G1 放行交付（ship）。
-       占空对齐家族（quota-watch 仪表弧外径 77%）：环体横向 3.6→32.4（80%），笔画 4，节点 r2.8 -->
-  <path d="M18 18C13.4 10.6 3.6 10.6 3.6 18C3.6 25.4 13.4 25.4 18 18C22.6 10.6 32.4 10.6 32.4 18C32.4 25.4 22.6 25.4 18 18"
-        stroke="url(#b)" stroke-width="4" stroke-linecap="round" fill="none"/>
-  <circle cx="9.1" cy="12.45" r="2.8" fill="url(#t)"/>
-  <circle cx="26.9" cy="23.55" r="2.8" fill="url(#t)"/>
+  <!-- dsh-l Loop Engineering 工作台：循环双箭头 = 「loop」本身——两段 135° 弧各带一枚同向箭头，环在转。
+       蓝弧 = 摄取→分诊（收活侧），青弧 = G1 放行→交付→回清单（出活侧），顺时针同向。
+       占位对齐家族（quota-watch 仪表弧外径 77%）：环体外径 r10.5，笔画 4，箭头 6.2×6.4 圆角三角 -->
+  <path d="M14.41 27.87 A10.5 10.5 0 0 1 13.56 8.48" stroke="url(#b)" stroke-width="4" stroke-linecap="round" fill="none"/>
+  <path d="M21.59 8.13 A10.5 10.5 0 0 1 22.44 27.52" stroke="url(#t)" stroke-width="4" stroke-linecap="round" fill="none"/>
+  <path d="M13.42 11.98 L10.80 6.36 L19.18 5.87 Z" fill="url(#b)" stroke="url(#b)" stroke-width="1.5" stroke-linejoin="round"/>
+  <path d="M22.58 24.02 L25.20 29.64 L16.82 30.13 Z" fill="url(#t)" stroke="url(#t)" stroke-width="1.5" stroke-linejoin="round"/>
   <defs>
-    <linearGradient id="b" x1="3.6" y1="10.6" x2="32.4" y2="25.4" gradientUnits="userSpaceOnUse">
+    <linearGradient id="b" x1="9" y1="8" x2="25" y2="29" gradientUnits="userSpaceOnUse">
       <stop stop-color="#69B9FF"/>
       <stop offset="1" stop-color="#324DE2"/>
     </linearGradient>
-    <linearGradient id="t" x1="9.1" y1="12.45" x2="26.9" y2="23.55" gradientUnits="userSpaceOnUse">
+    <linearGradient id="t" x1="22" y1="8" x2="20" y2="28" gradientUnits="userSpaceOnUse">
       <stop stop-color="#45E7A4"/>
       <stop offset="1" stop-color="#05909D"/>
     </linearGradient>

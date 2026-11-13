@@ -9,14 +9,15 @@ const errText = (t, message) => {
   return t("errors.refreshFailed") + " (" + m + ")";
 };
 
-// 作者化图标 = icon.svg 原样（彩色渐变无限环+双节点），衬底由 .gateMark 蓝调 plate 提供。
+// 作者化图标 = icon.svg 原样（蓝青双弧循环双箭头），衬底由 .gateMark 蓝调 plate 提供。
 const MARK = '<svg width="26" height="26" viewBox="0 0 36 36" fill="none" aria-hidden="true">'
-  + '<path d="M18 18C13.4 10.6 3.6 10.6 3.6 18C3.6 25.4 13.4 25.4 18 18C22.6 10.6 32.4 10.6 32.4 18C32.4 25.4 22.6 25.4 18 18" stroke="url(#dshl-mk-b)" stroke-width="4" stroke-linecap="round"/>'
-  + '<circle cx="9.1" cy="12.45" r="2.8" fill="url(#dshl-mk-t)"/>'
-  + '<circle cx="26.9" cy="23.55" r="2.8" fill="url(#dshl-mk-t)"/>'
-  + '<defs><linearGradient id="dshl-mk-b" x1="3.6" y1="10.6" x2="32.4" y2="25.4" gradientUnits="userSpaceOnUse">'
+  + '<path d="M14.41 27.87A10.5 10.5 0 0 1 13.56 8.48" stroke="url(#dshl-mk-b)" stroke-width="4" stroke-linecap="round" fill="none"/>'
+  + '<path d="M21.59 8.13A10.5 10.5 0 0 1 22.44 27.52" stroke="url(#dshl-mk-t)" stroke-width="4" stroke-linecap="round" fill="none"/>'
+  + '<path d="M13.42 11.98 10.8 6.36 19.18 5.87Z" fill="url(#dshl-mk-b)" stroke="url(#dshl-mk-b)" stroke-width="1.5" stroke-linejoin="round"/>'
+  + '<path d="M22.58 24.02 25.2 29.64 16.82 30.13Z" fill="url(#dshl-mk-t)" stroke="url(#dshl-mk-t)" stroke-width="1.5" stroke-linejoin="round"/>'
+  + '<defs><linearGradient id="dshl-mk-b" x1="9" y1="8" x2="25" y2="29" gradientUnits="userSpaceOnUse">'
   + '<stop stop-color="#69B9FF"/><stop offset="1" stop-color="#324DE2"/></linearGradient>'
-  + '<linearGradient id="dshl-mk-t" x1="9.1" y1="12.45" x2="26.9" y2="23.55" gradientUnits="userSpaceOnUse">'
+  + '<linearGradient id="dshl-mk-t" x1="22" y1="8" x2="20" y2="28" gradientUnits="userSpaceOnUse">'
   + '<stop stop-color="#45E7A4"/><stop offset="1" stop-color="#05909D"/></linearGradient></defs></svg>';
 
 const svg = (markup) => { const s = document.createElement("span"); s.innerHTML = markup; return s.firstElementChild; };
