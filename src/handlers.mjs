@@ -1,6 +1,7 @@
 import { candidateKey } from "./store.mjs";
 
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
+const ACCOUNT_RE = /^[A-Za-z0-9-]{1,39}$/;
 const MANUAL_STAGES = new Set(["inbox", "triaged", "gating", "shipped", "closed", "held"]);
 const VALIDITY = new Set(["high", "medium", "low"]);
 const URGENCY = new Set(["P0", "P1", "P2", "P3"]);
@@ -42,11 +43,38 @@ export function buildTaskPackage(candidate, repoInfo = null, now = () => new Dat
 
 export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null }) {
   const token = () => provider.resolveToken({ credentials, tokenRef, execFile });
+  // 收活闸门：未绑定 GitHub 账号前，仓库勾选与摄取一律拒绝（design.md §4）。
+  const requireAuth = () => (store.getAuth()?.account ? null : fail("auth-required", 401));
   return {
     async getState() {
-      return { watch: store.getWatch(), snapshots: store.getSnapshots(), settings: store.getSettings(), candidates: store.listCandidates(), ingestLog: store.getIngestLog() };
+      return { watch: store.getWatch(), snapshots: store.getSnapshots(), settings: store.getSettings(), candidates: store.listCandidates(), ingestLog: store.getIngestLog(), auth: store.getAuth() };
+    },
+    async getAuth() {
+      // 廉价状态：只探测 gh 安装与凭据可得性，不打 GitHub 网络；绑定回显来自 store。
+      return { ...store.getAuth(), installed: await provider.ghAvailable({ execFile }), tokenAvailable: (await token()) !== null };
+    },
+    async postAuthBind(body) {
+      const account = String(body?.account ?? "").trim();
+      if (!ACCOUNT_RE.test(account)) return fail("invalid account");
+      const tk = await token();
+      if (!tk) return (await provider.ghAvailable({ execFile })) ? fail("gh-not-authorized", 409) : fail("gh-not-installed", 409);
+      let viewer;
+      try {
+        viewer = await provider.getViewer({ token: tk, fetch });
+      } catch (err) {
+        return fail("token-invalid (" + String(err?.message ?? err) + ")", 409);
+      }
+      if (String(viewer.login ?? "").toLowerCase() !== account.toLowerCase()) return fail("account-mismatch: " + viewer.login, 409);
+      store.setAuth({ account, login: viewer.login });
+      return store.getAuth();
+    },
+    async postAuthLogout() {
+      // 工作台级退出：只清绑定，watch/候选/设置全保留；绝不调 gh auth logout、不撤销本机凭据。
+      store.clearAuth();
+      return { ok: true };
     },
     async postRefresh() {
+      const gate = requireAuth(); if (gate) return gate;
       const tk = await token();
       const perRepo = {};
       const merged = [];
@@ -80,12 +108,16 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
     },
     async getWatch() { return store.getWatch(); },
     async putWatch(body) {
+      const gate = requireAuth(); if (gate) return gate;
       const repos = body?.repos;
       if (!Array.isArray(repos) || repos.some((r) => typeof r !== "string" || !REPO_RE.test(r))) return fail("invalid repos");
       store.setWatch(repos);
       return store.getWatch();
     },
-    async getDiscover() { return { repos: await provider.discoverRepos({ token: await token(), fetch }) }; },
+    async getDiscover() {
+      const gate = requireAuth(); if (gate) return gate;
+      return { repos: await provider.discoverRepos({ token: await token(), fetch }) };
+    },
     async postTriage(body) {
       const keys = body?.keys;
       if (!Array.isArray(keys) || keys.length === 0 || keys.length > 10) return fail("keys must be 1..10");

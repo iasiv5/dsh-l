@@ -55,6 +55,9 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     "/dsh-l/candidate/override": { POST: handlers.postOverride },
     "/dsh-l/candidate/stage": { POST: handlers.postStage },
     "/dsh-l/candidate/gate": { POST: handlers.postGate },
+    "/dsh-l/auth": { GET: handlers.getAuth },
+    "/dsh-l/auth/bind": { POST: handlers.postAuthBind },
+    "/dsh-l/auth/logout": { POST: handlers.postAuthLogout },
     "/dsh-l/settings": { GET: handlers.getSettings, PUT: handlers.putSettings },
     "/dsh-l/models": { GET: handlers.getModels },
   };

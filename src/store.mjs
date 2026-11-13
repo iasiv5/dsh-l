@@ -20,14 +20,16 @@ const emptyDoc = (now) => ({
   repos: {},          // "owner/repo" → { defaultBranch, cloneUrl, fetchedAt }，任务包 repo 块数据源
   ingestLog: [],      // 每次摄取一条（上限 50，FIFO）——「刷新有历史可回溯」的载体
   settings: { intervalMinutes: 0, triageModel: null },
+  auth: { account: null, login: null, verifiedAt: null },  // 收活绑定：工作台级 GitHub 账号连接；退出=清空（不动本机 gh 登录态）
 });
 
 export function createStore({ filePath, now = () => new Date() }) {
   let doc;
   try { doc = JSON.parse(readFileSync(filePath, "utf8")); } catch { doc = emptyDoc(now); }
-  // 旧档迁移：v1 早期档无 repos/ingestLog（2026-11-12 契约对表引入），补空结构。
+  // 旧档迁移：v1 早期档无 repos/ingestLog/auth（各自引入时间不同），补空结构。
   doc.repos ??= {};
   doc.ingestLog ??= [];
+  doc.auth ??= { account: null, login: null, verifiedAt: null };
   const persist = () => {
     mkdirSync(dirname(filePath), { recursive: true });
     const tmp = join(dirname(filePath), ".store-" + process.pid + "-" + Date.now() + ".tmp");
@@ -46,6 +48,9 @@ export function createStore({ filePath, now = () => new Date() }) {
   return {
     getWatch: () => doc.watch,
     setWatch(repos) { doc.watch = { repos: [...new Set(repos)], updatedAt: now().toISOString() }; persist(); },
+    getAuth: () => doc.auth,
+    setAuth({ account, login }) { doc.auth = { account, login, verifiedAt: now().toISOString() }; persist(); },
+    clearAuth() { doc.auth = { account: null, login: null, verifiedAt: null }; persist(); },
     listCandidates: () => Object.values(doc.candidates),
     getCandidate: (key) => doc.candidates[key] ?? null,
     upsertCandidates(list) {

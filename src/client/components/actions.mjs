@@ -100,8 +100,11 @@ export function installActions({ getLang }) {
   };
   return {
     header(header, { t, state, view }) {
-      header.append(btn(t("watchedRepos"), () => openRepoPicker(view.shadow, { t, current: state?.watch?.repos ?? [], onSaved: () => view.refresh() })));
       header.append(btn(t("settings.title"), () => openSettings(view.shadow, { t, current: state?.settings ?? { intervalMinutes: 0 }, onSaved: () => view.reload() })));
+    },
+    // 收活板块的仓源管理入口：勾选/取消监看仓在对话框内完成，保存后立即刷新摄取。
+    intake(container, { t, state, view }) {
+      container.append(btn(t("watchedRepos"), () => openRepoPicker(view.shadow, { t, current: state?.watch?.repos ?? [], onSaved: () => view.refresh() })));
     },
     strip(container, { t, state }) { renderStrip(container, { t, candidates: state?.candidates ?? [] }); },
     bar(bar, { t, state, filters, view }) {

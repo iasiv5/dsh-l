@@ -58,9 +58,16 @@ hc() { curl -s -b "$JAR" -H "origin: $BASE" -H "host: 127.0.0.1:$PORT" "$@"; }
 hc "$BASE/dsh-l/health?token=$TOKEN" > "$EVID/health.json"
 node -e 'const j=require(process.argv[1]);if(j.build!==process.argv[2])throw new Error("build "+j.build+" != "+process.argv[2]);if(!String(j.dataDir).startsWith(process.argv[3]))throw new Error("dataDir "+j.dataDir+" 不在 scratch profile");' "$EVID/health.json" "$BUILD" "$PROFILE_DIR" || fail "health 指纹/数据目录不符（见 health.json）"
 
-# 7. 业务探针：默认 12 仓；刷新返回 12 仓逐仓结果
+# 7. 业务探针：默认 12 仓；收活闸门（未绑定 refresh 401）→ 绑定本机 gh 账号 → 刷新返回 12 仓逐仓结果
 hc "$BASE/dsh-l/state?token=$TOKEN" > "$EVID/state.json"
-node -e 'const j=require(process.argv[1]);if(j.watch.repos.length!==12)throw new Error("watch="+j.watch.repos.length);' "$EVID/state.json" || fail "默认监看仓不是 12"
+node -e 'const j=require(process.argv[1]);if(j.watch.repos.length!==12)throw new Error("watch="+j.watch.repos.length);if(!("auth" in j))throw new Error("no auth in state");' "$EVID/state.json" || fail "默认监看仓不是 12 或 state 缺 auth"
+hc -H "content-type: application/json" -X POST -d '{}' "$BASE/dsh-l/refresh?token=$TOKEN" > "$EVID/refresh-gate.json"
+node -e 'const j=require(process.argv[1]);if(j.error!=="auth-required")throw new Error(JSON.stringify(j));' "$EVID/refresh-gate.json" || fail "未绑定时 refresh 未被闸门拦截（见 refresh-gate.json）"
+hc "$BASE/dsh-l/auth?token=$TOKEN" > "$EVID/auth.json"
+node -e 'const j=require(process.argv[1]);if(typeof j.installed!=="boolean"||typeof j.tokenAvailable!=="boolean"||!("account" in j))throw new Error(JSON.stringify(j));' "$EVID/auth.json" || fail "auth 状态形状不符（见 auth.json）"
+ACCOUNT="$(gh api user -q .login 2>/dev/null || echo iasiv5)"
+hc -H "content-type: application/json" -X POST -d "{\"account\":\"$ACCOUNT\"}" "$BASE/dsh-l/auth/bind?token=$TOKEN" > "$EVID/bind.json"
+node -e 'const j=require(process.argv[1]);if(j.login!==process.argv[2])throw new Error(JSON.stringify(j));' "$EVID/bind.json" "$ACCOUNT" || fail "GitHub 绑定失败（见 bind.json；本机需先 gh auth login）"
 hc -H "content-type: application/json" -X POST -d '{}' "$BASE/dsh-l/refresh?token=$TOKEN" > "$EVID/refresh.json"
 node -e 'const j=require(process.argv[1]);const n=Object.keys(j.perRepo||{}).length;if(n!==12)throw new Error("perRepo="+n);' "$EVID/refresh.json" || fail "刷新未覆盖 12 仓（见 refresh.json）"
 
@@ -139,6 +146,14 @@ if [ -n "$TKEY" ]; then
   case "$TRIAGE_VERDICT" in FAIL*) fail "真分诊接线不正确：$TRIAGE_VERDICT（见 triage.json / state4.json）";; esac
 fi
 echo "triage verdict: $TRIAGE_VERDICT" | tee -a "$EVID/result.txt"
+
+# 7f. 退出账号：解绑后 refresh 重新被闸门拦截；监看配置保留
+hc -H "content-type: application/json" -X POST -d '{}' "$BASE/dsh-l/auth/logout?token=$TOKEN" > "$EVID/logout.json"
+node -e 'const j=require(process.argv[1]);if(j.ok!==true)throw new Error(JSON.stringify(j));' "$EVID/logout.json" || fail "logout 失败（见 logout.json）"
+hc -H "content-type: application/json" -X POST -d '{}' "$BASE/dsh-l/refresh?token=$TOKEN" > "$EVID/refresh-gate2.json"
+node -e 'const j=require(process.argv[1]);if(j.error!=="auth-required")throw new Error(JSON.stringify(j));' "$EVID/refresh-gate2.json" || fail "退出后 refresh 未回到闸门（见 refresh-gate2.json）"
+hc "$BASE/dsh-l/state?token=$TOKEN" > "$EVID/state5.json"
+node -e 'const j=require(process.argv[1]);if(j.auth.account!==null||j.watch.repos.length!==12)throw new Error("auth="+JSON.stringify(j.auth)+" watch="+j.watch.repos.length);' "$EVID/state5.json" || fail "退出未清绑定或误清监看配置（见 state5.json）"
 
 # 8. 隔离探针：在役 profile 的 dsh-l 数据未被触碰
 LIVE_AFTER="$(stat -c %Y "$LIVE_STORE" 2>/dev/null || echo absent)"

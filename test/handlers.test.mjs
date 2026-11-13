@@ -7,8 +7,14 @@ import { createStore } from "../src/store.mjs";
 import { makeHandlers, buildTaskPackage } from "../src/handlers.mjs";
 
 const openStore = () => createStore({ filePath: join(mkdtempSync(join(tmpdir(), "dsh-l-h-")), "s.json") });
+const login = (store, account = "o") => store.setAuth({ account, login: account });
 const PROVIDER = (mode = {}) => ({
-  resolveToken: async () => null,
+  resolveToken: async () => mode.token ?? null,
+  ghAvailable: async () => mode.gh !== false,
+  getViewer: async () => {
+    if (!mode.viewerLogin) throw new Error("github api 401 for /user");
+    return { login: mode.viewerLogin };
+  },
   listOpenIssues: async ({ repo }) => {
     if (mode.bad && repo === "o/bad") throw new Error("github api 500 for /repos/o/bad/issues?state=open");
     if (mode.empty) return [];
@@ -23,6 +29,7 @@ const seed = (store, n = 1) => store.upsertCandidates([{ repo: "o/r", type: "iss
 
 test("postRefresh：单仓失败容错并记 perRepo.error", async () => {
   const store = openStore();
+  login(store);
   store.setWatch(["o/good", "o/bad"]);
   const r = await makeHandlers({ store, provider: PROVIDER({ bad: true }), triage: noTriage }).postRefresh();
   assert.equal(r.perRepo["o/bad"].error, "github api 500 for /repos/o/bad/issues?state=open");
@@ -31,7 +38,8 @@ test("postRefresh：单仓失败容错并记 perRepo.error", async () => {
 });
 
 test("putWatch 校验仓名形状", async () => {
-  const h = makeHandlers({ store: openStore(), provider: PROVIDER(), triage: noTriage });
+  const store = openStore(); login(store);
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
   assert.deepEqual((await h.putWatch({ repos: ["o/r"] })).repos, ["o/r"]);
   assert.equal((await h.putWatch({ repos: ["bad name"] })).error, "invalid repos");
 });
@@ -98,6 +106,7 @@ test("buildTaskPackage 形状", () => {
 
 test("postRefresh：上游已关闭候选回收 + ingestLog 落痕 + state 可回溯", async () => {
   const store = openStore();
+  login(store);
   store.setWatch(["o/good"]);
   const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
   await h.postRefresh();
@@ -162,4 +171,49 @@ test("postTriage 把设置中的 triageModel 传给 runTriage", async () => {
   const triage = { runTriage: async (p) => { seen = p.model; return { updated: [], failed: null }; } };
   await makeHandlers({ store, provider: PROVIDER(), triage }).postTriage({ keys: ["o/r#issue#1"] });
   assert.deepEqual(seen, { provider: "p1", model: "m1" });
+});
+
+test("收活闸门：未连接时 refresh/watch/discover 一律 401 auth-required", async () => {
+  const h = makeHandlers({ store: openStore(), provider: PROVIDER({ token: "tk", viewerLogin: "o" }), triage: noTriage });
+  const gated = await Promise.all([h.postRefresh(), h.putWatch({ repos: ["o/r"] }), h.getDiscover()]);
+  assert.deepEqual(gated.map((r) => r.error), ["auth-required", "auth-required", "auth-required"]);
+  assert.equal(gated[0].status, 401);
+});
+
+test("postAuthBind：身份一致（大小写不敏感）才绑定；state 回显 auth；绑定后闸门放行", async () => {
+  const store = openStore();
+  const h = makeHandlers({ store, provider: PROVIDER({ token: "tk", viewerLogin: "IasiV5" }), triage: noTriage });
+  const r = await h.postAuthBind({ account: "iasiv5" });
+  assert.equal(r.account, "iasiv5");
+  assert.equal(r.login, "IasiV5");
+  assert.ok(r.verifiedAt);
+  assert.equal((await h.getState()).auth.account, "iasiv5");
+  assert.deepEqual(await h.getAuth(), { account: "iasiv5", login: "IasiV5", verifiedAt: r.verifiedAt, installed: true, tokenAvailable: true });
+  await h.postRefresh();                        // 绑定后摄取不再 401
+  assert.equal((await h.getDiscover()).repos[0].fullName, "o/good");
+});
+
+test("postAuthBind 错误映射：invalid account / gh-not-installed / gh-not-authorized / token-invalid / account-mismatch", async () => {
+  const mk = (mode) => makeHandlers({ store: openStore(), provider: PROVIDER(mode), triage: noTriage });
+  assert.equal((await mk({ token: "tk", viewerLogin: "o" }).postAuthBind({ account: "bad name" })).error, "invalid account");
+  const noInstall = await mk({ gh: false }).postAuthBind({ account: "o" });
+  assert.deepEqual([noInstall.error, noInstall.status], ["gh-not-installed", 409]);
+  assert.equal((await mk({}).postAuthBind({ account: "o" })).error, "gh-not-authorized");
+  const invalid = await mk({ token: "tk" }).postAuthBind({ account: "o" });
+  assert.equal(invalid.status, 409);
+  assert.match(invalid.error, /^token-invalid \(github api 401 for \/user\)$/);
+  assert.equal((await mk({ token: "tk", viewerLogin: "someone-else" }).postAuthBind({ account: "o" })).error, "account-mismatch: someone-else");
+});
+
+test("postAuthLogout：只清绑定，watch/设置保留；refresh 重新 401", async () => {
+  const store = openStore();
+  login(store);
+  store.setWatch(["o/good"]);
+  const h = makeHandlers({ store, provider: PROVIDER({ token: "tk", viewerLogin: "o" }), triage: noTriage });
+  await h.postAuthBind({ account: "o" });
+  assert.deepEqual(await h.postAuthLogout(), { ok: true });
+  assert.equal((await h.postRefresh()).status, 401);
+  assert.equal(store.getAuth().account, null);
+  assert.deepEqual(store.getWatch().repos, ["o/good"]);
+  assert.equal(store.getSettings().intervalMinutes, 0);
 });

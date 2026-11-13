@@ -22,7 +22,7 @@ web——DSH web 宿主侧栏：main slot 主栏整页 + sidebar.panellist（ord
 
 ## First run
 
-首次打开预勾选 12 个自研插件仓（iasiv5/ 下的 dsh-skins、dsh-quota-watch、dsh-stock-kanban、dsh-onetree-log、dsh-obmc-web、dsh-copilot-auth、skills、dsh-m、dsh-send-later、dsh-skip-browser-auth、dsh-surf、dsh-agent-autoloop），首开即有真实候选；repo 选择器随时增删。
+首次打开先走板块一「收活」：输入 GitHub 用户名，按引导安装 gh CLI 并完成 `gh auth login` 授权，校验通过后进入工作台，预勾选 12 个自研插件仓（iasiv5/ 下的 dsh-skins、dsh-quota-watch、dsh-stock-kanban、dsh-onetree-log、dsh-obmc-web、dsh-copilot-auth、skills、dsh-m、dsh-send-later、dsh-skip-browser-auth、dsh-surf、dsh-agent-autoloop），首开即有真实候选；repo 选择器随时勾选/取消，退出账号即回到登录界面（监看配置保留，重连即恢复）。
 
 - 【推断·代答】首跑策略提问超时未答，按推荐项代定。
 
@@ -30,6 +30,7 @@ web——DSH web 宿主侧栏：main slot 主栏整页 + sidebar.panellist（ord
 
 - 三道闸门（G1 开工前 / G2 交付前 / G3 发版前）永远人工放行；G3 永久人工（npm 发版不可撤）。
 - 分诊结果是建议，v1 绝不自动触发任何下游动作。
+- 收活闸门：未绑定 GitHub 账号前，仓库勾选与摄取一律 401 拒绝；退出只解绑工作台，不动本机 gh 登录态。
 - GitHub only（v1）；provider 接口预留 GitLab 适配位。token 复用本机 gh 登录态，可用 credentials 记录覆写。
 - 中英双语：接宿主 locale 服务 + zh-CN / en 双字典，无私有语言开关；分诊理由语言跟随界面语言。
 - 任务包 schema 是工作台与执行引擎的交接契约，对齐 agent-autoloop 事件语义（ADR-0001）。

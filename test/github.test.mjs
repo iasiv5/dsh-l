@@ -62,3 +62,20 @@ test("token 解析顺序：配置引用 → gh → null；非法引用名跳过"
   assert.equal(await github.resolveToken({ credentials: cred("ck"), tokenRef: "bad name", execFile: gh("gk") }), "gk");
   assert.equal(await github.resolveToken({ credentials: cred(null), tokenRef: null, execFile: noGh }), null);
 });
+
+test("getViewer：GET /user 拿 token 身份；401 抛错", async () => {
+  const { f, calls } = fetchPages(page({ login: "iAsiV5" }));
+  const v = await github.getViewer({ token: "tk", fetch: f });
+  assert.deepEqual(v, { login: "iAsiV5" });
+  assert.equal(calls[0].url, "https://api.github.com/user");
+  assert.equal(calls[0].init.headers.authorization, "Bearer tk");
+  const f401 = async () => ({ ok: false, status: 401, json: async () => ({}) });
+  await assert.rejects(github.getViewer({ token: "bad", fetch: f401 }), /github api 401 for \/user/);
+});
+
+test("ghAvailable：--version 探测，异常按未安装", async () => {
+  const ok = async () => ({ stdout: "gh version 2.45.0" });
+  const boom = async () => { throw new Error("spawn gh ENOENT"); };
+  assert.equal(await github.ghAvailable({ execFile: ok }), true);
+  assert.equal(await github.ghAvailable({ execFile: boom }), false);
+});

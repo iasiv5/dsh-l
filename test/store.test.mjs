@@ -79,6 +79,20 @@ test("recordHistory 落痕；ingestLog 追加并 FIFO 截到 50", () => {
   assert.equal(s.getIngestLog().at(-1).total, 59);
 });
 
+test("auth 绑定：set/get/clear + 旧档迁移补空 auth", () => {
+  const s = open();
+  assert.deepEqual(s.getAuth(), { account: null, login: null, verifiedAt: null });
+  s.setAuth({ account: "iasiv5", login: "IasiV5" });
+  assert.equal(s.getAuth().account, "iasiv5");
+  assert.equal(s.getAuth().login, "IasiV5");
+  assert.ok(s.getAuth().verifiedAt);
+  s.clearAuth();
+  assert.equal(s.getAuth().account, null);
+  const filePath = join(mkdtempSync(join(tmpdir(), "dsh-l-")), "store.json");
+  writeFileSync(filePath, JSON.stringify({ version: 1, watch: { repos: [], updatedAt: "T" }, candidates: {}, snapshots: {}, settings: { intervalMinutes: 0, triageModel: null } }));
+  assert.equal(createStore({ filePath }).getAuth().account, null);
+});
+
 test("repo 事实：写入读回，未知的仓返回 null", () => {
   const s = open();
   s.setRepoFacts("o/r", { defaultBranch: "trunk", cloneUrl: "git@github.com:o/r.git" });

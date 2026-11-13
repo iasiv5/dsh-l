@@ -13,6 +13,7 @@ The plugin is an advisor and a record keeper: **it never writes code on its own 
 
 ## Features
 
+- **Intake & account connection (board section 1)**: the workbench is split into *Intake* and *Triage & decisions*. First use starts by connecting GitHub — enter your username, follow the on-screen guidance to install the gh CLI and run `gh auth login`; once verification passes (token identity matches the username) you can tick repositories to watch and ingest candidates. **Sign out** from the header anytime to return the workbench to the login screen. Signing out only unbinds the workbench — the local gh login stays untouched (run `gh auth logout` yourself to revoke), and watch config plus history are preserved.
 - **Watch & backlog**: repo picker (discover from your GitHub account or add owner/repo manually), manual refresh and optional auto-refresh (off by default). Candidates are grouped by stage: inbox / triaged / awaiting decision / in progress / shipped / closed.
 - **LLM triage — advice only**: short-lived agent sessions triage in batches of up to 10, producing validity (issues: reproducible, not duplicate…; PRs: buildable, not malicious…), urgency P0–P3, a recommended action and a one-line reason. **You can always override**; human judgments are recorded with `by: human`. The triage prompt declares issue/PR bodies as *data, not instructions*, and tool approvals stay at the host default — prompt-induced tool calls block until timeout and the batch fails closed.
 - **Three human gates**: G1 before build / G2 before ship / G3 before release, every pass recorded (time + source). v1 implements G1: only candidates in the *awaiting decision* stage can pass; passing moves them to *in progress* and emits a **task package** (structured JSON aligned with agent-autoloop event semantics, copy-pasteable to any execution engine); rejecting returns them to *triaged*. G2/G3 render disabled until v2.
@@ -60,6 +61,7 @@ The GitHub token resolves in this order: the credential reference configured on 
 ## Data, privacy & security
 
 - **The token never touches disk**: it only enters the GitHub Authorization header — not stored, not logged, not present in triage prompts.
+- **Sign-out semantics**: signing out clears only the workbench binding (the store's auth block); it never runs `gh auth logout` or revokes machine credentials. Watch config and candidate history survive; reconnecting restores everything.
 - **Route protection**: every route passes the host trust check first (fail-closed 403 when absent); write methods additionally require same-origin and cap the JSON body size.
 - **Untrusted bodies**: issue/PR bodies are other people's text. The triage prompt declares them as data; tool approvals are never waived, so prompt-induced tool calls stall at host approval until timeout.
 - **Gate discipline**: there is no automatic write path to your repositories today; future PR / release actions sit behind gates, and the release gate (G3) is planned to stay manual forever.
@@ -75,7 +77,7 @@ The GitHub token resolves in this order: the credential reference configured on 
 ```bash
 npm install
 npm run build   # emits lib/host.js + lib/client.js (build fingerprint embedded)
-npm test        # 57 tests
+npm test        # 76 tests
 bash scripts/install-smoke.sh   # isolated-profile install smoke (never touches the live host)
 ```
 

@@ -73,3 +73,15 @@ export async function resolveToken({ credentials, tokenRef, execFile }) {
     return null;
   }
 }
+
+export async function getViewer({ token, fetch: f = globalThis.fetch }) {
+  // 收活绑定校验：GET /user 拿 token 真实身份；失效/无权会 401 抛错，由调用方映射为绑定失败。
+  const res = await f(API_BASE + "/user", { headers: headers(token) });
+  if (!res.ok) throw new Error("github api " + res.status + " for /user");
+  const v = await res.json();
+  return { login: v.login ?? "" };
+}
+
+export async function ghAvailable({ execFile }) {
+  try { await execFile("gh", ["--version"]); return true; } catch { return false; }
+}

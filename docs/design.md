@@ -45,13 +45,14 @@ host (src/host.mjs, inject: webServer, credentials, agents, agentDefaultModel, t
   snapshots: { lastIngestAt: "iso", perRepo: { "owner/repo": { issues, pulls, fetchedAt, error } } },
   repos: { "owner/repo": { defaultBranch, cloneUrl, fetchedAt } },  // 仓库事实，任务包 repo 块数据源
   ingestLog: [ { at, total, authenticated, failedRepos, closed, flagged } ],  // 每次摄取一条，上限 50（FIFO）
-  settings: { intervalMinutes: 0, triageModel: null }        // 0=关；null=宿主默认模型
+  settings: { intervalMinutes: 0, triageModel: null },       // 0=关；null=宿主默认模型
+  auth: { account, login, verifiedAt }                        // 收活绑定；account=null 即未连接（2026-11-13 板块划分引入）
 }
 ```
 
 候选 history 每条上限 50（FIFO 截断——有意为之的界，换取 store.json 常量级体积；截断会丢最老记录，此取舍记录在案）。
 
-store API（后续任务的接口契约）：getWatch()/setWatch(repos)、upsertCandidates(list)（摄取合并：已存在者仅刷新可变字段并保留 stage/triage/gates/history）、listCandidates()、getCandidate(key)、setStage(key, stage, note)、setTriage(key, result, by)、setGate(key, gate, decision, note, taskPackage?, via?)、getSettings()/setSettings(patch)、getSnapshots()/setSnapshots(perRepo)、appendIngestLog(entry)/getIngestLog()、recordHistory(key, event, detail)、setRepoFacts(repo, facts)/getRepoFacts(repo)、sweepUpstream(repo, liveKeys)。所有候选变更追加 history（含分诊失败 triage.error 与上游回收 upstream-closed/upstream-gone）。
+store API（后续任务的接口契约）：getWatch()/setWatch(repos)、upsertCandidates(list)（摄取合并：已存在者仅刷新可变字段并保留 stage/triage/gates/history）、listCandidates()、getCandidate(key)、setStage(key, stage, note)、setTriage(key, result, by)、setGate(key, gate, decision, note, taskPackage?, via?)、getSettings()/setSettings(patch)、getSnapshots()/setSnapshots(perRepo)、appendIngestLog(entry)/getIngestLog()、recordHistory(key, event, detail)、setRepoFacts(repo, facts)/getRepoFacts(repo)、sweepUpstream(repo, liveKeys)、getAuth()/setAuth({account, login})/clearAuth()（收活绑定与退出；退出只清 auth 块）。所有候选变更追加 history（含分诊失败 triage.error 与上游回收 upstream-closed/upstream-gone）。
 
 ## 3. GitHub provider（github.mjs）
 
@@ -60,6 +61,8 @@ store API（后续任务的接口契约）：getWatch()/setWatch(repos)、upsert
 - listOpenPulls({ repo, token, fetch })：GET /repos/{repo}/pulls?state=open&per_page=100。
 - discoverRepos({ token, fetch })：GET /user/repos?affiliation=owner&sort=pushed&per_page=100，供选择器。
 - getRepo({ repo, token, fetch })：GET /repos/{repo}，取 defaultBranch（default_branch）与 cloneUrl（ssh_url）——任务包 repo 块的数据源；字段缺失回退 main + SSH 惯例地址。
+- getViewer({ token, fetch })：GET /user，取 token 真实身份（login）——收活绑定校验的数据源；失效/无权 401 抛错。
+- ghAvailable({ execFile })：execFile gh --version 探测本机 gh CLI 是否安装，登录闸状态展示用（不触网络）。
 - 域名白名单硬编码 https://api.github.com；token 只进 Authorization 头，不落日志、不进存储。
 - 速率账：12 仓 × 3 端点 = 36 请求/刷新（issues/pulls/repos）；token 上限 5000/h，5 分钟一刷也仅 432/h。
 
@@ -68,10 +71,13 @@ store API（后续任务的接口契约）：getWatch()/setWatch(repos)、upsert
 | 方法 | 路径 | 请求体 | 语义 |
 |---|---|---|---|
 | GET | /dsh-l/health | — | 健康与构建指纹（ok / name / build / dataDir） |
-| GET | /dsh-l/state | — | watch + snapshots + candidates 摘要 + settings + ingestLog（回溯入口） |
-| POST | /dsh-l/refresh | — | 摄取全部监看仓（逐仓容错，单仓失败记 perRepo.error 不中断；返回 authenticated）；成功仓同步仓库事实并做上游回收（见 §8），每次摄取追加一条 ingestLog |
-| GET/PUT | /dsh-l/watch | {repos:[]} | 监看列表 CRUD（PUT 校验 owner/repo 形状） |
-| GET | /dsh-l/discover | — | 账号仓列表（选择器数据源） |
+| GET | /dsh-l/state | — | watch + snapshots + candidates 摘要 + settings + ingestLog + auth 绑定（回溯入口） |
+| GET | /dsh-l/auth | — | 收活连接状态：gh CLI 是否安装（ghAvailable）、凭据是否可得（tokenAvailable）与当前绑定（account/login/verifiedAt，未绑定为 null）；不打 GitHub 网络 |
+| POST | /dsh-l/auth/bind | {account} | 绑定校验：token 就绪 → GET /user 比对身份（大小写不敏感）→ 成功落 auth 并回显；失败 409 区分 gh-not-installed / gh-not-authorized / token-invalid (…) / account-mismatch: <login>；非法用户名 400 |
+| POST | /dsh-l/auth/logout | — | 工作台级退出：只清 auth 绑定（watch/候选/设置全保留），不动本机 gh 登录态 |
+| POST | /dsh-l/refresh | — | **须先绑定账号，否则 401 auth-required**；摄取全部监看仓（逐仓容错，单仓失败记 perRepo.error 不中断；返回 authenticated）；成功仓同步仓库事实并做上游回收（见 §8），每次摄取追加一条 ingestLog |
+| GET/PUT | /dsh-l/watch | {repos:[]} | **须先绑定账号**；监看列表 CRUD（PUT 校验 owner/repo 形状） |
+| GET | /dsh-l/discover | — | **须先绑定账号**；账号仓列表（选择器数据源） |
 | POST | /dsh-l/triage | {keys:[…≤10], lang} | 批量分诊，结果写回候选（by=llm）；失败 502 |
 | POST | /dsh-l/candidate/override | {key, validity, urgency, action, reason, lang} | 人工推翻分诊（by=human） |
 | POST | /dsh-l/candidate/stage | {key, stage, note} | 人工改阶段（仅 inbox/triaged/gating/shipped/closed/held；building 只能经 G1） |
@@ -122,7 +128,9 @@ G1 放行时生成并挂到候选（v1 即生效——契约先于执行器落�
 
 ## 7. UI 结构（Operate 模式）
 
-- 页头：标题 + 上次刷新时间 + 刷新按钮 + 监看仓库选择器入口 + 批量分诊按钮。
+- **未绑定（登录闸，2026-11-13 板块划分）**：整页登录界面——GitHub 用户名输入 + gh CLI 安装/凭据状态 chip + 三步引导（安装 gh → `gh auth login` → 填用户名连接校验）；连接成功进入工作台，退出账号即回到此界面。
+- **已绑定（工作台）**分两大板块：**收活**（页头账号 chip + 退出按钮；监看仓数量 / Issue / PR 概况 chip + 仓库勾选入口）与**分诊与拍板**（管线条 + 过滤条 + 分组列表）。
+- 页头：标题 + 刷新按钮 + 设置 + 账号 chip + 退出按钮 + 上次刷新时间；批量分诊按钮在过滤条。
 - 过滤条：类型（全部/Issue/PR）× 仓 × 紧急度。
 - 主体：按阶段分组的列表（待分诊 / 已分诊 / 待拍板 + 折叠的 进行中/已交付/已关闭），行内：类型徽标、repo#number、标题、年龄、紧急度 chip、真实性 chip、建议动作；展开：分诊理由 + 操作（改阶段 / G1 放行 → 任务包）。
 - 管线条：7 段横向指示（各段计数），build/verify/ship 在 v1 灰显。
@@ -137,7 +145,8 @@ inbox →（分诊）→ triaged →（人工安排）→ gating →（G1 放行
 
 ## 9. 安全
 
-- 凭据：token 经 ctx.credentials 记录（可选覆写）或 gh 进程读取；不落存储、不打日志。
+- 凭据：token 经 ctx.credentials 记录（可选覆写）或 gh 进程读取；不落存储、不打日志。auth 绑定块只存用户名与校验时间，不含任何凭据材料。
+- 退出语义：logout 只清工作台绑定，绝不调用 gh auth logout、不撤销本机凭据；收活闸门（refresh/watch/discover 未绑定一律 401）在服务端强制，UI 只是呈现。
 - 出网：仅 api.github.com；未来飞书通道仅 open.feishu.cn webhook。
 - 写操作全部经人工手势（按钮），无自动写 GitHub。
 
