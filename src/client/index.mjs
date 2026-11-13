@@ -12,14 +12,10 @@ export const isPlugin = true; // guizang lib/client.js:75 同款导出
 // package.json dsh.client.inject 只负责把宿主模块打进行包。缺此导出即报 cannot get property "slots" without inject。
 export const inject = ["slots"];
 
-// 侧栏面板图标 = icon.svg（循环双箭头 A 案）的 currentColor 线性版：双 135° 弧 + 两枚同向实心箭头
 function PanelIcon(props) {
   const s = (props && props.size) || 18;
   return h("svg", { width: s, height: s, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.6, strokeLinecap: "round", strokeLinejoin: "round" },
-    h("path", { d: "M9.61 18.58A7 7 0 0 1 9.04 5.65" }),
-    h("path", { d: "M14.39 5.42A7 7 0 0 1 14.96 18.35" }),
-    h("path", { d: "M10.53 7.24 11.94 4.3 8.67 3.36Z", fill: "currentColor", strokeWidth: 1 }),
-    h("path", { d: "M13.4 16.66 12.06 19.7 15.26 20.64Z", fill: "currentColor", strokeWidth: 1 }));
+    h("path", { d: "M12 12c-2-2.7-3.6-4-5.5-4a4 4 0 0 0 0 8c1.9 0 3.5-1.3 5.5-4zm0 0c2 2.7 3.6 4 5.5 4a4 4 0 0 0 0-8c-1.9 0-3.5 1.3-5.5 4z" }));
 }
 
 export function apply(ctx) {
