@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { validateTemplate, computeRevision } from "../src/workflows/validate.mjs";
 import { LOOP_V1 } from "../src/workflows/builtin.mjs";
+import { loadTemplates } from "../src/workflows/loader.mjs";
 
 const okT = { id: "t1", name: "T1", version: 1, builtin: false,
   nodes: [ { id: "g1", name: "G1", type: "gate", gateId: "G1", rejectTarget: null },
@@ -48,4 +49,29 @@ test("loop-v1 golden：形状锁", () => {
     [["g1","build","success"],["build","verify","success"],["verify","build","rework"],["verify","g2","success"],["g2","deliver","success"]]);
   assert.equal(validateTemplate(LOOP_V1).ok, true);
   assert.match(LOOP_V1.revision, /^[0-9a-f]{40}$/);
+});
+
+test("loadTemplates：内置在前、坏文件/撞 id 跳过并警告、非 json 忽略、meta 不含 script", () => {
+  const dir = mkdtempSync(join(tmpdir(), "dsh-l-wf-"));
+  mkdirSync(join(dir, "workflows"));
+  writeFileSync(join(dir, "workflows", "b.json"), JSON.stringify({ ...okT, id: "user-b", name: "UB" }));
+  // 真·非法夹具（评审 R3 采纳·方案①）：edges 指向不存在节点；空 nodes 不算非法——校验器不新增
+  // 「nodes 非空」规则，design-v2 §3 口径不变。
+  writeFileSync(join(dir, "workflows", "bad.json"),
+    '{"id":"bad","nodes":[{"id":"n1","name":"N","type":"agent"}],"edges":[{"id":"e1","source":"n1","target":"ghost","kind":"success"}]}');
+  writeFileSync(join(dir, "workflows", "c.json"), JSON.stringify({ ...okT, id: "loop-v1", name: "撞内置" }));   // 评审 R12
+  writeFileSync(join(dir, "workflows", "notes.txt"), "not a template");                                        // 评审 R12：非 json 忽略
+  const out = loadTemplates({ dataDir: dir });
+  assert.deepEqual(out.templates.map((t) => t.id), ["loop-v1", "user-b"]);
+  assert.equal(out.warnings.length, 2);
+  assert.ok(out.warnings.some((w) => w.includes("bad.json")));
+  assert.ok(out.warnings.some((w) => w.includes("c.json")));
+  const meta = out.templates[1];
+  assert.ok(!("script" in meta.nodes[2]));
+  assert.deepEqual(meta.nodes.map((n) => n.id), ["g1", "a", "s"]);
+});
+test("无 workflows 目录：仅内置、零警告", () => {
+  const out = loadTemplates({ dataDir: mkdtempSync(join(tmpdir(), "dsh-l-wf0-")) });
+  assert.deepEqual(out.templates.map((t) => t.id), ["loop-v1"]);
+  assert.deepEqual(out.warnings, []);
 });
