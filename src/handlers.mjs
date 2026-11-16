@@ -1,4 +1,5 @@
 import { candidateKey } from "./store.mjs";
+import { summarizeRun } from "./engine/scheduler.mjs";
 
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 const ACCOUNT_RE = /^[A-Za-z0-9-]{1,39}$/;
@@ -41,7 +42,7 @@ export function buildTaskPackage(candidate, repoInfo = null, now = () => new Dat
   };
 }
 
-export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null }) {
+export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null, workflowCatalog = { templates: [], warnings: [] } }) {
   const token = () => provider.resolveToken({ credentials, tokenRef, execFile, ghPath: ghBin });
   // 收活闸门：未绑定 GitHub 账号前，仓库勾选与摄取一律拒绝（design.md §4）。
   const requireAuth = () => (store.getAuth()?.account ? null : fail("auth-required", 401));
@@ -52,7 +53,8 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
   let viewerCache = null;                            // token→login 探测缓存（每进程一次；改绑极低频，可接受）
   return {
     async getState() {
-      return { watch: store.getWatch(), snapshots: store.getSnapshots(), settings: store.getSettings(), candidates: store.listCandidates(), ingestLog: store.getIngestLog(), auth: store.getAuth() };
+      return { watch: store.getWatch(), snapshots: store.getSnapshots(), settings: store.getSettings(), candidates: store.listCandidates(), ingestLog: store.getIngestLog(), auth: store.getAuth(),
+        runs: store.listRuns().map(summarizeRun), workflow: workflowCatalog };
     },
     async getAuth() {
       // gh 安装（PATH 优先、插件私有 bin 兜底）+ 凭据可得性；token 可得时顺带探一次身份（缓存）。

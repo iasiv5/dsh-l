@@ -4,6 +4,8 @@ import { mkdtempSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createStore } from "../src/store.mjs";
+import { makeRunId } from "../src/store.mjs";
+import { loadTemplates } from "../src/workflows/loader.mjs";
 import { makeHandlers, buildTaskPackage } from "../src/handlers.mjs";
 
 const openStore = () => createStore({ filePath: join(mkdtempSync(join(tmpdir(), "dsh-l-h-")), "s.json") });
@@ -35,6 +37,26 @@ test("postRefresh：单仓失败容错并记 perRepo.error", async () => {
   assert.equal(r.perRepo["o/bad"].error, "github api 500 for /repos/o/bad/issues?state=open");
   assert.equal(r.perRepo["o/good"].error, null);
   assert.equal(store.listCandidates().length, 1);
+});
+
+test("getState：暴露 workflow meta（不含 script）与 runs 摘要", async () => {
+  const store = openStore(); seed(store);
+  const catalog = loadTemplates({ dataDir: mkdtempSync(join(tmpdir(), "dsh-l-hwf-")) });
+  const runId = makeRunId();
+  store.createRun({ id: runId, candidateKey: "o/r#issue#1", templateId: "loop-v1",
+    templateRevision: catalog.templates[0].revision,
+    snapshot: { nodes: catalog.templates[0].nodes, edges: [] },
+    nodeStates: { g1: { status: "waiting", attempt: 0, reworkCount: 0, error: null } },
+    status: "waiting", cancelReason: null, createdAt: "T", updatedAt: "T", history: [] });
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, workflowCatalog: catalog });
+  const state = await h.getState();
+  assert.equal(state.workflow.templates[0].id, "loop-v1");
+  assert.ok(state.workflow.templates[0].nodes.every((n) => !("script" in n)));
+  assert.equal(state.runs.length, 1);
+  assert.deepEqual(state.runs[0].currentNodeIds, ["g1"]);
+  // 缺省 catalog：不传 workflowCatalog 时回空结构（host 侧总是传，兜底给直接调用者）
+  const bare = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
+  assert.deepEqual((await bare.getState()).workflow, { templates: [], warnings: [] });
 });
 
 test("putWatch 校验仓名形状", async () => {

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { runTriage, resolveTriageSelection } from "./triage.mjs";
 import { dataDir } from "./paths.mjs";
 import { createStore } from "./store.mjs";
+import { loadTemplates } from "./workflows/loader.mjs";
 import * as github from "./github.mjs";
 import { makeHandlers } from "./handlers.mjs";
 import { createTrustGuard, makeHttpHandler } from "./http.mjs";
@@ -45,6 +46,8 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     credentials: ctx.credentials, tokenRef: config?.githubTokenRef ?? null,
     execFile, fetch: globalThis.fetch, onSettingsChange, listCatalog, hostDefault,
     ghBin: join(dir, "bin", "gh"), ghTmp: join(dir, "tmp"), spawn: spawnCb,
+    // M1 启动时读一次模板目录（内置 loop-v1 + workflows/*.json）；用户模板改动重启生效——design-v2 §3。
+    workflowCatalog: loadTemplates({ dataDir: dir }),
   });
   const table = {
     "/dsh-l/health": { GET: async () => ({ ok: true, name, build: BUILD, dataDir: dir }) },
