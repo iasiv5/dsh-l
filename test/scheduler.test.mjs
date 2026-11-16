@@ -101,3 +101,11 @@ test("skipped 重激活：reject 后目标重跑成功，skipped 后代逐级回
   assert.equal(run.nodeStates.g2.status, "skipped");      // verify 未重跑，仍停
   assert.equal(run.nodeStates.deliver.status, "pending"); // 入边 g2 未通，保持 pending
 });
+test("F5：onFailure hold 的节点失败 → run failed + hold=true", () => {
+  const snapshot = { nodes: [{ id: "x", type: "script", script: "exit 1", onFailure: "hold" }], edges: [] };
+  let run = { id: "r", candidateKey: "k", status: "running", waitingGate: null, cancelReason: null, hold: false,
+    snapshot, nodeStates: { x: { status: "running", attempt: 1, reworkCount: 0, error: null } } };
+  run = applyFailure(run, "x", "boom");
+  assert.equal(run.status, "failed");
+  assert.equal(run.hold, true);
+});

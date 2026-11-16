@@ -53,6 +53,7 @@ export function createStore({ filePath, now = () => new Date() }) {
     }
     persist();   // v2 起「打开旧档」会重写 store.json（原子写不变）——相对 v1 先例的行为变更；此后不再触发。
   }
+  doc.runs ??= {};   // 评审 F4：version 2 手改档缺 runs 块的无条件回填
   const need = (key) => {
     const c = doc.candidates[key];
     if (!c) throw Object.assign(new Error("candidate not found: " + key), { status: 404 });

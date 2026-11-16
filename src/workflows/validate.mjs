@@ -13,6 +13,7 @@ export function validateTemplate(t) {
   for (const n of nodes) {
     if (!NODE_TYPES.has(n?.type)) push("node " + (n?.id ?? "?") + ": bad type");
     if (n?.type === "gate" && !n.gateId) push("node " + (n?.id ?? "?") + ": gate missing gateId");
+    if (n?.type === "gate" && n.gateId !== "G1" && !n.rejectTarget) push("node " + (n?.id ?? "?") + ": gate missing rejectTarget");   // 评审 F2：非 G1 闸门必须有回退目标（G1 驳回=取消 run，由引擎按 gateId 判）
     if (n?.type === "script" && typeof n?.script !== "string") push("node " + (n?.id ?? "?") + ": script missing");
   }
   for (const e of t?.edges ?? []) {
@@ -20,6 +21,20 @@ export function validateTemplate(t) {
     if (!ids.has(e?.target)) push("edge " + (e?.id ?? "?") + ": target missing");
     if (!["success", "rework"].includes(e?.kind)) push("edge " + (e?.id ?? "?") + ": bad kind");
   }
+  // 环检测（评审 F3）：success 边 DFS 三色，命中回边即非法（rework 边不参与，回炉是有向无环的重试语义）。
+  const color = new Map();
+  const stackPush = (id, stack) => { color.set(id, 1); stack.push(id); };
+  const dfs = (id, stack) => {
+    stackPush(id, stack);
+    for (const e of t?.edges ?? []) {
+      if (e?.kind !== "success" || e?.source !== id) continue;
+      const c = color.get(e.target) ?? 0;
+      if (c === 1) push("cycle detected at " + e.target);
+      else if (c === 0) dfs(e.target, stack);
+    }
+    color.set(id, 2); stack.pop();
+  };
+  for (const n of nodes) if ((color.get(n.id) ?? 0) === 0) dfs(n.id, []);
   return { ok: errors.length === 0, errors };
 }
 

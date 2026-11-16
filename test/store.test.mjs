@@ -170,3 +170,11 @@ test("runs CRUD：createRun 指针与留痕、saveRun 刷新、history FIFO", ()
   assert.equal(s.getRun("nope"), null);
   assert.throws(() => s.createRun({ id, candidateKey: key }), /exists/);
 });
+
+test("F4：version 2 手改档缺 runs 块，打开即回填不炸", () => {
+  const dir = mkdtempSync(join(tmpdir(), "dsh-l-f4-"));
+  const file = join(dir, "store.json");
+  writeFileSync(file, JSON.stringify({ version: 2, watch: { repos: [], updatedAt: "T" }, candidates: {}, snapshots: {}, settings: {}, auth: {} }));
+  const s = createStore({ filePath: file });
+  assert.deepEqual(s.listRuns(), []);
+});

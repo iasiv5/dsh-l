@@ -156,7 +156,7 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
     if (watchRepos.length === 0) intakeChips.append(el("span", "chip muted", t("intake.none")));
     extend?.intake?.(intakeChips, { t, state, view });
     intake.append(intakeChips);
-    // 板块二：分诊与拍板 —— 管线条 + 过滤条 + 阶段分组列表。
+    // 板块二：分诊与拍板 —— 工作流条 + 过滤条 + 阶段分组列表。
     const triage = el("section", "triage");
     triage.append(el("h3", null, t("sections.triage")), strip, bar);
     if (error) triage.append(el("div", "error", t("errors.refreshFailed") + " (" + error + ")"));

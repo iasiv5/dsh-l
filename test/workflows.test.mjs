@@ -75,3 +75,17 @@ test("无 workflows 目录：仅内置、零警告", () => {
   assert.deepEqual(out.templates.map((t) => t.id), ["loop-v1"]);
   assert.deepEqual(out.warnings, []);
 });
+test("F2：非 G1 gate 缺 rejectTarget 报错；G1 豁免", () => {
+  const bad = { ...okT, nodes: [ ...okT.nodes, { id: "g2", name: "G2", type: "gate", gateId: "G2" } ],
+    edges: [ ...okT.edges, { id: "e3", source: "s", target: "g2", kind: "success" } ] };
+  const r = validateTemplate(bad);
+  assert.equal(r.ok, false);
+  assert.ok(r.errors.some((e) => e.includes("rejectTarget")));
+  assert.equal(validateTemplate(okT).ok, true);   // G1 rejectTarget:null 豁免
+});
+test("F3：success 边成环报 cycle detected", () => {
+  const cyc = { ...okT, edges: [ ...okT.edges, { id: "e9", source: "s", target: "a", kind: "success" } ] };
+  const r = validateTemplate(cyc);
+  assert.equal(r.ok, false);
+  assert.ok(r.errors.some((e) => e.includes("cycle")));
+});
