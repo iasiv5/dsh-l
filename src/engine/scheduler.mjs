@@ -104,6 +104,15 @@ export function applyFailure(run, nodeId, error) {
 // run.status="succeeded"（评审 R4：ready≠终态），否则保持原 running/waiting。
 export function advanceRun(run) {
   let nodeStates = run.nodeStates;
+  // 回炉源重臂（评审 R1-2）：failed 节点存在 rework 出边且其 target 已 succeeded → 源回 ready
+  // （reworkCount 已在 applyFailure 计过，不重复计；manual retry 的 maxAttempts 预算只约束 retryNode 路径）。
+  for (const e of run.snapshot.edges ?? []) {
+    if (e.kind !== "rework") continue;
+    const src = nodeStates[e.source]; const tgt = nodeStates[e.target];
+    if (src?.status === "failed" && tgt?.status === "succeeded") {
+      nodeStates = { ...nodeStates, [e.source]: { ...nodeStates[e.source], status: "ready" } };
+    }
+  }
   for (const [id, s] of Object.entries(nodeStates)) {
     if (s.status !== "skipped") continue;
     const deps = successIn(run.snapshot, id);

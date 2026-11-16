@@ -1,0 +1,163 @@
+import { computeReady, gateArrive, applyGateDecision, applyFailure, advanceRun, cancelRun as schedCancelRun } from "./scheduler.mjs";
+import { LOOP_V1 } from "../workflows/builtin.mjs";
+import { makeRunId } from "../store.mjs";
+
+// 可调度集（评审 R1-1）：computeReady 只扫 pending，而 advanceRun/applyFailure/reject/recover 产出的是
+// status:"ready" 节点——引擎的可调度集必须两路合并（去在途），缺一路这些节点就永不被派发。
+const dispatchable = (run) => {
+  const alive = Object.keys(run.nodeStates).filter((id) => run.nodeStates[id].status === "ready");
+  const fresh = computeReady(run.snapshot, run.nodeStates);
+  return [...new Set([...alive, ...fresh])];
+};
+
+// 上游摘要（评审 R1-10）：入边（success+rework）源节点的 artifacts[0]/error，各截 500 字符——
+// 回炉语境下 verify 的失败文本随 build 重派进入 prompt；无文本的源被过滤。
+const upstreamOf = (run, nodeId) => {
+  const inIds = [...new Set((run.snapshot.edges ?? []).filter((e) => e.target === nodeId).map((e) => e.source))];
+  return inIds.map((id) => {
+    const s = run.nodeStates[id] ?? {};
+    const text = s.status === "failed" ? (s.error ?? "") : (s.artifacts?.[0] ?? "");
+    return { node: id, text: String(text).slice(0, 500) };
+  }).filter((u) => u.text);
+};
+
+export function hasAliveRun(store, key) {
+  const c = store.getCandidate(key);
+  const run = c?.currentRunId ? store.getRun(c.currentRunId) : null;
+  return Boolean(run && ["running", "waiting"].includes(run.status));
+}
+
+// 候选 stage 同步（design-v2 §8）：run 终态/闸门等待映射候选粗粒度 stage。
+const stageOf = (run) => run.status === "succeeded" ? "shipped" : run.status === "failed" ? "held" : run.status === "cancelled" ? "gating"
+  : run.waitingGate ? "gating" : "building";
+
+export function makeEngine({ store, workspace, executor, template = LOOP_V1, now = () => new Date(), concurrencyOf = () => 2 }) {
+  const inflight = new Map();   // "runId:nodeId" → cancel
+  const clone = (v) => JSON.parse(JSON.stringify(v));
+  const syncStage = (key, run) => {
+    const stage = stageOf(run);
+    const c = store.getCandidate(key);
+    if (c && c.stage !== stage) store.setStage(key, stage, "run " + run.status);
+  };
+  const engine = {
+    hasAliveRun: (key) => hasAliveRun(store, key),
+    // G1 放行即建 run（评审 D3）：g1 预置 succeeded（其余 pending）；工作区 clone 为引擎首步（评审 D2 异步）。
+    startRun(key, { taskPackage = null } = {}) {
+      if (!store.getCandidate(key)) throw Object.assign(new Error("candidate not found"), { status: 404 });
+      if (hasAliveRun(store, key)) throw Object.assign(new Error("run-already-active"), { status: 409 });
+      const runId = makeRunId(now);
+      const nodeStates = {};
+      for (const n of template.nodes) {
+        nodeStates[n.id] = { status: n.id === "g1" ? "succeeded" : "pending", attempt: n.id === "g1" ? 1 : 0, reworkCount: 0, error: null, artifacts: [] };
+      }
+      store.createRun({ id: runId, candidateKey: key, templateId: template.id, templateRevision: template.revision,
+        snapshot: clone(template), nodeStates, status: "running", cancelReason: null,
+        createdAt: now().toISOString(), updatedAt: now().toISOString(), history: [] });
+      syncStage(key, store.getRun(runId));   // run 创建 → 候选 building（§8 映射）
+      const repo = store.getCandidate(key).repo;
+      workspace.ensure({ key, repo }).then(({ dir }) => {
+        const run = store.getRun(runId); if (!run || run.status !== "running") return;
+        store.appendRunHistory(runId, "workspace.cloned", dir + " remote=gh-https");   // 评审 R1-13：实际 remote 落痕
+        engine.dispatch(runId);
+      }).catch((err) => {
+        const run = store.getRun(runId); if (!run || run.status !== "running") return;
+        const msg = "workspace clone: " + String(err?.message ?? err);
+        run.nodeStates.build = { ...run.nodeStates.build, status: "failed", error: msg };
+        run.status = "failed";                       // 评审 R1-3①/D2：clone 失败 → run failed
+        store.saveRun(run);
+        store.appendRunHistory(runId, "workspace.clone-failed", msg);   // 评审 R1-14
+        store.setStage(key, "held", "workspace-clone-failed");
+      });
+      return { runId };
+    },
+    // 可调度集 = computeReady ∪ ready（去在途）（评审 R1-1）；resume 重派不烧 attempt + sessionId :resume<seq> 防撞（评审 R1-11）。
+    dispatch(runId, opts = {}) {
+      const resume = opts.resume === true; const resumeSeq = opts.resumeSeq ?? 0;
+      const run0 = store.getRun(runId);
+      if (!run0 || ["succeeded", "failed", "cancelled"].includes(run0.status)) return;
+      let run = run0;
+      let guard = 16;
+      while (inflight.size < concurrencyOf() && guard-- > 0) {
+        const ready = dispatchable(run).filter((id) => !inflight.has(runId + ":" + id));
+        if (ready.length === 0) break;
+        const nodeId = ready[0];
+        const node = run.snapshot.nodes.find((n) => n.id === nodeId);
+        if (node.type === "gate") {
+          run = gateArrive(run, nodeId); store.saveRun(run); syncStage(run.candidateKey, run); continue;
+        }
+        const ns = { ...run.nodeStates, [nodeId]: resume
+          ? { ...run.nodeStates[nodeId], status: "running" }   // 恢复重派保持 attempt（评审 R1-11）
+          : { ...run.nodeStates[nodeId], status: "running", attempt: (run.nodeStates[nodeId]?.attempt ?? 0) + 1 } };
+        run = { ...run, nodeStates: ns }; store.saveRun(run);
+        const key = store.getRun(runId).candidateKey;
+        const taskPackage = store.getCandidate(key)?.taskPackage ?? null;
+        const upstream = node.type === "agent" ? upstreamOf(run, nodeId) : [];
+        const job = node.type === "agent"
+          ? executor.runAgentNode({ run, node, cwd: workspace.dirOf(key), taskPackage, upstream, resume, resumeSeq })
+          : executor.runScriptNode({ run, node, cwd: workspace.dirOf(key) });
+        inflight.set(runId + ":" + nodeId, job.cancel);
+        job.promise.then((result) => { inflight.delete(runId + ":" + nodeId); engine.onNodeDone(runId, nodeId, result); })
+          .catch((err) => { inflight.delete(runId + ":" + nodeId); engine.onNodeDone(runId, nodeId, { ok: false, error: String(err?.message ?? err), artifacts: [] }); });
+      }
+    },
+    onNodeDone(runId, nodeId, result) {
+      const run0 = store.getRun(runId);
+      if (!run0 || ["succeeded", "failed", "cancelled"].includes(run0.status)) return;   // 迟到结果忽略
+      let run = result.ok
+        ? { ...run0, nodeStates: { ...run0.nodeStates, [nodeId]: { ...run0.nodeStates[nodeId], status: "succeeded", artifacts: result.artifacts ?? [] } } }
+        : applyFailure(run0, nodeId, result.error);
+      store.saveRun(run);
+      syncStage(run.candidateKey, run);
+      run = advanceRun(store.getRun(runId));   // 含回炉源重臂（评审 R1-2）
+      store.saveRun(run);
+      syncStage(run.candidateKey, run);
+      engine.dispatch(runId);
+      engine.dispatchAlive();   // 并发名额释放后全局拾起其余存活 run 的排队节点
+    },
+    dispatchAlive() { for (const r of store.listRuns()) if (r.status === "running") engine.dispatch(r.id); },
+    applyGateDecision(runId, nodeId, decision, overrideTarget = null) {
+      const run = store.getRun(runId); if (!run) throw Object.assign(new Error("run not found"), { status: 404 });
+      const next = applyGateDecision(run, nodeId, decision, overrideTarget);
+      store.saveRun(next); syncStage(next.candidateKey, next); engine.dispatch(runId);
+      return next;
+    },
+    cancelRun(runId, reason) {
+      for (const [k, cancel] of inflight) if (k.startsWith(runId + ":")) cancel();   // 在途 agent dispose / script kill
+      const run = store.getRun(runId); if (!run) throw Object.assign(new Error("run not found"), { status: 404 });
+      const next = schedCancelRun(run, reason);
+      store.saveRun(next); syncStage(next.candidateKey, next);
+    },
+    // 再入环（评审 D7/R1-9/R1-4）：failed/cancelled run 的失败|取消节点人工重试；cancelled run 其余
+    // cancelled 节点回 pending 续跑；run 必须回 running（否则 dispatch 终态守卫直接 return，评审 R1-4）。
+    retryNode(runId, nodeId) {
+      const run = store.getRun(runId); if (!run) throw Object.assign(new Error("run not found"), { status: 404 });
+      if (!["failed", "cancelled"].includes(run.status)) throw Object.assign(new Error("retry-requires-failed-or-cancelled"), { status: 409 });
+      const node = (run.snapshot.nodes ?? []).find((n) => n.id === nodeId) ?? {};
+      const s = run.nodeStates[nodeId];
+      if (!s || !["failed", "cancelled"].includes(s.status)) throw Object.assign(new Error("retry-requires-failed"), { status: 409 });
+      const attempt = (s.attempt ?? 0) + 1;
+      if (attempt > (node.maxAttempts ?? 1)) throw Object.assign(new Error("attempt-exhausted"), { status: 409 });
+      const ns = { ...run.nodeStates, [nodeId]: { ...s, status: "ready", attempt, error: null } };
+      if (run.status === "cancelled") for (const [id, st] of Object.entries(ns)) if (st.status === "cancelled") ns[id] = { ...st, status: "pending" };
+      const next = { ...run, nodeStates: ns, status: "running", cancelReason: null, waitingGate: null };
+      store.saveRun(next); syncStage(next.candidateKey, next); engine.dispatch(runId);
+    },
+    // 恢复扫描（评审 D1/R3-2）：先完成全部扫描（running→ready + 留痕），循环后统一 resume 派发——
+    // 全量存活 run 都重派，防「进程死在 saveRun 与 dispatch 之间」的静默卡死；resume 不烧 attempt。
+    recover() {
+      const scanned = [];
+      const resumed = [];
+      let seq = 0;
+      for (const run of store.listRuns()) {
+        if (!["running", "waiting"].includes(run.status)) continue;
+        scanned.push(run.id);
+        let touched = false; const ns = { ...run.nodeStates };
+        for (const [id, s] of Object.entries(ns)) if (s.status === "running") { ns[id] = { ...s, status: "ready" }; touched = true; }
+        if (touched) { const next = { ...run, nodeStates: ns }; store.saveRun(next); store.appendRunHistory(run.id, "resume.interrupted", "host restart"); resumed.push(run.id); }
+      }
+      for (const id of scanned) engine.dispatch(id, { resume: true, resumeSeq: ++seq });
+      return resumed;
+    },
+  };
+  return engine;
+}
