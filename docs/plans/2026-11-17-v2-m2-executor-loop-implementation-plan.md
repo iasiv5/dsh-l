@@ -10,7 +10,7 @@
 
 - 新增三模块：`src/engine/workspace.mjs`（工作区管理器：sanitize/gh clone/复用/保留期清扫，io 全注入）、`src/engine/executor.mjs`（script=子进程 + agent=ctx.agents 短会话 + `composeAgentPrompt`，全部返回 `{promise, cancel}`）、`src/engine/engine.mjs`（run 生命周期驱动：startRun/dispatch/onNodeDone/cancelRun/retryNode/recover + 候选 stage 同步 + 进程内并发上限 + 在途登记）。
 - 引擎驱动模型：事件链——节点完成回调 → scheduler 变换 → saveRun → 候选 stage 同步 → advanceRun → 可调度集分派。**可调度集 = computeReady(...) ∪ {nodeStates 中 status==="ready"}（均去在途）**（评审 R1-1：advanceRun/applyFailure/reject/recover 产出的是 ready，computeReady 只扫 pending——两路缺一不可）；gate 走 gateArrive 挂起；agent/script 起执行器并登记在途；并发上限 `settings.engineConcurrency`（默认 2，进程内在途计数，完成即再派发——`dispatchAlive()` 全局拾起，评审 R1-2 配套）。
-- **回炉重臂（评审 R1-2）**：advanceRun 增一条规则——failed 节点若存在 rework 出边且其 target 已 succeeded → 该 failed 源节点回 ready（reworkCount 已在 applyFailure 计过，不再计）；manual retry 的 maxAttempts 预算只约束 retryNode 路径，不约束回炉重臂（回炉总次数由 maxReworks 把关）。
+- **回炉重臂（评审 R1-2）**：advanceRun 增一条规则——failed 节点若存在 rework 出边且其 target 已 succeeded → 该 failed 源节点回 ready（reworkCount 已在 applyFailure 计过，不再计）；manual retry 的 maxAttempts 预算只约束 retryNode 路径，不约束回炉重臂（回炉总次数由 maxReworks 把关）。**attempt 语义澄清（评审 R2-9）**：attempt 是「同节点累计派发次数」的观测计数，不参与回炉路径预算——回炉次数上限由 maxReworks 独立把关；maxAttempts 只约束 retryNode 人工重试路径。副作用：回炉耗尽（run failed）后该节点的人工 retry 会因 attempt 超标 409，此场景的再入环走 §12.7 的完整重开路径（有意为之，非缺陷）。
 - **恢复重派不烧 attempt（评审 R1-11，落实 §12.1）**：recover 重派走 `dispatch(nodeId, {resume:true})`——attempt 保持原值、sessionId 追加 `:resume<序号>` 防撞（同 attempt 二次 createAgent 会被宿主 duplicate register 拒收）。
 - **上游摘要（评审 R1-10）**：分派 agent 节点时由入边（success+rework）源节点提取 `{node, text}`（succeeded 取 artifacts[0]、failed 取 error，各截 500 字符）——回炉语境下 verify 失败文本随 build 重派进入 prompt。
 - agent 节点等待机制镜像 triage.mjs（先订阅后创建、轮询 turn/end、非 completed fail-closed），差异点：成功**不 dispose**（autoloop api-mapping §4 判例：dispose 会删 session store 记录），取消/超时才 dispose；`ctx.workingDirectory.set(agent, cwd)` 经 world 注入（meta.cwd 只进会话头）。
@@ -196,17 +196,17 @@ test("ensure：已存在则复用不 clone；clone 失败抛错", async () => {
 });
 test("sweep：非活跃且超期目录清除；活跃目录即使超期也保留（评审 R1-8 红灯）", () => {
   const dir = mkdtempSync(join(tmpdir(), "dsh-l-ws4-"));
-  const old = join(dir, "workspaces", "old"); const fresh = join(dir, "workspaces", "fresh"); const active = join(dir, "workspaces", "active_stale");
+  const old = join(dir, "workspaces", "old"); const fresh = join(dir, "workspaces", "fresh"); const active = join(dir, "workspaces", "o_active_stale");
   mkdirSync(old, { recursive: true }); mkdirSync(fresh, { recursive: true }); mkdirSync(active, { recursive: true });
   const now = Date.now();
   const removed = [];
   const w = makeWorkspace({ dataDir: dir, execFile: async () => {}, fs: {
-    existsSync: () => false, mkdirSync: () => {}, readdirSync: () => ["old", "fresh", "active_stale"],
+    existsSync: () => false, mkdirSync: () => {}, readdirSync: () => ["old", "fresh", "o_active_stale"],
     statSync: (p) => ({ mtimeMs: p.includes("fresh") ? now : now - 20 * 86400000 }),   // fresh 新鲜；old 与 active_stale 都超期
     rmSync: (p) => { removed.push(p); },
   } });
   const out = w.sweep({ activeKeys: ["o/active#stale"], retentionDays: 7, now: new Date(now) });   // 原始键（未 sanitize）
-  assert.deepEqual(out.removed.map((p) => p.split("/").pop()), ["old"]);   // active_stale 目录经 sanitizeKey 后命中保留
+  assert.deepEqual(out.removed.map((p) => p.split("/").pop()), ["old"]);   // o_active_stale 经 sanitizeKey("o/active#stale") 后命中保留集（评审 R2-8：目录名须与 sanitize 产物一致，否则红灯夹具照红）
   assert.equal(removed.length, 1);
 });
 ```
@@ -263,8 +263,11 @@ test("runScriptNode：exit 0 → ok，尾部截 2048 入 artifacts", async () =>
   说明：fakeChild 需挂回 spawned（`spawned.child = fakeChild(...)` 形态），测试代码按此写全。
 ```js
 test("runScriptNode：非零退出 → ok:false；cancel → SIGTERM 且 promise 以 cancelled 决议", async () => {
-  const ex = makeExecutor({ spawn: () => fakeChild({ code: 1 }) });
-  let r = await ex.runScriptNode({ node: { id: "s", script: "exit 1" }, cwd: "/w" }).promise;
+  let c1 = null;
+  const ex = makeExecutor({ spawn: () => { c1 = fakeChild({ code: 1 }); return c1; } });
+  const p = ex.runScriptNode({ node: { id: "s", script: "exit 1" }, cwd: "/w" }).promise;
+  c1.emitExit(1);   // 评审 R2-1：不 emit 则 promise 挂到 600s 超时
+  const r = await p;
   assert.equal(r.ok, false);
   let killed = null;
   const ex2 = makeExecutor({ spawn: () => { const c = fakeChild({ code: 0 }); killed = c; return c; } });
@@ -288,7 +291,7 @@ test("runScriptNode：超时 → ok:false error=script timeout", async () => {
 ```js
 import { spawn } from "node:child_process";
 const TAIL = 2048;
-const tail = (buf) => buf.length > TAIL ? "…" + buf.slice(-TAIL) : buf;
+const tail = (buf) => buf.slice(-TAIL);   // 评审 R2-1：恰 2048，无省略号前缀
 
 export function makeExecutor({ spawn: sp = spawn, ghBin = null, agentTimeoutMs = 1800000, scriptTimeoutMs = 600000 } = {}) {
   const env = () => ({ ...process.env,
@@ -308,8 +311,10 @@ export function makeExecutor({ spawn: sp = spawn, ghBin = null, agentTimeoutMs =
           : { ok: false, error: "exit " + code + ": " + tail(Buffer.concat(errBuf).toString()), artifacts: [] }));
         timeoutTimer = setTimeout(() => finish({ ok: false, error: "script timeout", artifacts: [] }), scriptTimeoutMs);
       });
-      return { promise, cancel: () => {   // SIGTERM + 5s 兜底 SIGKILL（settle 时 killTimer 一并 clear）
+      return { promise, cancel: () => {   // 评审 R2-1：立即 settle 为 cancelled（后续 close 被 settled 守卫挡掉）；SIGTERM + 5s 兜底 SIGKILL
+        if (settled) return; settled = true; clearTimeout(timeoutTimer); clearTimeout(killTimer);
         try { child.kill("SIGTERM"); killTimer = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, 5000); } catch {}
+        resolve({ ok: false, error: "script cancelled", artifacts: [] });
       } };
     },
   };
@@ -402,7 +407,7 @@ test("runAgentNode：超时 fail-closed", async () => {
 ### Task 6: engine.mjs — 执行环驱动核心
 
 - 目标：startRun（g1 预置 succeeded + clone 首步异步）、dispatch 循环（并发上限/闸门挂起/节点派发）、完成回调（applyFailure/advanceRun + 候选 stage 同步）。
-- 涉及文件：Create `src/engine/engine.mjs`；Modify `src/workflows/builtin.mjs`（build 增 prefix、verify maxAttempts:3、deliver maxAttempts:2）；Test `test/engine.test.mjs`
+- 涉及文件：Create `src/engine/engine.mjs`；Modify `src/workflows/builtin.mjs`（build 增 prefix 与 **maxAttempts:2——评审 R2-4 选项①：覆盖「取消在途 build 后续跑」场景，否则默认 1 使 cancelled 续跑恒 409**、verify maxAttempts:3、deliver maxAttempts:2）；**Modify `src/engine/scheduler.mjs`（advanceRun 回炉源重臂——评审 R2-3：无此授权位次，执行者跑到回炉红测试时无文件依据）**；Test `test/engine.test.mjs`
 - 接口契约：
   - Consumes: scheduler 全导出、store runs CRUD、workspace.ensure、executor.runAgentNode/runScriptNode、GLOSSARY stage 映射（design-v2 §8）
   - Produces: `makeEngine({ store, workspace, executor, template = LOOP_V1, now, concurrencyOf = () => 2 })` → `{ startRun(key, { taskPackage }), dispatch(runId, {resume, resumeSeq}), onNodeDone(runId, nodeId, result), cancelRun(runId, reason), retryNode(runId, nodeId), recover(), dispatchAlive(), hasAliveRun(key) }`；`startRun`：候选存在 404、存活 run 409 run-already-active（`hasAliveRun(key)`）、创建 run（g1 预置 succeeded attempt1、其余 pending、snapshot=template 克隆）→ syncStage→building → 异步 `workspace.ensure` → 成功 appendRunHistory("workspace.cloned", dir+" remote=gh-https"——评审 R1-13) + dispatch；失败 → build 节点 failed(error) + run failed + `workspace.clone-failed` 留痕（评审 R1-14）+ 候选 held（评审 R1-3①：原稿调引擎不存在的 applyFailure——已内联修复）；`dispatch(runId, {resume, resumeSeq})`：非终态时**可调度集 = computeReady ∪ ready（去在途）**（评审 R1-1：advanceRun/applyFailure/reject/recover 产出的是 ready）逐节点派发（在途 < concurrencyOf()）：gate → gateArrive + 候选 gating；agent/script → 节点 running（attempt+1；resume 重派例外不烧 attempt——评审 R1-11）+ 计算 upstream（评审 R1-10：入边源 artifacts/error 提取）+ 起 executor + 登记 in-flight（`${runId}:${nodeId}` → cancel fn）→ 完成回调 onNodeDone；`onNodeDone`：run 已终态则忽略迟到结果；ok → succeeded+artifacts；否则 applyFailure → run failed 时候选 held；saveRun → advanceRun（含回炉源重臂——评审 R1-2，scheduler.mjs 落点见文件结构）→ succeeded 时候选 shipped → dispatch(runId) + dispatchAlive()（并发名额释放后全局拾起其余存活 run 的排队节点）
@@ -488,7 +493,7 @@ test("verify 回炉超限 → run failed + 候选 held（回炉重臂经引擎�
   for (let i = 0; i < 3; i++) {   // 首跑 + 3 次回炉：verify 每次失败 → build 重臂 ready → 引擎自动重派
     assert.equal(nodeState(store, runId, "verify"), "running");
     executor.inflight.get(runId + ":verify").resolve({ ok: false, error: "red", artifacts: [] }); await drain();
-    assert.equal(nodeState(store, runId, "build"), "ready");
+    assert.equal(nodeState(store, runId, "build"), "running");   // 引擎自动重派（评审 R2-5：actual 为 running 非 ready）
     assert.equal(store.getRun(runId).status, "running");
     executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drain();
   }
@@ -669,8 +674,9 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, now
         let touched = false; const ns = { ...run.nodeStates };
         for (const [id, s] of Object.entries(ns)) if (s.status === "running") { ns[id] = { ...s, status: "ready" }; touched = true; }
         if (touched) { const next = { ...run, nodeStates: ns }; store.saveRun(next); store.appendRunHistory(run.id, "resume.interrupted", "host restart"); resumed.push(run.id); }
-        engine.dispatch(run.id, { resume: true, resumeSeq: ++seq });   // 评审 R1-11：resume 重派不烧 attempt，sessionId 追加 :resume<seq> 防撞
       }
+      // 评审 R2-7：先完成全部扫描、循环后统一 resume 派发——避免扫描中途状态翻转，也满足钉例时序
+      for (const id of resumed) engine.dispatch(id, { resume: true, resumeSeq: ++seq });
       return resumed;
     },
   };
@@ -736,7 +742,8 @@ test("retryNode：failed 节点 attempt+1 重投；超限 409", async () => {
   engine.retryNode(runId, "deliver");   // deliver maxAttempts:2，attempt 1→2 ≤ 2
   await Promise.resolve(); await Promise.resolve();
   assert.equal(nodeState(store, runId, "deliver"), "running");
-  assert.throws(() => { store.saveRun({ ...store.getRun(runId), nodeStates: { ...store.getRun(runId).nodeStates, deliver: { status: "failed", attempt: 2, reworkCount: 0, error: "again", artifacts: [] } } }); engine.retryNode(runId, "deliver"); }, /attempt-exhausted/);
+  assert.equal(store.getRun(runId).status, "running");   // 评审 R2-1/R1-4：重试须回 running，否则 dispatch 终态守卫直接 return
+  assert.throws(() => { store.saveRun({ ...store.getRun(runId), status: "failed", nodeStates: { ...store.getRun(runId).nodeStates, deliver: { status: "failed", attempt: 2, reworkCount: 0, error: "again", artifacts: [] } } }); engine.retryNode(runId, "deliver"); }, /attempt-exhausted/);   // 评审 R2-6：夹具须同步 run.status="failed"，否则外层守卫先抛
 });
 ```
 - Run: `npm test 2>&1 | tail -6` — Expected: 若 T6 已含则可能直接绿——本任务允许「测试先行但首跑即绿」，此时如实标注并补跑一遍红演：临时把 retryNode 的 attempt 比较改 `>=` 放回旧实现（外部副本或临时改回）确认红，再复原。以台账记录为准。
@@ -810,7 +817,7 @@ test("run 路由：start 别名链/409/gate/cancel/retry/engine 缺省 503", asy
   assert.equal(store.getRun(r.runId).nodeStates.g2.status, "waiting");
   assert.equal((await h.postRunGate({ runId: r.runId, nodeId: "g2", decision: "pass" })).ok, true);
   await drain();
-  assert.equal((await h.postRunRetry({ runId: r.runId, nodeId: "deliver" })).error, "retry-requires-failed");
+  assert.equal((await h.postRunRetry({ runId: r.runId, nodeId: "deliver" })).error, "retry-requires-failed-or-cancelled");   // 评审 R2-2：deliver 已派发 running，命中外层 run.status 守卫；节点级守卫由 T7 钉例覆盖
   assert.equal((await h.postRunCancel({ runId: r.runId, reason: "test" })).ok, true);
   assert.equal(store.getCandidate("o/r#issue#1").stage, "gating");
   const noEngine = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
