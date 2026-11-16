@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { makeExecutor } from "../src/engine/executor.mjs";
+import { makeExecutor, composeAgentPrompt } from "../src/engine/executor.mjs";
 
 const fakeChild = ({ code = 0 } = {}) => {
   const listeners = {};
@@ -52,4 +52,84 @@ test("runScriptNode：超时 → ok:false error=script timeout", async () => {
   const r = await ex.runScriptNode({ node: { id: "s", script: "sleep 999" }, cwd: "/w" }).promise;
   assert.equal(r.ok, false);
   assert.equal(r.error, "script timeout");
+});
+
+// ---- Task 5：agent 节点执行器（world 注入）与 composeAgentPrompt ----
+const fakeWorld = () => {
+  const w = { events: [], created: [], sent: [], policies: [], cwds: [], sessionId: null,
+    onSessionEvent: (fn) => { w.events.push(fn); return () => {}; },
+    createAgent: async (sessionId, opts) => { w.created.push({ sessionId, opts }); w.sessionId = sessionId;
+      const agent = { send: async (msg) => w.sent.push({ sessionId, msg }), cancel: async (c) => { w.cancelled = c; } };
+      w.agent = agent;
+      return { agent, dispose: () => { w.disposed = true; } }; },
+    userMessage: (text) => ({ text }),
+    sleep: () => Promise.resolve(),
+    setPolicy: (agent, p) => w.policies.push(p),
+    setWorkingDirectory: (agent, cwd) => w.cwds.push(cwd),
+    finish: (kind) => w.events.forEach((fn) => fn(w.sessionId, { type: "turn/end", data: { reason: { kind } } })),
+  };
+  return w;
+};
+const agentRun = (attempt = 0) => ({ id: "r1", nodeStates: { build: { attempt } }, snapshot: { nodes: [], edges: [] } });
+
+test("composeAgentPrompt：prefix + 任务包 + 上游段", () => {
+  const p = composeAgentPrompt({ prefix: "纪律句", taskPackage: { kind: "dsh-l.task-package", instructions: { goal: "g" } }, upstream: [{ node: "verify", text: "2 failed" }] });
+  assert.ok(p.startsWith("纪律句"));
+  assert.ok(p.includes("dsh-l.task-package"));
+  assert.ok(p.includes("上游节点输出"));
+  assert.ok(p.includes("verify"));
+  assert.equal(composeAgentPrompt({ prefix: "", taskPackage: { a: 1 } }).includes("上游节点输出"), false);
+});
+test("runAgentNode：completed → ok；auto→never 映射；cwd 注入；成功不 dispose；sessionId :1", async () => {
+  const w = fakeWorld();
+  const ex = makeExecutor({ world: w, spawn: () => fakeChild() });
+  const node = { id: "build", type: "agent", executionPolicy: "auto", prefix: "纪律句" };
+  const { promise } = ex.runAgentNode({ run: agentRun(0), node, cwd: "/ws", taskPackage: { kind: "dsh-l.task-package" }, upstream: [] });
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  w.finish("completed");
+  const r = await promise;
+  assert.equal(r.ok, true);
+  assert.equal(w.policies[0], "never");
+  assert.deepEqual(w.cwds, ["/ws"]);
+  assert.equal(w.disposed, undefined);
+  assert.match(w.created[0].sessionId, /^dsh-l:run:r1:build:1$/);
+  assert.ok(w.sent[0].msg.text.includes("纪律句"));
+});
+test("runAgentNode：非 completed fail-closed 且 dispose", async () => {
+  const w = fakeWorld();
+  const ex = makeExecutor({ world: w, spawn: () => fakeChild() });
+  const { promise } = ex.runAgentNode({ run: agentRun(), node: { id: "build", type: "agent", executionPolicy: "ask" }, cwd: "/ws", taskPackage: {}, upstream: [] });
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  w.finish("blocked");
+  const r = await promise;
+  assert.equal(r.ok, false);
+  assert.match(r.error, /turn-end:blocked/);
+  assert.equal(w.disposed, true);
+});
+test("runAgentNode：cancel → dispose + cancelled", async () => {
+  const w = fakeWorld();
+  const ex = makeExecutor({ world: w, spawn: () => fakeChild() });
+  const { promise, cancel } = ex.runAgentNode({ run: agentRun(), node: { id: "build", type: "agent", executionPolicy: "ask" }, cwd: "/ws", taskPackage: {}, upstream: [] });
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  cancel();
+  const r = await promise;
+  assert.equal(r.ok, false);
+  assert.match(r.error, /cancelled/);
+  assert.equal(w.disposed, true);
+});
+test("runAgentNode：超时 fail-closed", async () => {
+  const w = fakeWorld();
+  const ex = makeExecutor({ world: w, spawn: () => fakeChild(), agentTimeoutMs: 20 });
+  const r = await ex.runAgentNode({ run: agentRun(), node: { id: "build", type: "agent", executionPolicy: "ask" }, cwd: "/ws", taskPackage: {}, upstream: [] }).promise;
+  assert.equal(r.ok, false);
+  assert.equal(r.error, "timeout");
+});
+test("runAgentNode：resume/resumeSeq → sessionId 追加 :resume<seq> 且 attempt 不加一（评审 R1-11）", async () => {
+  const w = fakeWorld();
+  const ex = makeExecutor({ world: w, spawn: () => fakeChild() });
+  const { promise } = ex.runAgentNode({ run: { id: "r9", nodeStates: { build: { attempt: 2 } }, snapshot: { nodes: [], edges: [] } }, node: { id: "build", type: "agent", executionPolicy: "ask" }, cwd: "/ws", taskPackage: {}, upstream: [], resume: true, resumeSeq: 2 });
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  w.finish("completed");
+  await promise;
+  assert.equal(w.created[0].sessionId, "dsh-l:run:r9:build:2:resume2");
 });
