@@ -151,3 +151,16 @@ coordinator adapter（会话协调者，role→派发缝）、sub-SOP / preview-
 - **M3 看板 + 待我确认 + 飞书通知 + 角标**：纯 UI/通知层，i18n parity + 逻辑单测。
 - **M4 Role 入册 + 任务包 v2 + devflow-lite**：store.roles、双 golden、第二个内置模板（非线性验证用例）。
 - 每里程碑独立验证闸；`npm test` 全绿 + package-shape + 装机冒烟（049 runbook）为通用收口。
+
+## 12. M2 补钉（2026-11-17 grill 定稿，Q1–Q8 全按推荐；§4/§5/§7/§9 未重开部分以此节为准细则化）
+
+1. **恢复语义（Q1）**：引擎装配时扫描 run.status∈running/waiting 的 run——running 节点置回 ready + run.history 记 `resume.interrupted`（attempt 槽位已消耗不再 +1，防静默烧穿 maxAttempts）；waiting 闸门照旧等待。自愈式，无新状态枚举。
+2. **run/start 异步（Q2）**：路由立即返回 `{runId, workspace:"cloning"}`；工作区 clone 是引擎首步，build 节点 clone 完成后才 ready；clone 失败 → run failed（error 落 run.history）。
+3. **G1 与 run（Q3）**：run 创建时 g1 节点预置 succeeded（其余 pending）；v1 `postGate(G1,pass)` 语义保留为 run/start 别名（任务包生成 + stage→building + 创建 run）；G1 reject 沿 v1 路径（候选回 triaged，无 run）——§4「G1 reject 取消 run」仅存在于理论路径。
+4. **prompt 组成（Q4）**：executor 统一组装 = builtin 节点 `prefix` 字段（简短纪律前缀，固定 zh-CN）+ 任务包 JSON（v1 golden 形状全量）+ 上游工件摘要（无则省略）；builtin.build 不携带大段 prompt；M4 Role 注册表落地时 prefix 换 roleId 引用。
+5. **git 凭据（Q5）**：纯 gh 路线——clone 用 `gh repo clone <repo> <dir>`（https + gh 凭据 helper，PATH 注入 ghBin），push 靠同一 helper；任务包 `repo.cloneUrl`（ssh 地址）保持 golden 原样不动，执行器在 run.history 记实际 remote。
+6. **最小 UI（Q7）**：清单行展开区增 run 区块（在途节点/状态/error/取消/重试按钮）；G2 按钮从恒禁用改为 run.waitingGate==="g2" 时可操作；工作流条环内节点按 run 节点状态着色（替代 M1 恒灰）。三视图/看板/待我确认/角标仍 M3；本节新增 i18n 键（zh/en 双字典 + parity 测试）。
+7. **再入环（Q8）**：failed/cancelled run → `run/retry` 同 run 重试失败节点（attempt+1 ≤ maxAttempts）；终态 run 允许完整重开——候选 held→gating 人工迁移后再点 G1 → 新 run（g1 再预置 succeeded，attempt/rework 清零，工作区沿用不回退）；run 存活（running/waiting）时 start 仍 409 run-already-active。
+8. **backlog 折叠（Q6）**：F1 workbench:159 注释清理、F2 校验器强制「非 G1 gate 必带 rejectTarget」、F3 loader 环检测、F4 迁移区外无条件 `doc.runs ??= {}` 回填、F5 `onFailure:"hold"` 钉例——全部进 M2 计划；docs 类变更自 M2 起独立 chore/docs commit。
+9. **settings 扩展**：`settings` 增 `engineConcurrency`（默认 2，PUT 校验 1..4）与 `workspaceRetentionDays`（默认 7，PUT 校验 1..90）；旧档 `??=` 回填；settings 面板 UI 不动（PUT 可用即可，UI 后续里程碑）。
+10. **路由适配（实现期勘定）**：宿主 `webServer.register` 仅有 exact 路径、`makeHttpHandler` 的 GET 回调只收 body 不收 req——`GET /dsh-l/run/:id` 参数路由不可落地；run 详情（含失败 error）改由 `state.runs` 摘要承载（`summarizeRun` 增 `error` 字段 = 首个 failed 节点的 error），POST 四路由（start/gate/cancel/retry）形状不变。
