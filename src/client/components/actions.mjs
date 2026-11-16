@@ -106,7 +106,7 @@ export function installActions({ getLang }) {
     intake(container, { t, state, view }) {
       container.append(btn(t("watchedRepos"), () => openRepoPicker(view.shadow, { t, current: state?.watch?.repos ?? [], onSaved: () => view.refresh() })));
     },
-    strip(container, { t, state }) { renderStrip(container, { t, candidates: state?.candidates ?? [] }); },
+    strip(container, { t, state }) { renderStrip(container, { t, candidates: state?.candidates ?? [], workflow: state?.workflow }); },
     bar(bar, { t, state, filters, view }) {
       const keys = pickTriageBatch(state?.candidates ?? [], filters);
       bar.append(btn(t("actions.triageBatch") + " (" + keys.length + ")", () => run(view)(() => api.triage(keys, getLang())), keys.length === 0));

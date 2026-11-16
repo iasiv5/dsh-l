@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { groupCandidates, filterCandidates, pickTriageBatch, gateState, stageCounts, settingsPatch } from "../src/client/logic.mjs";
+import { stripCells } from "../src/client/logic.mjs";
+import { LOOP_V1 } from "../src/workflows/builtin.mjs";
 
 const t = (k) => k;
 let seq = 0;
@@ -41,4 +43,19 @@ test("settingsPatch：下拉未变不提交 triageModel；改为跟随 → null�
   assert.deepEqual(settingsPatch(initial, { intervalMinutes: 10, modelValue: "" }), { intervalMinutes: 10, triageModel: null });
   assert.deepEqual(settingsPatch(initial, { intervalMinutes: 10, modelValue: "p2\nm2" }), { intervalMinutes: 10, triageModel: { provider: "p2", model: "m2" } });
   assert.deepEqual(settingsPatch({ intervalMinutes: 0, triageModel: null }, { intervalMinutes: 0, modelValue: "" }), { intervalMinutes: 0 });
+});
+
+test("stripCells：前环计数 + 环内模板节点全灰", () => {
+  const out = stripCells({ candidates: [{ stage: "inbox" }, { stage: "triaged" }], workflow: { templates: [LOOP_V1] } });
+  assert.deepEqual(out.pre.map((c) => c.key), ["ingest", "backlog", "triage", "feedback"]);
+  assert.equal(out.pre[0].count, 2);   // stageCounts.ingest = all.length（logic.mjs:38，评审 R5 采纳）
+  assert.equal(out.pre[1].count, 1);   // backlog = stage==="inbox" 计数（logic.mjs:39）
+  assert.equal(out.fallback, false);
+  assert.deepEqual(out.loop.map((n) => n.id), ["g1", "build", "verify", "g2", "deliver"]);
+  assert.ok(out.loop.every((n) => n.dim === true));   // M1 无执行器，环内恒灰
+});
+test("stripCells：无 workflow meta 回退旧 7 段", () => {
+  const out = stripCells({ candidates: [], workflow: null });
+  assert.equal(out.fallback, true);
+  assert.deepEqual(out.loop, []);
 });
