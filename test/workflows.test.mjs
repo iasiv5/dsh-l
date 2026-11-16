@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { validateTemplate, computeRevision } from "../src/workflows/validate.mjs";
+import { LOOP_V1 } from "../src/workflows/builtin.mjs";
 
 const okT = { id: "t1", name: "T1", version: 1, builtin: false,
   nodes: [ { id: "g1", name: "G1", type: "gate", gateId: "G1", rejectTarget: null },
@@ -30,4 +31,21 @@ test("revision 稳定且内容敏感", () => {
   assert.match(a, /^[0-9a-f]{40}$/);
   // 顶层键重排不换指纹（评审 R13 采纳：stable stringify）
   assert.equal(computeRevision({ edges: okT.edges, nodes: okT.nodes, builtin: false, version: 1, name: "T1", id: "t1" }), a);
+});
+
+test("loop-v1 golden：形状锁", () => {
+  assert.equal(LOOP_V1.id, "loop-v1");
+  assert.equal(LOOP_V1.builtin, true);
+  assert.deepEqual(LOOP_V1.nodes.map((n) => n.id), ["g1", "build", "verify", "g2", "deliver"]);
+  assert.deepEqual(LOOP_V1.nodes.map((n) => n.type), ["gate", "agent", "script", "gate", "script"]);
+  const byId = Object.fromEntries(LOOP_V1.nodes.map((n) => [n.id, n]));
+  assert.equal(byId.g1.gateId, "G1");
+  assert.equal(byId.build.executionPolicy, "auto");
+  assert.equal(byId.verify.maxReworks, 3);
+  assert.equal(byId.g2.gateId, "G2");
+  assert.equal(byId.g2.rejectTarget, "build");
+  assert.deepEqual(LOOP_V1.edges.map((e) => [e.source, e.target, e.kind]),
+    [["g1","build","success"],["build","verify","success"],["verify","build","rework"],["verify","g2","success"],["g2","deliver","success"]]);
+  assert.equal(validateTemplate(LOOP_V1).ok, true);
+  assert.match(LOOP_V1.revision, /^[0-9a-f]{40}$/);
 });
