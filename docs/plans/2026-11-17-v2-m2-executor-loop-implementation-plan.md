@@ -299,9 +299,10 @@ export function makeExecutor({ spawn: sp = spawn, ghBin = null, agentTimeoutMs =
     GIT_TERMINAL_PROMPT: "0" });
   return {
     runScriptNode({ node, cwd }) {
-      let child; let settled = false; let timeoutTimer = null; let killTimer = null;
+      let child; let settled = false; let timeoutTimer = null; let killTimer = null; let resolveRef = null;   // 评审 R3-4：resolve 提升到 cancel 作用域
       const outBuf = []; const errBuf = [];
       const promise = new Promise((resolve) => {
+        resolveRef = resolve;
         const finish = (r) => { if (!settled) { settled = true; clearTimeout(timeoutTimer); clearTimeout(killTimer); resolve(r); } };
         child = sp(node.script, { shell: true, cwd, env: env() });
         child.stdout?.on?.("data", (b) => outBuf.push(b));
@@ -314,7 +315,7 @@ export function makeExecutor({ spawn: sp = spawn, ghBin = null, agentTimeoutMs =
       return { promise, cancel: () => {   // 评审 R2-1：立即 settle 为 cancelled（后续 close 被 settled 守卫挡掉）；SIGTERM + 5s 兜底 SIGKILL
         if (settled) return; settled = true; clearTimeout(timeoutTimer); clearTimeout(killTimer);
         try { child.kill("SIGTERM"); killTimer = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, 5000); } catch {}
-        resolve({ ok: false, error: "script cancelled", artifacts: [] });
+        resolveRef({ ok: false, error: "script cancelled", artifacts: [] });   // 评审 R3-4：经提升后的 resolveRef
       } };
     },
   };
@@ -667,16 +668,18 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, now
       store.saveRun(next); syncStage(next.candidateKey, next); engine.dispatch(runId);
     },
     recover() {
+      const scanned = [];   // 评审 R3-2：全部存活 run 都重派——防「进程死在 onNodeDone 的 saveRun 与 dispatch 之间」的静默卡死
       const resumed = [];
       let seq = 0;
       for (const run of store.listRuns()) {
         if (!["running", "waiting"].includes(run.status)) continue;
+        scanned.push(run.id);
         let touched = false; const ns = { ...run.nodeStates };
         for (const [id, s] of Object.entries(ns)) if (s.status === "running") { ns[id] = { ...s, status: "ready" }; touched = true; }
         if (touched) { const next = { ...run, nodeStates: ns }; store.saveRun(next); store.appendRunHistory(run.id, "resume.interrupted", "host restart"); resumed.push(run.id); }
       }
       // 评审 R2-7：先完成全部扫描、循环后统一 resume 派发——避免扫描中途状态翻转，也满足钉例时序
-      for (const id of resumed) engine.dispatch(id, { resume: true, resumeSeq: ++seq });
+      for (const id of scanned) engine.dispatch(id, { resume: true, resumeSeq: ++seq });
       return resumed;
     },
   };
@@ -694,7 +697,7 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, now
 - 涉及文件：Modify `src/engine/engine.mjs`（若 T6 已含则本任务为钉例补全）；Test `test/engine.test.mjs`
 - 接口契约：
   - Consumes: Task 6 makeEngine、scheduler.cancelRun/applyGateDecision
-  - Produces: 钉例①取消：agent 在途时 engine.cancelRun → executor cancel 被调用 + run cancelled + 候选 gating；钉例②retry：failed run → retryNode → attempt+1 → ready 且 **run.status 回 running**（评审 R1-4：否则 dispatch 终态守卫直接 return）；钉例③attempt 超限 409 attempt-exhausted；钉例④cancelled run retry：cancelled 节点回 pending、run 回 running（评审 R1-9 / D7 两态承诺）
+  - Produces: 钉例①取消：agent 在途时 engine.cancelRun → executor cancel 被调用 + run cancelled + 候选 gating；钉例②retry：failed run → retryNode → attempt+1 → ready 且 **run.status 回 running**（评审 R1-4：否则 dispatch 终态守卫直接 return）；钉例③attempt 超限 409 attempt-exhausted；钉例④cancelled run retry：cancelled 节点回 pending、run 回 running（评审 R1-9 / D7 两态承诺）；钉例⑤failed run 上重试 succeeded 节点 → 节点级守卫 409 retry-requires-failed（评审 R3-3：节点级守卫覆盖补全）
 - 验证范围：`npm test`（engine 段）
 
 - [ ] Step 1: 追加失败测试
@@ -724,6 +727,20 @@ test("cancelled run 的 retry：cancelled 节点回 pending 续跑（评审 R1-9
   await drain();
   assert.equal(store.getRun(runId).status, "running");
   assert.equal(store.getRun(runId).nodeStates.build.status, "running");
+});
+test("retryNode⑤：failed run 上重试 succeeded 节点 → 节点级守卫 409（评审 R3-3）", async () => {
+  const { store, engine, executor } = setup();
+  const key = "o/r#issue#1";
+  const { runId } = engine.startRun(key, {});
+  const drain = async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
+  await drain();
+  executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":verify").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  engine.applyGateDecision(runId, "g2", "pass"); await drain();
+  executor.inflight.get(runId + ":deliver").resolve({ ok: false, error: "push rejected", artifacts: [] }); await drain();
+  assert.equal(store.getRun(runId).status, "failed");
+  assert.equal(nodeState(store, runId, "verify"), "succeeded");
+  assert.throws(() => engine.retryNode(runId, "verify"), /retry-requires-failed/);   // 节点级守卫：verify 非 failed/cancelled
 });
 test("retryNode：failed 节点 attempt+1 重投；超限 409", async () => {
   const { store, engine, executor } = setup();
@@ -773,7 +790,7 @@ test("recover：running→ready 不烧 attempt + 留痕 + 重新派发", async (
   engine.simulateRestart();   // 模拟宿主重启：丢弃内存 in-flight（评审 R1-17：测试代码显式调用）
   const resumed = engine.recover();
   assert.ok(resumed.includes(runId));
-  assert.equal(store.getRun(runId).nodeStates.build.status, "ready");
+  // ready 中间态不可观测：recover 返回前 resume 派发已同步执行（评审 R3-1），故不断言 ready、直接断言 running 后状态
   assert.equal(store.getRun(runId).nodeStates.build.attempt, before);      // 评审 R1-11：恢复重派不烧 attempt
   assert.equal(store.getRun(runId).history.at(-1).event, "resume.interrupted");
   await drain();
