@@ -290,3 +290,58 @@ test("postAuthLogout：只清绑定，watch/设置保留；refresh 重新 401", 
   assert.deepEqual(store.getWatch().repos, ["o/good"]);
   assert.equal(store.getSettings().intervalMinutes, 0);
 });
+
+// ---- Task 9：run 四路由 + postGate 别名（engine 真 makeEngine + fake workspace/executor）----
+const fakeRunWorkspace = () => ({ ensure: async () => ({ dir: "/ws", cloned: false }), dirOf: () => "/ws", sweep: async () => ({ removed: [] }) });
+const fakeRunExecutor = () => {
+  const inflight = new Map();
+  const exe = { inflight,
+    runAgentNode(args) { const { run, node } = args; const key = run.id + ":" + node.id; const entry = {}; inflight.set(key, entry);
+      const promise = new Promise((resolve) => { entry.resolve = (r) => { inflight.delete(key); resolve(r); }; });
+      return { promise, cancel: () => entry.resolve({ ok: false, error: "cancelled" }) }; },
+    runScriptNode(args) { return exe.runAgentNode(args); } };
+  return exe;
+};
+const drainRun = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
+
+test("run 路由：start 链/409/gate/cancel/retry/engine 缺省 503", async () => {
+  const store = openStore(); login(store); seed(store);
+  store.setRepoFacts("o/r", { defaultBranch: "trunk", cloneUrl: "git@github.com:o/r.git" });
+  const { makeEngine } = await import("../src/engine/engine.mjs");
+  const { makeWorkspace } = await import("../src/engine/workspace.mjs");
+  const { makeExecutor } = await import("../src/engine/executor.mjs");
+  const executor = fakeRunExecutor();
+  const engine = makeEngine({ store, workspace: makeWorkspace({ dataDir: mkdtempSync(join(tmpdir(), "dsh-l-rt-")), execFile: async () => {} }),
+    executor, concurrencyOf: () => 2 });
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine });
+  assert.equal((await h.postRunStart({ key: "o/r#issue#1" })).error, "gate-requires-gating");
+  await h.postStage({ key: "o/r#issue#1", stage: "gating" });
+  const r = await h.postRunStart({ key: "o/r#issue#1" });
+  assert.ok(r.runId); assert.equal(r.workspace, "cloning"); assert.equal(r.taskPackage.kind, "dsh-l.task-package");
+  assert.ok(store.getCandidate("o/r#issue#1").taskPackage);   // 评审 R1-16：pkg 落库（引擎读它组装 prompt）
+  assert.equal((await h.postRunStart({ key: "o/r#issue#1" })).error, "run-already-active");
+  await drainRun();
+  executor.inflight.get(r.runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drainRun();
+  executor.inflight.get(r.runId + ":verify").resolve({ ok: true, error: null, artifacts: [] }); await drainRun();
+  assert.equal(store.getRun(r.runId).nodeStates.g2.status, "waiting");
+  assert.equal((await h.postRunGate({ runId: r.runId, nodeId: "g2", decision: "pass" })).ok, true);
+  await drainRun();
+  assert.equal((await h.postRunRetry({ runId: r.runId, nodeId: "deliver" })).error, "retry-requires-failed-or-cancelled");   // 评审 R2-2
+  assert.equal((await h.postRunCancel({ runId: r.runId, reason: "test" })).ok, true);
+  assert.equal(store.getCandidate("o/r#issue#1").stage, "gating");
+  const noEngine = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
+  assert.equal((await noEngine.postRunStart({ key: "o/r#issue#1" })).error, "engine-not-wired");
+});
+test("postGate 别名：G1 pass 追加 runId 并创建 run", async () => {
+  const store = openStore(); login(store); seed(store);
+  const { makeEngine } = await import("../src/engine/engine.mjs");
+  const { makeWorkspace } = await import("../src/engine/workspace.mjs");
+  const { makeExecutor } = await import("../src/engine/executor.mjs");
+  const engine = makeEngine({ store, workspace: fakeRunWorkspace(), executor: fakeRunExecutor(), concurrencyOf: () => 2 });
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine });
+  await h.postStage({ key: "o/r#issue#1", stage: "gating" });
+  const r = await h.postGate({ key: "o/r#issue#1", gate: "G1", decision: "pass", note: "" });
+  assert.ok(r.taskPackage); assert.ok(r.runId);
+  assert.equal(store.getRun(r.runId).nodeStates.g1.status, "succeeded");
+  assert.equal(store.getCandidate("o/r#issue#1").stage, "building");
+});

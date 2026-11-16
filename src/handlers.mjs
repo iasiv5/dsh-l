@@ -42,7 +42,7 @@ export function buildTaskPackage(candidate, repoInfo = null, now = () => new Dat
   };
 }
 
-export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null, workflowCatalog = { templates: [], warnings: [] } }) {
+export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null, workflowCatalog = { templates: [], warnings: [] }, engine = null }) {
   const token = () => provider.resolveToken({ credentials, tokenRef, execFile, ghPath: ghBin });
   // 收活闸门：未绑定 GitHub 账号前，仓库勾选与摄取一律拒绝（design.md §4）。
   const requireAuth = () => (store.getAuth()?.account ? null : fail("auth-required", 401));
@@ -240,11 +240,55 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
         const pkg = buildTaskPackage(c, store.getRepoFacts(c.repo), now);
         store.setGate(key, "G1", "pass", note ?? "", pkg, "workbench-ui");
         store.setStage(key, "building", "G1 pass");
+        // M2 别名（design-v2 §12.3）：G1 放行即建 run；pkg 已由上方 setGate 落库（评审 R1-16）。
+        if (engine) {
+          try {
+            const { runId } = engine.startRun(key, { taskPackage: pkg });
+            return { ok: true, taskPackage: pkg, runId };
+          } catch (e) { return fail(String(e?.message ?? e), e?.status ?? 400); }
+        }
         return { ok: true, taskPackage: pkg };
       }
       store.setGate(key, "G1", "reject", note ?? "", null, "workbench-ui");
       store.setStage(key, "triaged", "G1 reject");
       return { ok: true, taskPackage: null };
+    },
+    // ---- M2 run 路由（design-v2 §7/§12）：全部走收活闸门 + engine 门槛（未装配 503）。 ----
+    async postRunStart(body) {
+      if (!engine) return fail("engine-not-wired", 503);
+      const gate = requireAuth(); if (gate) return gate;
+      const key = body?.key;
+      const c = store.getCandidate(key);
+      if (!c) return fail("not found", 404);
+      if (engine.hasAliveRun(key)) return fail("run-already-active", 409);   // 评审 R1-5：先于闸门校验
+      if (c.stage !== "gating") return fail("gate-requires-gating", 409);
+      const pkg = buildTaskPackage(c, store.getRepoFacts(c.repo), now);
+      store.setGate(key, "G1", "pass", body?.note ?? "", pkg, "workbench-ui");
+      store.setStage(key, "building", "G1 pass");
+      try {
+        const { runId } = engine.startRun(key, { taskPackage: pkg });
+        return { ok: true, taskPackage: pkg, runId, workspace: "cloning" };
+      } catch (e) { return fail(String(e?.message ?? e), e?.status ?? 400); }
+    },
+    async postRunGate(body) {
+      if (!engine) return fail("engine-not-wired", 503);
+      const gate = requireAuth(); if (gate) return gate;
+      const { runId, nodeId, decision, note, targetNode } = body ?? {};
+      if (!["pass", "reject"].includes(decision)) return fail("invalid gate");
+      try { engine.applyGateDecision(runId, nodeId, decision, targetNode ?? null); return { ok: true }; }
+      catch (e) { return fail(String(e?.message ?? e), e?.status ?? 400); }
+    },
+    async postRunCancel(body) {
+      if (!engine) return fail("engine-not-wired", 503);
+      const gate = requireAuth(); if (gate) return gate;
+      try { engine.cancelRun(body?.runId, body?.reason ?? "user"); return { ok: true }; }
+      catch (e) { return fail(String(e?.message ?? e), e?.status ?? 400); }
+    },
+    async postRunRetry(body) {
+      if (!engine) return fail("engine-not-wired", 503);
+      const gate = requireAuth(); if (gate) return gate;
+      try { engine.retryNode(body?.runId, body?.nodeId); return { ok: true }; }
+      catch (e) { return fail(String(e?.message ?? e), e?.status ?? 400); }
     },
     async getSettings() { return store.getSettings(); },
     async putSettings(body) {

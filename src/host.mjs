@@ -6,6 +6,9 @@ import { runTriage, resolveTriageSelection } from "./triage.mjs";
 import { dataDir } from "./paths.mjs";
 import { createStore } from "./store.mjs";
 import { loadTemplates } from "./workflows/loader.mjs";
+import { makeWorkspace } from "./engine/workspace.mjs";
+import { makeExecutor } from "./engine/executor.mjs";
+import { makeEngine } from "./engine/engine.mjs";
 import * as github from "./github.mjs";
 import { makeHandlers } from "./handlers.mjs";
 import { createTrustGuard, makeHttpHandler } from "./http.mjs";
@@ -16,7 +19,9 @@ const BUILD = typeof __DSH_L_BUILD__ === "string" ? __DSH_L_BUILD__ : "dev";
 const UNWIRED = { runTriage: async () => ({ updated: [], failed: "triage-not-wired" }) };
 
 export const name = "dsh-l";
-export const inject = ["webServer", "credentials", "agents", "agentDefaultModel", "timer", "llm"];
+// 评审 R1-12：approval/workingDirectory 为 runtime rc.2/rc.3 的 cordis 声明式服务（类型声明实证），
+// M2 执行器的审批策略与工作目录注入依赖二者——不声明 inject 则 ctx 访问即抛错（fail-fast，非静默降级）。
+export const inject = ["webServer", "credentials", "agents", "agentDefaultModel", "timer", "llm", "approval", "workingDirectory"];
 
 const makeTriage = (ctx, dir) => {
   const world = {
@@ -37,9 +42,30 @@ const makeTriage = (ctx, dir) => {
   return { runTriage: (params) => runTriage(world, params) };
 };
 
+// M2 执行器 world（makeTriage 同款 + 审批/工作目录直调——inject 已声明，缺失会在激活期抛错而非静默）。
+const makeExecWorld = (ctx, dir) => ({
+  async createAgent(sessionId, { model } = {}) {
+    const configured = resolveTriageSelection(model, ctx.agentDefaultModel?.currentSelection?.() ?? { provider: "", model: "" });
+    return ctx.agents.create({
+      sessionId,
+      meta: { cwd: dir },
+      agentOptions: configured,
+      setup: (_agentCtx, agent) => { agent.model?.select?.(configured); },
+    });
+  },
+  onSessionEvent: (handler) => ctx.on("session/event", (session, event) => handler(String(session?.id ?? ""), event)),
+  userMessage: (text) => ({ id: randomUUID(), role: "user", content: [{ type: "text", text }], source: { kind: "user" } }),
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+  setPolicy: (agent, policy) => ctx.approval.setPolicy(agent, policy),
+  setWorkingDirectory: (agent, cwd) => ctx.workingDirectory.set(agent, cwd),
+});
+
 export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () => [], hostDefault = () => null, onSettingsChange } = {}) {
   const dir = dataDir();
   const store = createStore({ filePath: join(dir, "store.json") });
+  const workspace = makeWorkspace({ dataDir: dir, ghBin: join(dir, "bin", "gh"), execFile });
+  const executor = makeExecutor({ world: makeExecWorld(ctx, dir), spawn: spawnCb, ghBin: join(dir, "bin", "gh") });
+  const engine = makeEngine({ store, workspace, executor, concurrencyOf: () => store.getSettings().engineConcurrency ?? 2 });
   const handlers = makeHandlers({
     store, provider: github,
     triage: makeTriage ? makeTriage(ctx, dir) : UNWIRED,
@@ -48,6 +74,7 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     ghBin: join(dir, "bin", "gh"), ghTmp: join(dir, "tmp"), spawn: spawnCb,
     // M1 启动时读一次模板目录（内置 loop-v1 + workflows/*.json）；用户模板改动重启生效——design-v2 §3。
     workflowCatalog: loadTemplates({ dataDir: dir }),
+    engine,
   });
   const table = {
     "/dsh-l/health": { GET: async () => ({ ok: true, name, build: BUILD, dataDir: dir }) },
@@ -59,6 +86,10 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     "/dsh-l/candidate/override": { POST: handlers.postOverride },
     "/dsh-l/candidate/stage": { POST: handlers.postStage },
     "/dsh-l/candidate/gate": { POST: handlers.postGate },
+    "/dsh-l/run/start": { POST: handlers.postRunStart },
+    "/dsh-l/run/gate": { POST: handlers.postRunGate },
+    "/dsh-l/run/cancel": { POST: handlers.postRunCancel },
+    "/dsh-l/run/retry": { POST: handlers.postRunRetry },
     "/dsh-l/auth": { GET: handlers.getAuth },
     "/dsh-l/auth/bind": { POST: handlers.postAuthBind },
     "/dsh-l/auth/logout": { POST: handlers.postAuthLogout },
@@ -67,7 +98,7 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     "/dsh-l/settings": { GET: handlers.getSettings, PUT: handlers.putSettings },
     "/dsh-l/models": { GET: handlers.getModels },
   };
-  return { dir, store, handlers, table };
+  return { dir, store, handlers, table, workspace, engine };
 }
 
 export function apply(ctx, config = {}) {
@@ -86,6 +117,15 @@ export function apply(ctx, config = {}) {
       return s ? { provider: s.provider, model: s.model } : null;
     };
     const runtime = buildRuntime(ctx, config, { makeTriage, listCatalog, hostDefault, onSettingsChange: () => poll?.rearm() });
+    // 恢复扫描（design-v2 §12.1）：宿主/插件启动一次性——running→ready + resume 重派（不烧 attempt）。
+    try { runtime.engine.recover(); } catch (err) { (ctx.logger ?? console).warn?.("[dsh-l] recover:", err); }
+    let sweeper = null;   // 保留期清扫（design-v2 §5）：每日一次，非活跃且超期的工作区递归删除。
+    sweeper = ctx.interval(() => {
+      try {
+        const active = runtime.store.listRuns().filter((r) => ["running", "waiting"].includes(r.status)).map((r) => r.candidateKey);
+        runtime.workspace.sweep({ activeKeys: active, retentionDays: runtime.store.getSettings().workspaceRetentionDays });
+      } catch (e) { (ctx.logger ?? console).warn?.("[dsh-l] workspace sweep:", e); }
+    }, 24 * 60 * 60000);
     poll = armInterval({
       interval: (callback, delay) => ctx.interval(callback, delay),
       getMinutes: () => runtime.store.getSettings().intervalMinutes,
@@ -96,6 +136,7 @@ export function apply(ctx, config = {}) {
       ctx.webServer.register({ kind: "exact", path, handler: makeHttpHandler({ methods, trust }) }));
     return () => {
       poll.dispose();
+      try { sweeper?.dispose?.(); } catch {}
       for (const d of disposers) { try { d?.(); } catch {} }
     };
   }, "dsh-l:runtime");
