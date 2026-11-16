@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { createStore, DEFAULT_WATCH_REPOS, candidateKey } from "../src/store.mjs";
+import { createStore, DEFAULT_WATCH_REPOS, candidateKey, makeRunId } from "../src/store.mjs";
 
 const open = () => createStore({ filePath: join(mkdtempSync(join(tmpdir(), "dsh-l-")), "store.json") });
 const raw = (n) => ({
@@ -150,4 +150,23 @@ test("新候选与新档自带 v2 字段", () => {
   s.upsertCandidates([raw(9)]);
   const c = s.getCandidate(candidateKey("iasiv5/dsh-skins", "issue", 9));
   assert.equal(c.currentRunId, null); assert.equal(c.release, null); assert.equal(c.delivery, null);
+});
+
+test("runs CRUD：createRun 指针与留痕、saveRun 刷新、history FIFO", () => {
+  const s = open(); s.upsertCandidates([raw(3)]);
+  const key = candidateKey("iasiv5/dsh-skins", "issue", 3);
+  const id = makeRunId();
+  assert.match(id, /^run-\d+-[0-9a-f]{4}$/);
+  s.createRun({ id, candidateKey: key, templateId: "loop-v1", templateRevision: "r1",
+    snapshot: { nodes: [], edges: [] }, nodeStates: {}, status: "running",
+    cancelReason: null, createdAt: "2026-11-16T00:00:00Z", updatedAt: "2026-11-16T00:00:00Z", history: [] });
+  assert.equal(s.getCandidate(key).currentRunId, id);
+  const run = s.getRun(id);
+  s.saveRun({ ...run, status: "succeeded" });
+  assert.equal(s.getRun(id).status, "succeeded");
+  for (let i = 0; i < 102; i++) s.appendRunHistory(id, "e" + i, "");
+  assert.equal(s.getRun(id).history.length, 100);
+  assert.equal(s.getRun(id).history[99].event, "e101");
+  assert.equal(s.getRun("nope"), null);
+  assert.throws(() => s.createRun({ id, candidateKey: key }), /exists/);
 });

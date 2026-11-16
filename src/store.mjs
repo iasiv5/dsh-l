@@ -1,4 +1,5 @@
 import { readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { dirname, join } from "node:path";
 
 export const DEFAULT_WATCH_REPOS = [
@@ -9,8 +10,13 @@ export const DEFAULT_WATCH_REPOS = [
 ];
 const HISTORY_LIMIT = 50;
 const INGEST_LOG_LIMIT = 50;
+const RUN_HISTORY_LIMIT = 100;
 
 export const candidateKey = (repo, type, number) => repo + "#" + type + "#" + number;
+
+// runId（design-v2 §2）：run-<epochMs>-<4hex>——调用方注入 now 以便测试确定性。
+export const makeRunId = (now = () => new Date()) =>
+  "run-" + now().getTime() + "-" + randomBytes(2).toString("hex");
 
 const emptyDoc = (now) => ({
   version: 2,
@@ -114,6 +120,25 @@ export function createStore({ filePath, now = () => new Date() }) {
     recordHistory(key, event, detail = "") {
       const c = need(key);
       touch(c, event, detail);
+      persist();
+    },
+    // 执行层 runs（design-v2 §2）：createRun 置候选 currentRunId 并留痕；saveRun 以注入 now 刷新 updatedAt。
+    createRun(run) {
+      if (doc.runs[run.id]) throw Object.assign(new Error("run exists: " + run.id), { status: 409 });
+      const c = need(run.candidateKey);
+      doc.runs[run.id] = run;
+      c.currentRunId = run.id;
+      touch(c, "run.created", run.id);
+      persist();
+    },
+    getRun: (id) => doc.runs[id] ?? null,
+    listRuns: () => Object.values(doc.runs),
+    saveRun(run) { run.updatedAt = now().toISOString(); doc.runs[run.id] = run; persist(); },
+    appendRunHistory(id, event, detail = "") {
+      const run = doc.runs[id];
+      if (!run) throw Object.assign(new Error("run not found: " + id), { status: 404 });
+      run.history.push({ at: now().toISOString(), event, detail });   // 评审 R11：用注入 now
+      if (run.history.length > RUN_HISTORY_LIMIT) run.history.splice(0, run.history.length - RUN_HISTORY_LIMIT);
       persist();
     },
     // 仓库事实（任务包 repo 块数据源）。
