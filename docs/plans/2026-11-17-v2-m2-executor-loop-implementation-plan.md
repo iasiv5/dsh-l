@@ -9,7 +9,10 @@
 ## 架构快照
 
 - 新增三模块：`src/engine/workspace.mjs`（工作区管理器：sanitize/gh clone/复用/保留期清扫，io 全注入）、`src/engine/executor.mjs`（script=子进程 + agent=ctx.agents 短会话 + `composeAgentPrompt`，全部返回 `{promise, cancel}`）、`src/engine/engine.mjs`（run 生命周期驱动：startRun/dispatch/onNodeDone/cancelRun/retryNode/recover + 候选 stage 同步 + 进程内并发上限 + 在途登记）。
-- 引擎驱动模型：事件链——节点完成回调 → scheduler 变换 → saveRun → 候选 stage 同步 → advanceRun → computeReady → 逐 ready 节点分派（gate 走 gateArrive 挂起；agent/script 起执行器并登记在途）；并发上限 `settings.engineConcurrency`（默认 2，进程内在途计数，完成即再派发）。
+- 引擎驱动模型：事件链——节点完成回调 → scheduler 变换 → saveRun → 候选 stage 同步 → advanceRun → 可调度集分派。**可调度集 = computeReady(...) ∪ {nodeStates 中 status==="ready"}（均去在途）**（评审 R1-1：advanceRun/applyFailure/reject/recover 产出的是 ready，computeReady 只扫 pending——两路缺一不可）；gate 走 gateArrive 挂起；agent/script 起执行器并登记在途；并发上限 `settings.engineConcurrency`（默认 2，进程内在途计数，完成即再派发——`dispatchAlive()` 全局拾起，评审 R1-2 配套）。
+- **回炉重臂（评审 R1-2）**：advanceRun 增一条规则——failed 节点若存在 rework 出边且其 target 已 succeeded → 该 failed 源节点回 ready（reworkCount 已在 applyFailure 计过，不再计）；manual retry 的 maxAttempts 预算只约束 retryNode 路径，不约束回炉重臂（回炉总次数由 maxReworks 把关）。
+- **恢复重派不烧 attempt（评审 R1-11，落实 §12.1）**：recover 重派走 `dispatch(nodeId, {resume:true})`——attempt 保持原值、sessionId 追加 `:resume<序号>` 防撞（同 attempt 二次 createAgent 会被宿主 duplicate register 拒收）。
+- **上游摘要（评审 R1-10）**：分派 agent 节点时由入边（success+rework）源节点提取 `{node, text}`（succeeded 取 artifacts[0]、failed 取 error，各截 500 字符）——回炉语境下 verify 失败文本随 build 重派进入 prompt。
 - agent 节点等待机制镜像 triage.mjs（先订阅后创建、轮询 turn/end、非 completed fail-closed），差异点：成功**不 dispose**（autoloop api-mapping §4 判例：dispose 会删 session store 记录），取消/超时才 dispose；`ctx.workingDirectory.set(agent, cwd)` 经 world 注入（meta.cwd 只进会话头）。
 - stage 同步（design-v2 §8）：run 创建→building（v1 别名已置）；gateArrive→gating；run succeeded→shipped；run failed→held（clone 失败同）；run cancelled→gating。sweepUpstream 与在途 run 互斥沿用 v1：只提示 `upstream-gone`，不代作主。
 - prompt 组装（Q4）：`composeAgentPrompt({prefix, taskPackage, upstream})` = builtin `prefix`（固定 zh-CN 纪律句）+ 任务包 JSON + 上游工件摘要（无则省略）；LOOP_V1.build 增 prefix 字段（revision 指纹随之变化，golden 只锁格式不锁值，安全）。
@@ -39,10 +42,10 @@
 - Modify: `src/workflows/builtin.mjs` — build 节点增 `prefix` 字段、verify 增 `maxAttempts:3`、deliver 增 `maxAttempts:2`（M2 手动重试预算，§12.7）
 - Modify: `src/store.mjs` — F4 `doc.runs ??= {}` 无条件回填；settings 默认与旧档回填 engineConcurrency=2 / workspaceRetentionDays=7
 - Modify: `src/handlers.mjs` — makeHandlers 增 `engine` 参；postRunStart/postRunGate/postRunCancel/postRunRetry 四方法；postGate G1 pass 别名；putSettings 增两键校验（1..4 / 1..90）
-- Modify: `src/host.mjs` — `makeExecWorld(ctx, dir)`（makeTriage 同款 + setPolicy/setWorkingDirectory）；buildRuntime 装配 workspace/executor/engine + recover() 一次性扫描 + 保留期 ctx.interval 清扫；路由表增四条
+- Modify: `src/host.mjs` — **inject 增 `"approval"`、`"workingDirectory"`**（评审 R1-12：runtime rc.3 实证——`@deepseek-ai/dsh-user-approval` 声明 `Context.approval: ApprovalService`、`@deepseek-ai/dsh-working-directory` 声明 `Context.workingDirectory: WorkingDirectoryService`，均为 cordis 声明式服务；不声明 inject 则 ctx 访问即抛错，可选链静默降级会让 executionPolicy:"auto" 静默失效）；`makeExecWorld(ctx, dir)`（makeTriage 同款 + setPolicy/setWorkingDirectory **直调非可选链**）；buildRuntime 装配 workspace/executor/engine + recover() 一次性扫描 + 保留期 ctx.interval 清扫；路由表增四条
 - Modify: `src/client/api.mjs` — runStart/runGate/runCancel/runRetry 四端点
 - Modify: `src/client/logic.mjs` — stripCells 增 runs 参（环内 chip 按 currentNodeIds 计数着色，dim=count===0）
-- Modify: `src/engine/scheduler.mjs` — summarizeRun 增 `error` 字段（首个 failed 节点 error ?? null）
+- Modify: `src/engine/scheduler.mjs` — summarizeRun 增 `error` 字段（首个 failed 节点 error ?? null）；advanceRun 增**回炉源重臂**（评审 R1-2：rework 出边的 failed 源在其 target succeeded 后 → ready，reworkCount 不重复计）
 - Modify: `src/client/components/actions.mjs` — 行内 run 区块（状态/error/cancel/retry）、G2 按 run.waitingGate 激活
 - Modify: `src/client/components/workbench.mjs` — 仅第 159 行注释（F1：「管线条」→「工作流条」）
 - Modify: `src/client/locale/zh-CN.mjs`、`en.mjs` — 增 run 相关键（T11 清单）
@@ -153,7 +156,7 @@ test("putSettings：并发与保留期边界", async () => {
 - 涉及文件：Create `src/engine/workspace.mjs`；Test `test/workspace.test.mjs`
 - 接口契约：
   - Consumes: ghBin 约定（host.mjs:47 同款 `join(dir,"bin","gh")`）；PATH 注入纪律（github.mjs gh 候选序列精神）
-  - Produces: `sanitizeKey(key)`（`[^A-Za-z0-9._-]` → `_`）；`makeWorkspace({ dataDir, ghBin, execFile, fs: {existsSync, mkdirSync, readdirSync, statSync, rmSync} })` → `{ dirOf(key), ensure({key, repo, onLog}), sweep({ activeKeys, retentionDays, now }) }`；ensure 已存在 → `{dir, cloned:false}` 不执行 clone；不存在 → mkdir 父目录 + `execFile(ghCmd, ["repo","clone", repo, dir], {env})` → `{dir, cloned:true}`；env = `{...process.env, PATH: ghBin 目录 + ":" + process.env.PATH, GIT_TERMINAL_PROMPT:"0"}`（ghBin 为 null 时省略 PATH 前缀）；sweep 对 `workspaces/` 下不在 activeKeys 且 mtime < now - retentionDays*86400000 的目录 rmSync 递归，返回 removed 文件名数组
+  - Produces: `sanitizeKey(key)`（`[^A-Za-z0-9._-]` → `_`）；`makeWorkspace({ dataDir, ghBin, execFile, fs: {existsSync, mkdirSync, readdirSync, statSync, rmSync} })` → `{ dirOf(key), ensure({key, repo, onLog}), sweep({ activeKeys, retentionDays, now }) }`；ensure 已存在 → `{dir, cloned:false}` 不执行 clone；不存在 → mkdir 父目录（recursive）+ `execFile(ghCmd, ["repo","clone", repo, dir], {env})` → `{dir, cloned:true}`；env = `{...process.env, PATH: ghBin 目录 + ":" + process.env.PATH, GIT_TERMINAL_PROMPT:"0"}`（ghBin 为 null 时省略 PATH 前缀）；sweep **先 `sanitizeKey(activeKey)` 再与目录名比对**（评审 R1-8：目录名是 sanitize 后形态，字面比对永不相等会误删活跃工作区），对 `workspaces/` 下不在比对集且 mtime < now - retentionDays*86400000 的目录 rmSync 递归，返回 removed 文件名数组
 - 验证范围：`npm test`（workspace 段）
 
 - [ ] Step 1: 新建 `test/workspace.test.mjs`
@@ -182,7 +185,7 @@ test("ensure：不存在则 gh repo clone（env 注入 ghBin PATH 与 GIT_TERMIN
 });
 test("ensure：已存在则复用不 clone；clone 失败抛错", async () => {
   const dir = mkdtempSync(join(tmpdir(), "dsh-l-ws2-"));
-  mkdirSync(join(dir, "workspaces", "o_r"));
+  mkdirSync(join(dir, "workspaces", "o_r"), { recursive: true });   // 评审 R1-7④：recursive，父目录不存在
   let n = 0;
   const w = makeWorkspace({ dataDir: dir, execFile: async () => { n++; } });
   const out = await w.ensure({ key: "o/r", repo: "o/r" });
@@ -191,19 +194,19 @@ test("ensure：已存在则复用不 clone；clone 失败抛错", async () => {
   const w2 = makeWorkspace({ dataDir: mkdtempSync(join(tmpdir(), "dsh-l-ws3-")), execFile: async () => { throw new Error("network down"); } });
   await assert.rejects(() => w2.ensure({ key: "o/x", repo: "o/x" }), /network down/);
 });
-test("sweep：非活跃且超期目录清除，活跃/新鲜目录保留", () => {
+test("sweep：非活跃且超期目录清除；活跃目录即使超期也保留（评审 R1-8 红灯）", () => {
   const dir = mkdtempSync(join(tmpdir(), "dsh-l-ws4-"));
-  const old = join(dir, "workspaces", "old"); const fresh = join(dir, "workspaces", "fresh"); const active = join(dir, "workspaces", "active");
+  const old = join(dir, "workspaces", "old"); const fresh = join(dir, "workspaces", "fresh"); const active = join(dir, "workspaces", "active_stale");
   mkdirSync(old, { recursive: true }); mkdirSync(fresh, { recursive: true }); mkdirSync(active, { recursive: true });
   const now = Date.now();
+  const removed = [];
   const w = makeWorkspace({ dataDir: dir, execFile: async () => {}, fs: {
-    existsSync: () => false, mkdirSync: () => {}, readdirSync: () => ["old", "fresh", "active"],
-    statSync: (p) => ({ mtimeMs: p.includes("old") ? now - 20 * 86400000 : now }),
+    existsSync: () => false, mkdirSync: () => {}, readdirSync: () => ["old", "fresh", "active_stale"],
+    statSync: (p) => ({ mtimeMs: p.includes("fresh") ? now : now - 20 * 86400000 }),   // fresh 新鲜；old 与 active_stale 都超期
     rmSync: (p) => { removed.push(p); },
   } });
-  const removed = [];
-  const out = w.sweep({ activeKeys: ["o/active"], retentionDays: 7, now: new Date(now) });
-  assert.deepEqual(out.removed.map((p) => p.split("/").pop()), ["old"]);
+  const out = w.sweep({ activeKeys: ["o/active#stale"], retentionDays: 7, now: new Date(now) });   // 原始键（未 sanitize）
+  assert.deepEqual(out.removed.map((p) => p.split("/").pop()), ["old"]);   // active_stale 目录经 sanitizeKey 后命中保留
   assert.equal(removed.length, 1);
 });
 ```
@@ -322,7 +325,7 @@ export function makeExecutor({ spawn: sp = spawn, ghBin = null, agentTimeoutMs =
 - 涉及文件：Modify `src/engine/executor.mjs`；Test `test/executor.test.mjs`
 - 接口契约：
   - Consumes: triage.mjs 等待机制（订阅→create→send→轮询 turn/end→非 completed fail-closed）；api-mapping §2/§7/§12（setPolicy / workingDirectory.set）
-  - Produces: `composeAgentPrompt({ prefix, taskPackage, upstream })` 纯函数（upstream 为空则无上游段）；`makeExecutor` 增 `runAgentNode({ run, node, cwd, taskPackage, upstream })` → `{promise, cancel}`：promise 决议 `{ok, error, artifacts:[]}`；内部 `sessionId = "dsh-l:run:" + run.id + ":" + node.id + ":" + (run.nodeStates[node.id]?.attempt ?? 0 + 1)`；`world.setPolicy(agent, executionPolicy==="auto" ? "never" : "ask")`；`world.setWorkingDirectory(agent, cwd)`；超时（agentTimeoutMs）与 cancel → `agent.cancel` + `handle.dispose`；成功路径不 dispose
+  - Produces: `composeAgentPrompt({ prefix, taskPackage, upstream })` 纯函数（upstream 为空则无上游段）；`makeExecutor` 增 `runAgentNode({ run, node, cwd, taskPackage, upstream, resume, resumeSeq })` → `{promise, cancel}`：promise 决议 `{ok, error, artifacts:[]}`；内部 `sessionId = "dsh-l:run:" + run.id + ":" + node.id + ":" + ((run.nodeStates[node.id]?.attempt ?? 0) + (resume ? 0 : 1)) + (resume ? ":resume" + resumeSeq : "")`（评审 R1-6③ 优先级修正 + R1-11 resume 后缀防撞）；`world.setPolicy(agent, executionPolicy==="auto" ? "never" : "ask")`；`world.setWorkingDirectory(agent, cwd)`；超时（agentTimeoutMs）与 cancel → `agent.cancel` + `handle.dispose`；cancel 置 cancelled-flag：轮询环条件含 `!cancelledFlag`，立即以 `error:"cancelled"` 决议（评审 R1-18：不空等 endKind/超时）；成功路径不 dispose
 - 验证范围：`npm test`（executor 段）
 
 - [ ] Step 1: 追加失败测试（fake world：可控注入 turn/end）
@@ -392,7 +395,7 @@ test("runAgentNode：超时 fail-closed", async () => {
 ```
 - Run: `npm test 2>&1 | tail -6` — Expected: composeAgentPrompt / world 参不支持 → 红。
 - [ ] Step 2: 确认失败信号。
-- [ ] Step 3: 最小实现——composeAgentPrompt 纯函数；makeExecutor 签名增 `world`；runAgentNode 按 Produces 契约实现（镜像 runTriage 的订阅/轮询骨架；endKind==="completed" → ok；轮询用 world.sleep(500)；超时/取消 → cancel+dispose；executor 签名 `world` 无缺省——M1 executor 测试不传 world 的用例需补 `world: fakeWorld()` 或缺省 `{}`——以「不传 world 时 runAgentNode 抛 world-not-wired」实现，T4 既有用例不触 runAgentNode 即不受影响）。
+- [ ] Step 3: 最小实现——composeAgentPrompt 纯函数；makeExecutor 签名增 `world`；runAgentNode 按 Produces 契约实现（镜像 runTriage 的订阅/轮询骨架；endKind==="completed" → ok；轮询用 world.sleep(500)、环条件含 `!cancelledFlag`——评审 R1-18；超时/取消 → cancel+dispose；成功不 dispose；executor 签名 `world` 无缺省——M1 executor 测试不传 world 的用例需补 `world: fakeWorld()` 或缺省 `{}`——以「不传 world 时 runAgentNode 抛 world-not-wired」实现，T4 既有用例不触 runAgentNode 即不受影响）。
 - [ ] Step 4: Run: `npm test 2>&1 | tail -5` — Expected: 全绿。
 - [ ] Step 5: checkpoint commit：`git add -A && git commit -m "feat(engine): agent 节点执行器与 prompt 组装"`
 
@@ -402,7 +405,7 @@ test("runAgentNode：超时 fail-closed", async () => {
 - 涉及文件：Create `src/engine/engine.mjs`；Modify `src/workflows/builtin.mjs`（build 增 prefix、verify maxAttempts:3、deliver maxAttempts:2）；Test `test/engine.test.mjs`
 - 接口契约：
   - Consumes: scheduler 全导出、store runs CRUD、workspace.ensure、executor.runAgentNode/runScriptNode、GLOSSARY stage 映射（design-v2 §8）
-  - Produces: `makeEngine({ store, workspace, executor, template = LOOP_V1, now, concurrencyOf = () => 2 })` → `{ startRun(key, { taskPackage }), cancelRun(runId, reason), retryNode(runId, nodeId), recover() }`；`startRun`：候选存在 404、存活 run 409 run-already-active（`hasAliveRun(key)`）、创建 run（g1 预置 succeeded attempt1、其余 pending、snapshot=template 克隆）→ 异步 `workspace.ensure` → 成功 appendRunHistory("workspace.cloned", dir) + dispatch；失败 → build 节点 failed(error) + run failed + 候选 held；`dispatch(runId)`：非终态时按 computeReady 逐 ready 节点派发（在途 < concurrencyOf()）：gate → gateArrive + 候选 gating；agent/script → 节点 running（attempt+1）+ 起 executor + 登记 in-flight（`${runId}:${nodeId}` → cancel fn）→ 完成回调 onNodeDone；`onNodeDone`：run 已终态则忽略迟到结果；ok → succeeded+artifacts；否则 applyFailure → run failed 时候选 held；saveRun → advanceRun → succeeded 时候选 shipped → 再 dispatch
+  - Produces: `makeEngine({ store, workspace, executor, template = LOOP_V1, now, concurrencyOf = () => 2 })` → `{ startRun(key, { taskPackage }), dispatch(runId, {resume, resumeSeq}), onNodeDone(runId, nodeId, result), cancelRun(runId, reason), retryNode(runId, nodeId), recover(), dispatchAlive(), hasAliveRun(key) }`；`startRun`：候选存在 404、存活 run 409 run-already-active（`hasAliveRun(key)`）、创建 run（g1 预置 succeeded attempt1、其余 pending、snapshot=template 克隆）→ syncStage→building → 异步 `workspace.ensure` → 成功 appendRunHistory("workspace.cloned", dir+" remote=gh-https"——评审 R1-13) + dispatch；失败 → build 节点 failed(error) + run failed + `workspace.clone-failed` 留痕（评审 R1-14）+ 候选 held（评审 R1-3①：原稿调引擎不存在的 applyFailure——已内联修复）；`dispatch(runId, {resume, resumeSeq})`：非终态时**可调度集 = computeReady ∪ ready（去在途）**（评审 R1-1：advanceRun/applyFailure/reject/recover 产出的是 ready）逐节点派发（在途 < concurrencyOf()）：gate → gateArrive + 候选 gating；agent/script → 节点 running（attempt+1；resume 重派例外不烧 attempt——评审 R1-11）+ 计算 upstream（评审 R1-10：入边源 artifacts/error 提取）+ 起 executor + 登记 in-flight（`${runId}:${nodeId}` → cancel fn）→ 完成回调 onNodeDone；`onNodeDone`：run 已终态则忽略迟到结果；ok → succeeded+artifacts；否则 applyFailure → run failed 时候选 held；saveRun → advanceRun（含回炉源重臂——评审 R1-2，scheduler.mjs 落点见文件结构）→ succeeded 时候选 shipped → dispatch(runId) + dispatchAlive()（并发名额释放后全局拾起其余存活 run 的排队节点）
 - 验证范围：`npm test`（engine 段）
 
 - [ ] Step 1: 新建 `test/engine.test.mjs`
@@ -422,14 +425,15 @@ const fakeWorkspace = (fail = false) => ({ ensure: async () => { if (fail) throw
 const fakeExecutor = () => {
   const inflight = new Map(); let seq = 0;
   const exe = {
-    inflight,
-    runAgentNode({ run, node }) {
-      const key = run.id + ":" + node.id; const entry = { cancelled: false }; inflight.set(key, entry);
+    inflight, lastArgs: null,
+    runAgentNode(args) {
+      const { run, node } = args; const key = run.id + ":" + node.id; const entry = {}; inflight.set(key, entry);
+      exe.lastArgs = args;
       const promise = new Promise((resolve) => { entry.resolve = (r) => { inflight.delete(key); resolve(r); }; });
       exe.last = { key, runId: run.id, nodeId: node.id };
       return { promise, cancel: () => { entry.cancelled = true; entry.resolve({ ok: false, error: "cancelled" }); } };
     },
-    runScriptNode({ run, node }) { return exe.runAgentNode({ run, node }); },
+    runScriptNode(args) { return exe.runAgentNode(args); },
   };
   return exe;
 };
@@ -474,23 +478,35 @@ test("全链：build(agent)→verify(script)→G2 挂起→pass→deliver→run 
   assert.equal(store.getRun(runId).status, "succeeded");
   assert.equal(store.getCandidate(key).stage, "shipped");
 });
-test("verify 回炉超限 → run failed + 候选 held", async () => {
+test("verify 回炉超限 → run failed + 候选 held（回炉重臂经引擎自动重派，评审 R1-2）", async () => {
   const { store, engine, executor } = setup();
   const key = "o/r#issue#1";
   const { runId } = engine.startRun(key, {});
-  await Promise.resolve(); await Promise.resolve();
-  executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] });
-  await Promise.resolve(); await Promise.resolve();
-  for (let i = 0; i < 4; i++) {   // 首跑 + 3 次回炉后第 4 次失败超限
-    const st = nodeState(store, runId, "verify");
-    if (st !== "running") throw new Error("verify not running: " + st);
-    executor.inflight.get(runId + ":verify").resolve({ ok: false, error: "red", artifacts: [] });
-    await Promise.resolve(); await Promise.resolve();
-    await Promise.resolve(); await Promise.resolve();
-    if (i < 3) { assert.equal(nodeState(store, runId, "build"), "ready"); /* 模拟执行器拾起 build */ store.getRun(runId).nodeStates.build.status = "running"; }
+  const drain = async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
+  await drain();
+  executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  for (let i = 0; i < 3; i++) {   // 首跑 + 3 次回炉：verify 每次失败 → build 重臂 ready → 引擎自动重派
+    assert.equal(nodeState(store, runId, "verify"), "running");
+    executor.inflight.get(runId + ":verify").resolve({ ok: false, error: "red", artifacts: [] }); await drain();
+    assert.equal(nodeState(store, runId, "build"), "ready");
+    assert.equal(store.getRun(runId).status, "running");
+    executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drain();
   }
+  assert.equal(nodeState(store, runId, "verify"), "running");
+  executor.inflight.get(runId + ":verify").resolve({ ok: false, error: "red again", artifacts: [] }); await drain();
   assert.equal(store.getRun(runId).status, "failed");
   assert.equal(store.getCandidate(key).stage, "held");
+});
+test("rework 重派：build 的 upstream 携带 verify 失败文本（评审 R1-10）", async () => {
+  const { store, engine, executor } = setup();
+  const key = "o/r#issue#1";
+  const { runId } = engine.startRun(key, {});
+  const drain = async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
+  await drain();
+  executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":verify").resolve({ ok: false, error: "2 tests failed", artifacts: [] }); await drain();
+  assert.equal(nodeState(store, runId, "build"), "running");
+  assert.ok(executor.lastArgs.upstream.some((u) => u.node === "verify" && u.text.includes("2 tests failed")));
 });
 test("clone 失败 → run failed + 候选 held", async () => {
   const { store, engine } = setup({ failClone: true });
@@ -520,11 +536,22 @@ test("并发上限：concurrency=1 时第二个 run 的节点不被派发，直�
 ```js
 import { computeReady, gateArrive, applyGateDecision, applyFailure, advanceRun, cancelRun as schedCancelRun } from "./scheduler.mjs";
 import { LOOP_V1 } from "../workflows/builtin.mjs";
+import { makeRunId } from "../store.mjs";   // 评审 R1-3②：原稿漏 import
 export function hasAliveRun(store, key) {
   const c = store.getCandidate(key);
   const run = c?.currentRunId ? store.getRun(c.currentRunId) : null;
   return Boolean(run && ["running", "waiting"].includes(run.status));
 }
+// 上游摘要（评审 R1-10）：入边（success+rework）源节点的 artifacts[0]/error，各截 500 字符——回炉语境下
+// verify 的失败文本随 build 重派进入 prompt；无文本的源被过滤。
+const upstreamOf = (run, nodeId) => {
+  const inIds = [...new Set((run.snapshot.edges ?? []).filter((e) => e.target === nodeId).map((e) => e.source))];
+  return inIds.map((id) => {
+    const s = run.nodeStates[id] ?? {};
+    const text = s.status === "failed" ? (s.error ?? "") : (s.artifacts?.[0] ?? "");
+    return { node: id, text: String(text).slice(0, 500) };
+  }).filter((u) => u.text);
+};
 export function makeEngine({ store, workspace, executor, template = LOOP_V1, now = () => new Date(), concurrencyOf = () => 2 }) {
   const inflight = new Map();   // "runId:nodeId" → cancel
   const clone = (v) => JSON.parse(JSON.stringify(v));
@@ -549,34 +576,45 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, now
       const repo = store.getCandidate(key).repo;
       workspace.ensure({ key, repo }).then(({ dir }) => {
         const run = store.getRun(runId); if (!run || run.status !== "running") return;
-        store.appendRunHistory(runId, "workspace.cloned", dir);
+        store.appendRunHistory(runId, "workspace.cloned", dir + " remote=gh-https");   // 评审 R1-13：实际 remote 落痕
         engine.dispatch(runId);
       }).catch((err) => {
         const run = store.getRun(runId); if (!run || run.status !== "running") return;
-        const failed = engine.applyFailure(run, "build", "workspace clone: " + String(err?.message ?? err));
-        store.saveRun(failed); store.setStage(key, "held", "workspace-clone-failed");
+        const msg = "workspace clone: " + String(err?.message ?? err);
+        run.nodeStates.build = { ...run.nodeStates.build, status: "failed", error: msg };
+        run.status = "failed";                       // 评审 R1-3①：原稿调 engine.applyFailure——引擎对象无此方法
+        store.saveRun(run);
+        store.appendRunHistory(runId, "workspace.clone-failed", msg);   // 评审 R1-14
+        store.setStage(key, "held", "workspace-clone-failed");
       });
       return { runId };
     },
-    dispatch(runId) {
+    // 可调度集 = computeReady ∪ ready（评审 R1-1：advanceRun/applyFailure/reject/recover 产出 ready，
+    // computeReady 只扫 pending——只调 computeReady 会让这些节点永不被派发）；resume 重派不烧 attempt（R1-11）。
+    dispatch(runId, opts = {}) {
+      const resume = opts.resume === true; const resumeSeq = opts.resumeSeq ?? 0;
       const run0 = store.getRun(runId);
       if (!run0 || ["succeeded", "failed", "cancelled"].includes(run0.status)) return;
       let run = run0;
       let guard = 16;
       while (inflight.size < concurrencyOf() && guard-- > 0) {
-        const ready = computeReady(run.snapshot, run.nodeStates).filter((id) => !inflight.has(runId + ":" + id));
+        const alive = Object.keys(run.nodeStates).filter((id) => run.nodeStates[id].status === "ready");
+        const fresh = computeReady(run.snapshot, run.nodeStates);
+        const ready = [...new Set([...alive, ...fresh])].filter((id) => !inflight.has(runId + ":" + id));
         if (ready.length === 0) break;
         const nodeId = ready[0];
         const node = run.snapshot.nodes.find((n) => n.id === nodeId);
         if (node.type === "gate") {
           run = gateArrive(run, nodeId); store.saveRun(run); syncStage(run.candidateKey, run); continue;
         }
-        const ns = { ...run.nodeStates, [nodeId]: { ...run.nodeStates[nodeId], status: "running", attempt: (run.nodeStates[nodeId]?.attempt ?? 0) + 1 } };
+        const ns = { ...run.nodeStates, [nodeId]: resume
+          ? { ...run.nodeStates[nodeId], status: "running" }   // 评审 R1-11：恢复重派保持 attempt（防烧穿预算）
+          : { ...run.nodeStates[nodeId], status: "running", attempt: (run.nodeStates[nodeId]?.attempt ?? 0) + 1 } };
         run = { ...run, nodeStates: ns }; store.saveRun(run);
         const taskPackage = store.getCandidate(run.candidateKey)?.taskPackage ?? null;
-        const upstream = [];
+        const upstream = node.type === "agent" ? upstreamOf(run, nodeId) : [];
         const job = node.type === "agent"
-          ? executor.runAgentNode({ run, node, cwd: workspace.dirOf(run.candidateKey), taskPackage, upstream })
+          ? executor.runAgentNode({ run, node, cwd: workspace.dirOf(run.candidateKey), taskPackage, upstream, resume, resumeSeq })
           : executor.runScriptNode({ run, node, cwd: workspace.dirOf(run.candidateKey) });
         inflight.set(runId + ":" + nodeId, job.cancel);
         job.promise.then((result) => { inflight.delete(runId + ":" + nodeId); engine.onNodeDone(runId, nodeId, result); })
@@ -612,22 +650,26 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, now
     },
     retryNode(runId, nodeId) {
       const run = store.getRun(runId); if (!run) throw Object.assign(new Error("run not found"), { status: 404 });
+      if (!["failed", "cancelled"].includes(run.status)) throw Object.assign(new Error("retry-requires-failed-or-cancelled"), { status: 409 });   // 评审 R1-9：D7 承诺两态
       const node = (run.snapshot.nodes ?? []).find((n) => n.id === nodeId) ?? {};
       const s = run.nodeStates[nodeId];
-      if (!s || s.status !== "failed") throw Object.assign(new Error("retry-requires-failed"), { status: 409 });
+      if (!s || !["failed", "cancelled"].includes(s.status)) throw Object.assign(new Error("retry-requires-failed"), { status: 409 });
       const attempt = (s.attempt ?? 0) + 1;
       if (attempt > (node.maxAttempts ?? 1)) throw Object.assign(new Error("attempt-exhausted"), { status: 409 });
-      const next = { ...run, nodeStates: { ...run.nodeStates, [nodeId]: { ...s, status: "ready", attempt } } };
+      const ns = { ...run.nodeStates, [nodeId]: { ...s, status: "ready", attempt, error: null } };
+      if (run.status === "cancelled") for (const [id, st] of Object.entries(ns)) if (st.status === "cancelled") ns[id] = { ...st, status: "pending" };   // 取消态重试：其余 cancelled 节点回 pending 续跑
+      const next = { ...run, nodeStates: ns, status: "running", cancelReason: null, waitingGate: null };   // 评审 R1-4：failed/cancelled run 重试须回 running，否则 dispatch 终态守卫直接 return
       store.saveRun(next); syncStage(next.candidateKey, next); engine.dispatch(runId);
     },
     recover() {
       const resumed = [];
+      let seq = 0;
       for (const run of store.listRuns()) {
         if (!["running", "waiting"].includes(run.status)) continue;
         let touched = false; const ns = { ...run.nodeStates };
         for (const [id, s] of Object.entries(ns)) if (s.status === "running") { ns[id] = { ...s, status: "ready" }; touched = true; }
         if (touched) { const next = { ...run, nodeStates: ns }; store.saveRun(next); store.appendRunHistory(run.id, "resume.interrupted", "host restart"); resumed.push(run.id); }
-        engine.dispatch(run.id);
+        engine.dispatch(run.id, { resume: true, resumeSeq: ++seq });   // 评审 R1-11：resume 重派不烧 attempt，sessionId 追加 :resume<seq> 防撞
       }
       return resumed;
     },
@@ -635,6 +677,7 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, now
   return engine;
 }
 ```
+
   cancelRun 的调度器 cancelRun 以 `import { cancelRun as cancelRunRef } from "./scheduler.mjs"` 引入（本骨架里的占位行替换为直接调用）。
 - [ ] Step 4: Run: `npm test 2>&1 | tail -5` — Expected: 全绿（engine 段含「全链」用例的微任务排空节奏如不稳，允许在 settle 后再补一轮 `await Promise.resolve()`；不许改 sleep/真实定时器）。
 - [ ] Step 5: checkpoint commit：`git add -A && git commit -m "feat(engine): 执行环驱动（start/dispatch/stage 同步/并发上限）"`
@@ -645,7 +688,7 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, now
 - 涉及文件：Modify `src/engine/engine.mjs`（若 T6 已含则本任务为钉例补全）；Test `test/engine.test.mjs`
 - 接口契约：
   - Consumes: Task 6 makeEngine、scheduler.cancelRun/applyGateDecision
-  - Produces: 钉例①取消：agent 在途时 engine.cancelRun → executor cancel 被调用 + run cancelled + 候选 gating；钉例②retry：构造 verify failed（reworkCount≤maxReworks 内的人工失败形态）→ retryNode → attempt+1 → ready；钉例③attempt 超限 409 attempt-exhausted
+  - Produces: 钉例①取消：agent 在途时 engine.cancelRun → executor cancel 被调用 + run cancelled + 候选 gating；钉例②retry：failed run → retryNode → attempt+1 → ready 且 **run.status 回 running**（评审 R1-4：否则 dispatch 终态守卫直接 return）；钉例③attempt 超限 409 attempt-exhausted；钉例④cancelled run retry：cancelled 节点回 pending、run 回 running（评审 R1-9 / D7 两态承诺）
 - 验证范围：`npm test`（engine 段）
 
 - [ ] Step 1: 追加失败测试
@@ -654,12 +697,27 @@ test("cancelRun：在途 agent 收到 cancel，run cancelled + 候选 gating", a
   const { store, engine, executor } = setup();
   const key = "o/r#issue#1";
   const { runId } = engine.startRun(key, {});
-  await Promise.resolve(); await Promise.resolve();
+  const drain = async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
+  await drain();
+  const entry = executor.inflight.get(runId + ":build");   // 先取后取消（评审 R1-7③：fake cancel 同步删键）
   engine.cancelRun(runId, "user");
-  const entry = executor.inflight.get(runId + ":build");
   assert.equal(entry.cancelled, true);
   assert.equal(store.getRun(runId).status, "cancelled");
   assert.equal(store.getCandidate(key).stage, "gating");
+});
+test("cancelled run 的 retry：cancelled 节点回 pending 续跑（评审 R1-9 / D7）", async () => {
+  const { store, engine, executor } = setup();
+  const key = "o/r#issue#1";
+  const { runId } = engine.startRun(key, {});
+  const drain = async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
+  await drain();
+  const entry = executor.inflight.get(runId + ":build");
+  engine.cancelRun(runId, "user");
+  entry.resolve({ ok: false, error: "cancelled" }); await drain();   // 迟到结果被终态守卫忽略
+  engine.retryNode(runId, "build");   // cancelled run + cancelled 节点 → 重试续跑
+  await drain();
+  assert.equal(store.getRun(runId).status, "running");
+  assert.equal(store.getRun(runId).nodeStates.build.status, "running");
 });
 test("retryNode：failed 节点 attempt+1 重投；超限 409", async () => {
   const { store, engine, executor } = setup();
@@ -693,7 +751,7 @@ test("retryNode：failed 节点 attempt+1 重投；超限 409", async () => {
 - 涉及文件：Modify `src/engine/engine.mjs`（T6 骨架已含；本任务钉例）；Test `test/engine.test.mjs`
 - 接口契约：
   - Consumes: Task 6 recover 骨架
-  - Produces: 钉例：手工构造 run（build=running、run=running，currentRunId 指针在位）→ `recover()` 返回含该 runId → build=ready 且 attempt 不变（1）→ run.history 末条 `resume.interrupted` → 重新派发后 build=running
+  - Produces: 钉例：手工构造 run（build=running、run=running，currentRunId 指针在位）→ `simulateRestart()` 清空在途（评审 R1-17：测试钩子，无生产调用方）→ `recover()` 返回含该 runId → build=ready 且 attempt 不变（重派走 dispatch({resume:true})，评审 R1-11：不烧 attempt）→ run.history 末条 `resume.interrupted` → 重新派发后 build=running 且 executor 收到 `resume:true`
 - 验证范围：`npm test`（engine 段）
 
 - [ ] Step 1: 追加失败/验证测试
@@ -702,17 +760,19 @@ test("recover：running→ready 不烧 attempt + 留痕 + 重新派发", async (
   const { store, engine, executor } = setup();
   const key = "o/r#issue#1";
   const { runId } = engine.startRun(key, {});
-  await Promise.resolve(); await Promise.resolve();
+  const drain = async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); };
+  await drain();
   const before = store.getRun(runId).nodeStates.build.attempt;
-  // 模拟宿主重启：丢弃内存态（in-flight 丢失），store 里 build 仍是 running
+  engine.simulateRestart();   // 模拟宿主重启：丢弃内存 in-flight（评审 R1-17：测试代码显式调用）
   const resumed = engine.recover();
   assert.ok(resumed.includes(runId));
   assert.equal(store.getRun(runId).nodeStates.build.status, "ready");
-  assert.equal(store.getRun(runId).nodeStates.build.attempt, before);
+  assert.equal(store.getRun(runId).nodeStates.build.attempt, before);      // 评审 R1-11：恢复重派不烧 attempt
   assert.equal(store.getRun(runId).history.at(-1).event, "resume.interrupted");
-  await Promise.resolve(); await Promise.resolve();
-  assert.equal(store.getRun(runId).nodeStates.build.status, "running");   // 重新派发
-  assert.equal(store.getRun(runId).nodeStates.build.attempt, before + 1); // 重派是新一轮 attempt
+  await drain();
+  assert.equal(store.getRun(runId).nodeStates.build.status, "running");    // 重新派发（resume 路径）
+  assert.equal(store.getRun(runId).nodeStates.build.attempt, before);      // 仍不烧
+  assert.equal(executor.lastArgs.resume, true);
 });
 ```
   注意：recover 在「同一引擎实例」上测试时，原 in-flight 还在内存里——recover 前需清空 in-flight（引擎实例的模拟重启）。实现上 recover 不依赖 in-flight 清空即正确（running 节点重置 ready，原 job 迟到结果被 onNodeDone 终态守卫忽略的前提是 run 终态——此处 run 未终态，迟到结果会落成 succeeded，测试将失真）。**处置**：makeEngine 增 `simulateRestart()`（测试钩子：清空 in-flight）或 recover 内先把 running 节点的新派发延后到 onNodeDone 守卫之外——以 `simulateRestart()` 为准写进 Produces（测试专用，无生产调用方）。
@@ -728,7 +788,7 @@ test("recover：running→ready 不烧 attempt + 留痕 + 重新派发", async (
 - 涉及文件：Modify `src/handlers.mjs`、`src/host.mjs`；Test `test/handlers.test.mjs`
 - 接口契约：
   - Consumes: Task 6/7/8 engine 全导出、workspace/executor 构造器、buildTaskPackage
-  - Produces: `makeHandlers({ …, engine })`（缺省 null）；`postRunStart({key})`：401 auth-required → 404 → 409 gate-requires-gating（须 gating）→ 409 run-already-active → setGate(G1 pass)+setStage(building)+startRun → `{ok, taskPackage, runId, workspace:"cloning"}`；`postRunGate({runId,nodeId,decision,note,targetNode})` → engine.applyGateDecision → `{ok}`；`postRunCancel({runId,reason})` → engine.cancelRun → `{ok}`；`postRunRetry({runId,nodeId})` → engine.retryNode → `{ok}`；engine 为 null 时四方法返回 `fail("engine-not-wired", 503)`；postGate G1 pass 分支在 engine 在位时追加 startRun 并回 `{ok, taskPackage, runId}`（engine null 保持 v1 形状，存量测试不受扰）；host.mjs：`makeExecWorld(ctx, dir)`（createAgent 用 meta.cwd=dir + setup 选模同 makeTriage + `setPolicy:(a,p)=>ctx.approval?.setPolicy?.(a,p)` + `setWorkingDirectory:(a,c)=>ctx.workingDirectory?.set?.(a,c)`）；buildRuntime 内 `const workspace = makeWorkspace({dataDir: dir, ghBin: join(dir,"bin","gh"), execFile});` `const executor = makeExecutor({ world: makeExecWorld(ctx, dir), spawn: spawnCb, ghBin: join(dir,"bin","gh") });` `const engine = makeEngine({ store, workspace, executor, concurrencyOf: () => store.getSettings().engineConcurrency });` 传 handlers；路由表增四条；`engine.recover()` 在 apply 内 effect 装配尾部调用一次；保留期清扫：apply 内 ctx.interval 每日一次 `workspace.sweep({ activeKeys: 存活 run 的候选键集, retentionDays: store.getSettings().workspaceRetentionDays })`
+  - Produces: `makeHandlers({ …, engine })`（缺省 null）；`postRunStart({key})`：401 auth-required → 404 → **409 run-already-active（先于闸门校验——评审 R1-5/D7：二次 start 时 stage 已 building，若闸门校验前置会错报 gate-requires-gating）** → 409 gate-requires-gating（须 gating）→ buildTaskPackage + **setGate(G1 pass, pkg 落库——评审 R1-16：引擎读 candidate.taskPackage，不落库则 agent 静默无契约执行)** + setStage(building) + startRun → `{ok, taskPackage, runId, workspace:"cloning"}`；`postRunGate({runId,nodeId,decision,note,targetNode})` → engine.applyGateDecision → `{ok}`；`postRunCancel({runId,reason})` → engine.cancelRun → `{ok}`；`postRunRetry({runId,nodeId})` → engine.retryNode → `{ok}`；engine 为 null 时四方法返回 `fail("engine-not-wired", 503)`；postGate G1 pass 分支在 engine 在位时追加 startRun 并回 `{ok, taskPackage, runId}`（engine null 保持 v1 形状，存量测试不受扰）；host.mjs：inject 增 `"approval"`、`"workingDirectory"`（评审 R1-12，见文件结构），`makeExecWorld(ctx, dir)`（createAgent 用 meta.cwd=dir + setup 选模同 makeTriage + `setPolicy:(a,p)=>ctx.approval.setPolicy(a,p)` + `setWorkingDirectory:(a,c)=>ctx.workingDirectory.set(a,c)`——inject 已声明故直调）；buildRuntime 内 `const workspace = makeWorkspace({dataDir: dir, ghBin: join(dir,"bin","gh"), execFile});` `const executor = makeExecutor({ world: makeExecWorld(ctx, dir), spawn: spawnCb, ghBin: join(dir,"bin","gh") });` `const engine = makeEngine({ store, workspace, executor, concurrencyOf: () => store.getSettings().engineConcurrency });` 传 handlers；路由表增四条；`engine.recover()` 在 apply 内 effect 装配尾部调用一次；保留期清扫：apply 内 ctx.interval 每日一次 `workspace.sweep({ activeKeys: 存活 run 的候选键集, retentionDays: store.getSettings().workspaceRetentionDays })`
 - 验证范围：`npm test`（handlers 段）
 
 - [ ] Step 1: 失败测试（handlers.test.mjs；engine 用真 makeEngine + fake workspace/executor——同 engine.test 范式，或直接注入真引擎走全链）
@@ -818,7 +878,7 @@ test("stripCells：环内 chip 按 runs 在途计数着色", () => {
 - 涉及文件：Modify `src/client/components/actions.mjs`、`src/client/locale/zh-CN.mjs`、`en.mjs`、`src/client/components/workbench.mjs`（F1 注释）；Test `test/i18n.test.mjs`（既有 parity 自动覆盖）、`test/logic.test.mjs`
 - 接口契约：
   - Consumes: Task 10 api/runStart 等、state.runs 摘要、候选 currentRunId
-  - Produces: ①新 i18n 键（双字典同集，8 键）：`actions.cancelRun`、`actions.retryRun`、`run.status.running/waiting/succeeded/failed/cancelled`、`run.workspaceCloning`②rowActions 展开区：候选 currentRunId → state.runs 摘要渲染状态行（`t("run.status."+status)` + currentNodeIds join）+ error 行（有则显）+ 取消/重试按钮（failed 节点才亮重试；waiting/running 才亮取消）③G2 按钮 `!g.G2` 改为 `!(run?.waitingGate === "g2")` 激活逻辑（g2 waiting 时可 pass/reject，走 api.runGate）④G1 按钮 behavior 不变（走 candidate/gate 别名）⑤workbench:159 注释改「工作流条」
+  - Produces: ①新 i18n 键（双字典同集，8 键）：`actions.cancelRun`、`actions.retryRun`、`run.status.running/waiting/succeeded/failed/cancelled`、`run.workspaceCloning`②rowActions 展开区：候选 currentRunId → state.runs 摘要渲染状态行（`t("run.status."+status)` + currentNodeIds join）+ error 行（有则显）+ 取消/重试按钮（failed 节点才亮重试；waiting/running 才亮取消）③G2/G3 按钮从字面量禁用（actions.mjs:135-136 第三参恒 true——评审 R1-19 表述更正）改为：G2 在 `runBlock(c, runs)?.waitingGate === "g2"` 时激活 pass/reject（走 api.runGate），G3 保持禁用（M3 发版分区）④strip 调用（actions.mjs:109）增传 `runs: state?.runs`（评审 R1-15：着色数据源，缺此传参着色静默失效）⑤G1 按钮 behavior 不变（走 candidate/gate 别名）⑥workbench:159 注释改「工作流条」
 - 验证范围：`npm test`（i18n parity + logic）+ `npm run build`
 
 - [ ] Step 1: 失败测试——logic.test.mjs 增「run 区块数据选择」纯函数（新增 `runBlock(candidate, runs)`：返回 `{status, waitingGate, currentNodeIds, error} | null`——放 logic.mjs，供 actions 消费；测试：currentRunId 命中/未命中/无 run 三态）＋ i18n parity 由既有 locale-parity.test 自动红（只加了一侧字典时）。
@@ -834,7 +894,7 @@ test("stripCells：环内 chip 按 runs 在途计数着色", () => {
 - 验证范围：全量。
 - [ ] Step 1: Run: `set -o pipefail; npm run build && npm test 2>&1 | tail -8 && git log --oneline -14`
   Expected: 构建双包成功、全量测试绿（预计 ≥ 128 pass：M1 106 + 新增 ≥ 22）、提交序列为 docs + T1–T11。
-- [ ] Step 2: （可选，装机场景）049 runbook scratch profile + `dsh plugin --profile web add -w /home/ubuntu/workspace/dsh-l`：面板行内 run 区块可见；无 LLM 凭据时 G1 放行 → build 节点 fail-closed（`MISSING_CREDENTIAL` 同 v1 判例）→ run failed + 候选 held——**预期行为非缺陷**；生效探针=GET /dsh-l/state 的 runs 摘要与构建指纹（HTTP 200 不作数）。
+- [ ] Step 2: （可选，装机场景）049 runbook scratch profile + `dsh plugin --profile web add -w /home/ubuntu/workspace/dsh-l`：面板行内 run 区块可见；无 LLM 凭据时 G1 放行 → build 节点 fail-closed（`MISSING_CREDENTIAL` 同 v1 判例）→ run failed + 候选 held——**预期行为非缺陷**；生效探针=GET /dsh-l/state 的 runs 摘要与构建指纹（HTTP 200 不作数）；executionPolicy:"auto" 的 build 放行后宿主侧 `approval/policy` durable 事件（log-only）可查即为 setPolicy 生效证据（评审 R1-12：inject 已声明，宿主服务缺失会在加载期抛错而非静默降级）。
 - [ ] Step 3: 停下交评审（章程同 M1：独立评审 Agent + 台账 + 最多 5 轮）。
 
 ## 执行纪律
