@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { computeReady, descendantsOf, gateArrive, applyGateDecision, cancelRun } from "../src/engine/scheduler.mjs";
+import { computeReady, descendantsOf, gateArrive, applyGateDecision, cancelRun, applyFailure, advanceRun, summarizeRun } from "../src/engine/scheduler.mjs";
 import { LOOP_V1 } from "../src/workflows/builtin.mjs";
 
 // a→b（普通支）与 a→c(gate)→d（闸门支）：gate 只闸 d，不闸 b（design-v2 §4 / grill Q9-B）
@@ -58,4 +58,46 @@ test("gateArrive：节点转 waiting、run 挂起", () => {
   assert.equal(run.nodeStates.g1.status, "waiting");
   assert.equal(run.status, "waiting");
   assert.equal(run.waitingGate, "g1");
+});
+
+// ---- Task 8：回炉 / 推进 / 终态 / 摘要 ----
+test("verify 失败回炉 build，第 4 次超限 run failed", () => {
+  let run = mkRun({ g1: "succeeded", build: "succeeded", verify: "running", g2: "pending", deliver: "pending" });
+  for (let i = 0; i < 3; i++) {
+    run.nodeStates.verify.reworkCount = i;
+    run = applyFailure(run, "verify", "tests red");
+    assert.equal(run.status, "running");
+    assert.equal(run.nodeStates.build.status, "ready");
+    // 模拟 build 重跑成功后 verify 再跑：手工推进
+    run.nodeStates.build.status = "succeeded"; run.nodeStates.verify.status = "running";
+  }
+  run.nodeStates.verify.reworkCount = 3;
+  run = applyFailure(run, "verify", "tests red again");
+  assert.equal(run.status, "failed");
+  assert.equal(run.hold, false);            // verify 未配 onFailure:"hold"
+  assert.match(run.nodeStates.verify.error, /again/);
+});
+test("advanceRun ready 化：终态前 run 保持 running（评审 R4 采纳·拆例①）", () => {
+  let run = mkRun({ g1: "succeeded", build: "succeeded", verify: "succeeded", g2: "succeeded" });
+  run = advanceRun(run);
+  assert.equal(run.nodeStates.deliver.status, "ready");   // ready 即待执行（M2 执行器接手）
+  assert.equal(run.status, "running");                    // deliver 未跑完，run 不终态
+  const sum = summarizeRun({ ...run, id: "r1", candidateKey: "k" });
+  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "running", waitingGate: null, currentNodeIds: ["deliver"] });
+});
+test("advanceRun 终态：全 succeeded 才收口（评审 R4 采纳·拆例②）", () => {
+  let run = mkRun({ g1: "succeeded", build: "succeeded", verify: "succeeded", g2: "succeeded", deliver: "succeeded" });
+  run = advanceRun(run);
+  assert.equal(run.status, "succeeded");
+  const sum = summarizeRun({ ...run, id: "r1", candidateKey: "k" });
+  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "succeeded", waitingGate: null, currentNodeIds: [] });
+});
+test("skipped 重激活：reject 后目标重跑成功，skipped 后代逐级回 ready（评审 R7 采纳·配套）", () => {
+  // G2 reject 后的形状：build=ready，verify=skipped，g2=skipped，deliver=pending（design-v2 §4 + T7 规则）
+  let run = mkRun({ g1: "succeeded", build: "ready", verify: "skipped", g2: "skipped" });
+  run.nodeStates.build.status = "succeeded";              // 模拟 M2 执行器重跑 build 完成
+  run = advanceRun(run);
+  assert.equal(run.nodeStates.verify.status, "ready");    // skipped→pending→ready（success 入边源已 succeeded）
+  assert.equal(run.nodeStates.g2.status, "skipped");      // verify 未重跑，仍停
+  assert.equal(run.nodeStates.deliver.status, "pending"); // 入边 g2 未通，保持 pending
 });

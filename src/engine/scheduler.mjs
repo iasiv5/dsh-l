@@ -75,3 +75,53 @@ export function cancelRun(run, reason) {
   }
   return { ...run, nodeStates, status: "cancelled", cancelReason: reason, waitingGate: null };
 }
+
+// ---- 回炉 / 推进 / 终态 / 摘要（design-v2 §4）----
+
+// 节点失败：记 error；有 rework 出边 → reworkCount+1 并把目标重置 ready（回炉）；
+// reworkCount > maxReworks（回炉限次用尽）或无 rework 出边 → run failed（onFailure==="hold" 时 hold=true，
+// 候选层映射 held 人工接管）。
+export function applyFailure(run, nodeId, error) {
+  const node = (run.snapshot.nodes ?? []).find((n) => n.id === nodeId) ?? {};
+  const reworkEdges = (run.snapshot.edges ?? []).filter((e) => e.kind === "rework" && e.source === nodeId);
+  const s = run.nodeStates[nodeId];
+  const reworkCount = (s.reworkCount ?? 0) + (reworkEdges.length ? 1 : 0);
+  const nodeStates = { ...run.nodeStates, [nodeId]: { ...s, status: "failed", error, reworkCount } };
+  let status = run.status;
+  let hold = run.hold ?? false;
+  const exhausted = reworkEdges.length === 0 || reworkCount > (node.maxReworks ?? 0);
+  if (exhausted) {
+    status = "failed";
+    hold = node.onFailure === "hold";
+  } else {
+    for (const e of reworkEdges) nodeStates[e.target] = { ...nodeStates[e.target], status: "ready" };
+  }
+  return { ...run, nodeStates, status, hold };
+}
+
+// 推进：①skipped 重激活——全部 success 入边源已 succeeded 的 skipped 节点回 pending（评审 R7 配套，
+// M2 执行器无需感知）；②ready 化——computeReady 结果 pending→ready；③全节点 succeeded 才置
+// run.status="succeeded"（评审 R4：ready≠终态），否则保持原 running/waiting。
+export function advanceRun(run) {
+  let nodeStates = run.nodeStates;
+  for (const [id, s] of Object.entries(nodeStates)) {
+    if (s.status !== "skipped") continue;
+    const deps = successIn(run.snapshot, id);
+    if (deps.length > 0 && deps.every((d) => statusOf(nodeStates, d) === "succeeded")) {
+      nodeStates = { ...nodeStates, [id]: { ...nodeStates[id], status: "pending" } };
+    }
+  }
+  for (const id of computeReady(run.snapshot, nodeStates)) {
+    nodeStates = { ...nodeStates, [id]: { ...nodeStates[id], status: "ready" } };
+  }
+  const allDone = (run.snapshot.nodes ?? []).every((n) => nodeStates[n.id]?.status === "succeeded");
+  return { ...run, nodeStates, status: allDone ? "succeeded" : run.status };
+}
+
+// 清单行/看板卡摘要：在途 = running/waiting/ready。
+export function summarizeRun(run) {
+  const currentNodeIds = Object.entries(run.nodeStates)
+    .filter(([, s]) => ["running", "waiting", "ready"].includes(s.status))
+    .map(([id]) => id);
+  return { id: run.id, candidateKey: run.candidateKey, status: run.status, waitingGate: run.waitingGate ?? null, currentNodeIds };
+}
