@@ -13,7 +13,8 @@ const INGEST_LOG_LIMIT = 50;
 export const candidateKey = (repo, type, number) => repo + "#" + type + "#" + number;
 
 const emptyDoc = (now) => ({
-  version: 1,
+  version: 2,
+  runs: {},           // 执行层（design-v2 §2）：runId → run（锁模板快照 + 节点状态机）
   watch: { repos: [...DEFAULT_WATCH_REPOS], updatedAt: now().toISOString() },
   candidates: {},
   snapshots: { lastIngestAt: null, perRepo: {} },
@@ -36,6 +37,16 @@ export function createStore({ filePath, now = () => new Date() }) {
     writeFileSync(tmp, JSON.stringify(doc), { mode: 0o600 });
     renameSync(tmp, filePath);
   };
+  // 迁移块置放：const persist 定义之后、const need 之前——persist 为 const 声明，留在上面旧迁移区
+  // 会因 TDZ 调不到 persist()（评审 R1 采纳·方案①：迁移落盘，一次性、幂等）。
+  if (doc.version !== 2) {
+    doc.version = 2;
+    doc.runs ??= {};
+    for (const c of Object.values(doc.candidates)) {
+      c.currentRunId ??= null; c.release ??= null; c.delivery ??= null;
+    }
+    persist();   // v2 起「打开旧档」会重写 store.json（原子写不变）——相对 v1 先例的行为变更；此后不再触发。
+  }
   const need = (key) => {
     const c = doc.candidates[key];
     if (!c) throw Object.assign(new Error("candidate not found: " + key), { status: 404 });
@@ -61,6 +72,7 @@ export function createStore({ filePath, now = () => new Date() }) {
           doc.candidates[key] = {
             key, ...raw, stage: "inbox", triage: null,
             gates: { G1: null, G2: null, G3: null }, taskPackage: null,
+            currentRunId: null, release: null, delivery: null,
             history: [{ at: now().toISOString(), event: "ingested", detail: "" }],
           };
         } else {

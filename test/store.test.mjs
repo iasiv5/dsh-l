@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createStore, DEFAULT_WATCH_REPOS, candidateKey } from "../src/store.mjs";
@@ -122,4 +122,32 @@ test("sweepUpstream：inbox/triaged 自动关闭，在途阶段提示一次，cl
   // 再扫一遍：提示去重，结果稳定
   const r2 = s.sweepUpstream("iasiv5/dsh-skins", live);
   assert.deepEqual(r2, { closed: [], flagged: [] });
+});
+
+test("v1 旧档迁移：version 2 + runs 空 + 候选补新字段", () => {
+  const dir = mkdtempSync(join(tmpdir(), "dsh-l-mig-"));
+  const file = join(dir, "store.json");
+  const v1 = { version: 1, watch: { repos: ["a/b"], updatedAt: "2026-11-01T00:00:00Z" },
+    candidates: { "a/b#issue#1": { key: "a/b#issue#1", repo: "a/b", type: "issue", number: 1,
+      title: "t", author: "a", labels: [], createdAt: "", updatedAt: "", url: "", meta: {}, pull: null,
+      bodyExcerpt: "", stage: "triaged", triage: null, gates: { G1: null, G2: null, G3: null },
+      taskPackage: null, history: [] } } };
+  writeFileSync(file, JSON.stringify(v1));
+  const s = createStore({ filePath: file });
+  const doc = JSON.parse(readFileSync(file, "utf8"));
+  assert.equal(doc.version, 2);
+  assert.deepEqual(doc.runs, {});
+  const c = s.getCandidate("a/b#issue#1");
+  assert.equal(c.currentRunId, null);
+  assert.equal(c.release, null);
+  assert.equal(c.delivery, null);
+  const s2 = createStore({ filePath: file });   // 二次打开：迁移幂等（评审 R1 采纳）
+  assert.equal(JSON.parse(readFileSync(file, "utf8")).version, 2);
+  assert.equal(s2.getCandidate("a/b#issue#1").currentRunId, null);
+});
+test("新候选与新档自带 v2 字段", () => {
+  const s = open();
+  s.upsertCandidates([raw(9)]);
+  const c = s.getCandidate(candidateKey("iasiv5/dsh-skins", "issue", 9));
+  assert.equal(c.currentRunId, null); assert.equal(c.release, null); assert.equal(c.delivery, null);
 });
