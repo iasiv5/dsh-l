@@ -69,3 +69,9 @@ export function stripCells({ candidates, workflow, runs = [] } = {}) {
   });
   return { pre, loop, fallback: !workflow?.templates?.length };
 }
+
+// 行内 run 区块数据（design-v2 §12.6）：按候选 currentRunId 取 runs 摘要；未命中/无 run 返回 null。
+export function runBlock(candidate, runs = []) {
+  if (!candidate?.currentRunId) return null;
+  return (runs ?? []).find((r) => r.id === candidate.currentRunId) ?? null;
+}

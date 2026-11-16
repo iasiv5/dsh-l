@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { groupCandidates, filterCandidates, pickTriageBatch, gateState, stageCounts, settingsPatch } from "../src/client/logic.mjs";
-import { stripCells } from "../src/client/logic.mjs";
+import { stripCells, runBlock } from "../src/client/logic.mjs";
 import { LOOP_V1 } from "../src/workflows/builtin.mjs";
 
 const t = (k) => k;
@@ -68,4 +68,11 @@ test("stripCells：环内 chip 按 runs 在途计数着色（评审 R1-15/R2-2 �
   assert.equal(byId.verify.count, 1);
   assert.equal(byId.g1.dim, true);
   assert.deepEqual(stripCells({ candidates: [], workflow: { templates: [LOOP_V1] } }).loop[0].dim, true);   // 无 runs 兼容（M1 用例同款）
+});
+test("runBlock：按 currentRunId 取 runs 摘要，未命中/无 run 返回 null", () => {
+  const runs = [{ id: "r1", status: "running", waitingGate: null, currentNodeIds: ["build"], error: null }];
+  assert.equal(runBlock({ currentRunId: "r1" }, runs).id, "r1");
+  assert.equal(runBlock({ currentRunId: "nope" }, runs), null);
+  assert.equal(runBlock({ currentRunId: null }, runs), null);
+  assert.equal(runBlock({}, runs), null);
 });

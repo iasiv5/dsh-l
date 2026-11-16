@@ -1,5 +1,5 @@
 import { api } from "../api.mjs";
-import { pickTriageBatch, gateState, settingsPatch } from "../logic.mjs";
+import { pickTriageBatch, gateState, settingsPatch, runBlock } from "../logic.mjs";
 import { openRepoPicker } from "./repoPicker.mjs";
 import { renderStrip } from "./pipelineStrip.mjs";
 
@@ -94,6 +94,7 @@ const row = () => { const d = document.createElement("div"); d.style.cssText = "
 const copy = (obj) => navigator.clipboard?.writeText(JSON.stringify(obj, null, 2)).catch(() => {});
 
 export function installActions({ getLang }) {
+  let lastRuns = [];   // strip 钩子先于行渲染被调（workbench 组装顺序），行内 run 区块由此取 runs 摘要
   const run = (view) => async (fn) => {
     try { await fn(); } catch (e) { console.warn("[dsh-l]", e); }
     await view.reload();
@@ -106,7 +107,10 @@ export function installActions({ getLang }) {
     intake(container, { t, state, view }) {
       container.append(btn(t("watchedRepos"), () => openRepoPicker(view.shadow, { t, current: state?.watch?.repos ?? [], onSaved: () => view.refresh() })));
     },
-    strip(container, { t, state }) { renderStrip(container, { t, candidates: state?.candidates ?? [], workflow: state?.workflow }); },
+    strip(container, { t, state }) {
+      lastRuns = state?.runs ?? [];   // 评审 R1-15：着色数据源
+      renderStrip(container, { t, candidates: state?.candidates ?? [], workflow: state?.workflow, runs: lastRuns });
+    },
     bar(bar, { t, state, filters, view }) {
       const keys = pickTriageBatch(state?.candidates ?? [], filters);
       bar.append(btn(t("actions.triageBatch") + " (" + keys.length + ")", () => run(view)(() => api.triage(keys, getLang())), keys.length === 0));
@@ -129,13 +133,33 @@ export function installActions({ getLang }) {
       }
       const gates = row();
       const g = gateState(c);
+      const run = runBlock(c, lastRuns);
+      const g2Ready = run?.waitingGate === "g2";   // 评审 D6/R1-19：G2 从字面量禁用改为挂起激活；G3 仍禁用（M3 发版分区）
       gates.append(
         btn("G1 " + t("gates.G1") + " · " + t("actions.pass"), () => go(async () => { const r = await api.gate(c.key, "G1", "pass", ""); if (r.taskPackage) await copy(r.taskPackage); }), !g.G1),
         btn("G1 · " + t("actions.reject"), () => go(() => api.gate(c.key, "G1", "reject", "")), !g.G1),
-        btn("G2 " + t("gates.G2"), () => {}, true),
+        btn("G2 " + t("gates.G2") + " · " + t("actions.pass"), () => go(() => api.runGate(run.id, "g2", "pass", "")), !g2Ready),
+        btn("G2 · " + t("actions.reject"), () => go(() => api.runGate(run.id, "g2", "reject", "")), !g2Ready),
         btn("G3 " + t("gates.G3"), () => {}, true),
       );
       if (c.taskPackage) gates.append(btn(t("actions.copyPackage"), () => copy(c.taskPackage)));
+      if (run) {
+        const runRow = row();
+        const st = document.createElement("span");
+        st.className = "chip";
+        st.textContent = t("run.status." + run.status) + ((run.currentNodeIds ?? []).length ? " · " + run.currentNodeIds.join("/") : "");
+        runRow.append(st);
+        if (run.status === "running" && (run.currentNodeIds ?? []).length === 0) {
+          const cl = document.createElement("span"); cl.className = "chip"; cl.style.opacity = ".7"; cl.textContent = t("run.workspaceCloning");
+          runRow.append(cl);
+        }
+        if (run.error) { const err = document.createElement("span"); err.className = "chip"; err.style.color = "crimson"; err.textContent = run.error; runRow.append(err); }
+        runRow.append(
+          btn(t("actions.retryRun"), () => go(() => api.runRetry(run.id, (run.currentNodeIds ?? [])[0] ?? "")), !(run.status === "failed" || run.status === "cancelled")),
+          btn(t("actions.cancelRun"), () => go(() => api.runCancel(run.id, "user")), !(run.status === "running" || run.status === "waiting")),
+        );
+        detail.append(runRow);
+      }
       const hint = document.createElement("small");
       hint.textContent = t("gateV1Hint");
       detail.append(override, stages, gates, hint);
