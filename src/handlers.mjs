@@ -266,6 +266,16 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
           patch.triageModel = { provider: sel.provider, model: sel.model };
         }
       }
+      if (body && "engineConcurrency" in body) {   // design-v2 §12.9：M2 引擎并发上限
+        const n = body.engineConcurrency;
+        if (!Number.isInteger(n) || n < 1 || n > 4) return fail("invalid settings");
+        patch.engineConcurrency = n;
+      }
+      if (body && "workspaceRetentionDays" in body) {
+        const d = body.workspaceRetentionDays;
+        if (!Number.isInteger(d) || d < 1 || d > 90) return fail("invalid settings");
+        patch.workspaceRetentionDays = d;
+      }
       if (Object.keys(patch).length === 0) return fail("invalid settings");
       store.setSettings(patch);
       onSettingsChange(store.getSettings());

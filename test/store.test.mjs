@@ -178,3 +178,13 @@ test("F4：version 2 手改档缺 runs 块，打开即回填不炸", () => {
   const s = createStore({ filePath: file });
   assert.deepEqual(s.listRuns(), []);
 });
+
+test("settings v2：engineConcurrency/workspaceRetentionDays 默认与旧档回填", () => {
+  const s = open();
+  assert.equal(s.getSettings().engineConcurrency, 2);
+  assert.equal(s.getSettings().workspaceRetentionDays, 7);
+  const file = join(mkdtempSync(join(tmpdir(), "dsh-l-set-")), "store.json");
+  writeFileSync(file, JSON.stringify({ version: 1, watch: { repos: [], updatedAt: "T" }, candidates: {}, snapshots: {}, settings: {} }));
+  assert.equal(createStore({ filePath: file }).getSettings().engineConcurrency, 2);
+  assert.equal(createStore({ filePath: file }).getSettings().workspaceRetentionDays, 7);
+});

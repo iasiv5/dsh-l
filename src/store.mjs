@@ -26,7 +26,7 @@ const emptyDoc = (now) => ({
   snapshots: { lastIngestAt: null, perRepo: {} },
   repos: {},          // "owner/repo" → { defaultBranch, cloneUrl, fetchedAt }，任务包 repo 块数据源
   ingestLog: [],      // 每次摄取一条（上限 50，FIFO）——「刷新有历史可回溯」的载体
-  settings: { intervalMinutes: 0, triageModel: null },
+  settings: { intervalMinutes: 0, triageModel: null, engineConcurrency: 2, workspaceRetentionDays: 7 },
   auth: { account: null, login: null, verifiedAt: null },  // 收活绑定：工作台级 GitHub 账号连接；退出=清空（不动本机 gh 登录态）
 });
 
@@ -54,6 +54,9 @@ export function createStore({ filePath, now = () => new Date() }) {
     persist();   // v2 起「打开旧档」会重写 store.json（原子写不变）——相对 v1 先例的行为变更；此后不再触发。
   }
   doc.runs ??= {};   // 评审 F4：version 2 手改档缺 runs 块的无条件回填
+  doc.settings ??= { intervalMinutes: 0, triageModel: null, engineConcurrency: 2, workspaceRetentionDays: 7 };
+  doc.settings.engineConcurrency ??= 2;             // design-v2 §12.9：M2 引擎并发上限
+  doc.settings.workspaceRetentionDays ??= 7;        // design-v2 §5：工作区保留期
   const need = (key) => {
     const c = doc.candidates[key];
     if (!c) throw Object.assign(new Error("candidate not found: " + key), { status: 404 });

@@ -120,6 +120,15 @@ test("putSettings：intervalMinutes 0..1440 整数，变更回调", async () => 
   assert.equal((await h.putSettings({ intervalMinutes: -1 })).error, "invalid settings");
 });
 
+test("putSettings：并发 1..4 与保留期 1..90 边界", async () => {
+  const store = openStore();
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
+  assert.equal((await h.putSettings({ engineConcurrency: 3 })).engineConcurrency, 3);
+  assert.equal((await h.putSettings({ workspaceRetentionDays: 14 })).workspaceRetentionDays, 14);
+  assert.equal((await h.putSettings({ engineConcurrency: 5 })).error, "invalid settings");
+  assert.equal((await h.putSettings({ workspaceRetentionDays: 0 })).error, "invalid settings");
+});
+
 test("buildTaskPackage 形状", () => {
   const pkg = buildTaskPackage({ key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t", url: "U", triage: null }, null, () => new Date(0));
   assert.equal(pkg.repo.cloneUrl, "git@github.com:o/r.git");
