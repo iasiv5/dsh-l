@@ -26,6 +26,10 @@ export const api = {
   override: (payload) => send("dsh-l/candidate/override", payload),
   stage: (key, stage, note) => send("dsh-l/candidate/stage", { key, stage, note }),
   gate: (key, gate, decision, note) => send("dsh-l/candidate/gate", { key, gate, decision, note }),
+  runStart: (key, note = "") => send("dsh-l/run/start", { key, note }),
+  runGate: (runId, nodeId, decision, note = "", targetNode = null) => send("dsh-l/run/gate", { runId, nodeId, decision, note, targetNode }),
+  runCancel: (runId, reason = "user") => send("dsh-l/run/cancel", { runId, reason }),
+  runRetry: (runId, nodeId) => send("dsh-l/run/retry", { runId, nodeId }),
   settings: () => get("dsh-l/settings"),
   putSettings: (patch) => send("dsh-l/settings", patch, "PUT"),
 };

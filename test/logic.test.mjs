@@ -59,3 +59,13 @@ test("stripCells：无 workflow meta 回退旧 7 段", () => {
   assert.equal(out.fallback, true);
   assert.deepEqual(out.loop, []);
 });
+test("stripCells：环内 chip 按 runs 在途计数着色（评审 R1-15/R2-2 数据源）", () => {
+  const out = stripCells({ candidates: [], workflow: { templates: [LOOP_V1] },
+    runs: [{ currentNodeIds: ["build"] }, { currentNodeIds: ["build", "verify"] }] });
+  const byId = Object.fromEntries(out.loop.map((n) => [n.id, n]));
+  assert.equal(byId.build.count, 2);
+  assert.equal(byId.build.dim, false);
+  assert.equal(byId.verify.count, 1);
+  assert.equal(byId.g1.dim, true);
+  assert.deepEqual(stripCells({ candidates: [], workflow: { templates: [LOOP_V1] } }).loop[0].dim, true);   // 无 runs 兼容（M1 用例同款）
+});

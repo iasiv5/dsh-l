@@ -55,13 +55,17 @@ export function settingsPatch(initial, form) {
   return { ...patch, triageModel: { provider: form.modelValue.slice(0, cut), model: form.modelValue.slice(cut + 1) } };
 }
 
-// 工作流条数据（design-v2 §8）：前环 4 chip 复用 stageCounts 计数口径；环内段取首个模板的节点 meta
-// （id/name/type，M1 无执行器恒灰 dim）；无 workflow meta 时 fallback=true 由组件渲染旧 7 段。
-export function stripCells({ candidates, workflow } = {}) {
+// 工作流条数据（design-v2 §8）：前环 4 chip 复用 stageCounts 计数口径；环内段取首个模板的节点 meta，
+// 按 runs 摘要的 currentNodeIds 计在途数（count>0 才亮，评审 R1-15/R2-2）；无 workflow meta 时 fallback=true。
+export function stripCells({ candidates, workflow, runs = [] } = {}) {
   const counts = stageCounts(candidates);
   const pre = [["ingest", counts.ingest], ["backlog", counts.backlog], ["triage", counts.triage], ["feedback", counts.feedback]]
     .map(([key, count]) => ({ key, count }));
   const template = workflow?.templates?.[0];
-  const loop = (template?.nodes ?? []).map((n) => ({ id: n.id, name: n.name, type: n.type, dim: true }));
+  const inFlight = (nodeId) => (runs ?? []).filter((r) => (r.currentNodeIds ?? []).includes(nodeId)).length;
+  const loop = (template?.nodes ?? []).map((n) => {
+    const count = inFlight(n.id);
+    return { id: n.id, name: n.name, type: n.type, count, dim: count === 0 };
+  });
   return { pre, loop, fallback: !workflow?.templates?.length };
 }

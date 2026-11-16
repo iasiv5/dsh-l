@@ -127,10 +127,12 @@ export function advanceRun(run) {
   return { ...run, nodeStates, status: allDone ? "succeeded" : run.status };
 }
 
-// 清单行/看板卡摘要：在途 = running/waiting/ready。
+// 清单行/看板卡摘要：在途 = running/waiting/ready；error = 首个 failed 节点的 error（评审 R2-2/R1-15，
+// state.runs 摘要承载 run 详情——§12.10 路由适配）。
 export function summarizeRun(run) {
   const currentNodeIds = Object.entries(run.nodeStates)
     .filter(([, s]) => ["running", "waiting", "ready"].includes(s.status))
     .map(([id]) => id);
-  return { id: run.id, candidateKey: run.candidateKey, status: run.status, waitingGate: run.waitingGate ?? null, currentNodeIds };
+  const error = Object.values(run.nodeStates).find((s) => s.status === "failed")?.error ?? null;
+  return { id: run.id, candidateKey: run.candidateKey, status: run.status, waitingGate: run.waitingGate ?? null, currentNodeIds, error };
 }
