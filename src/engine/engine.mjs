@@ -115,6 +115,7 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, now
       engine.dispatchAlive();   // 并发名额释放后全局拾起其余存活 run 的排队节点
     },
     dispatchAlive() { for (const r of store.listRuns()) if (r.status === "running") engine.dispatch(r.id); },
+    simulateRestart() { inflight.clear(); },   // 测试钩子（评审 R1-17）：模拟宿主重启丢内存态，无生产调用方
     applyGateDecision(runId, nodeId, decision, overrideTarget = null) {
       const run = store.getRun(runId); if (!run) throw Object.assign(new Error("run not found"), { status: 404 });
       const next = applyGateDecision(run, nodeId, decision, overrideTarget);

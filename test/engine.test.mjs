@@ -178,3 +178,39 @@ test("钉例⑤failed run 上重试 succeeded 节点 → 节点级守卫 409（�
   assert.equal(nodeState(store, runId, "verify"), "succeeded");
   assert.throws(() => engine.retryNode(runId, "verify"), /retry-requires-failed/);   // 节点级守卫：verify 非 failed/cancelled
 });
+
+// ---- Task 8：恢复扫描（评审 D1/R2-7/R3-2）----
+test("recover：running→ready 不烧 attempt + 留痕 + 全量存活 run 统一重派", async () => {
+  const { store, engine, executor } = setup();
+  const key = "o/r#issue#1";
+  const { runId } = engine.startRun(key, {});
+  await drain();
+  const before = store.getRun(runId).nodeStates.build.attempt;
+  engine.simulateRestart();   // 模拟宿主重启：丢弃内存 in-flight（评审 R1-17：测试代码显式调用）
+  const resumed = engine.recover();
+  assert.ok(resumed.includes(runId));
+  // ready 中间态不可观测：recover 返回前 resume 派发已同步执行（评审 R3-1），故不断言 ready、直接断言 running 后状态
+  assert.equal(store.getRun(runId).nodeStates.build.attempt, before);      // 评审 R1-11：恢复重派不烧 attempt
+  assert.equal(store.getRun(runId).history.at(-1).event, "resume.interrupted");
+  await drain();
+  assert.equal(store.getRun(runId).nodeStates.build.status, "running");    // 重新派发（resume 路径）
+  assert.equal(store.getRun(runId).nodeStates.build.attempt, before);      // 仍不烧
+  assert.equal(executor.lastArgs.resume, true);
+});
+test("recover：run.status=running 但无 running 节点的窄窗状态也被拾起（评审 R3-2）", async () => {
+  const { store, engine, executor } = setup();
+  const key = "o/r#issue#1";
+  const { runId } = engine.startRun(key, {});
+  await drain();
+  executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":verify").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  engine.applyGateDecision(runId, "g2", "pass"); await drain();
+  assert.equal(nodeState(store, runId, "deliver"), "running");
+  // 模拟「进程死在 dispatch 内 saveRun 与 inflight 登记之间」：deliver 回 ready、run 仍 running、无在途
+  engine.simulateRestart();
+  store.saveRun({ ...store.getRun(runId), nodeStates: { ...store.getRun(runId).nodeStates, deliver: { status: "ready", attempt: 1, reworkCount: 0, error: null, artifacts: [] } } });
+  const resumed = engine.recover();
+  assert.equal(resumed.includes(runId), false);   // 无 running 节点 → 不落 history（R3-2：全量重派但 history 只记 touched）
+  await drain();
+  assert.equal(nodeState(store, runId, "deliver"), "running");   // 但仍被重派（R3-2 修复点：scanned 全量重派）
+});
