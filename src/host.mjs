@@ -106,6 +106,8 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     "/dsh-l/run/cancel": { POST: handlers.postRunCancel },
     "/dsh-l/run/retry": { POST: handlers.postRunRetry },
     "/dsh-l/release/confirm": { POST: handlers.postReleaseConfirm },
+    "/dsh-l/roles": { GET: handlers.getRoles, POST: handlers.postRolesUpsert },
+    "/dsh-l/roles/delete": { POST: handlers.postRolesDelete },
     "/dsh-l/feishu/test": { POST: handlers.postFeishuTest },
     "/dsh-l/feishu/webhook": { PUT: handlers.putFeishuWebhook },
     "/dsh-l/auth": { GET: handlers.getAuth },

@@ -6,6 +6,7 @@ import { renderRow } from "./candidateRow.mjs";
 import { renderLoginGate } from "./loginGate.mjs";
 import { renderKanban } from "./kanban.mjs";
 import { renderReview } from "./review.mjs";
+import { renderRolesTab } from "./rolesTab.mjs";
 
 const CSS = [
   ":host{display:flex;flex-direction:column;height:100%;font-size:14px;line-height:1.45;color:inherit}",
@@ -156,7 +157,7 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
     // 主栏 tab bar（design-v2 §13.5/D6）：三视图互斥显隐（评审 P10）。
     const tabsBar = el("div");
     tabsBar.style.cssText = "display:flex;gap:6px;padding:10px 16px 0";
-    for (const [id, label] of [["list", t("tabs.list")], ["board", t("tabs.board")], ["review", t("tabs.review")]]) {
+    for (const [id, label] of [["list", t("tabs.list")], ["board", t("tabs.board")], ["review", t("tabs.review")], ["roles", t("tabs.roles")]]) {
       const b = el("button", null, label);
       b.type = "button";
       if (activeTab === id) b.style.cssText = "font-weight:700;border-bottom:2px solid currentColor;border-radius:0";
@@ -205,13 +206,16 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
     // 三视图互斥显隐（评审 P10）：清单 = 收活+分诊两板块；看板/待我确认为 M3 新视图容器（T8/T9 挂载组件）。
     const boardWrap = el("div");
     const reviewWrap = el("div");
+    const rolesWrap = el("div");
     boardWrap.style.display = activeTab === "board" ? "" : "none";
     reviewWrap.style.display = activeTab === "review" ? "" : "none";
+    rolesWrap.style.display = activeTab === "roles" ? "" : "none";
     if (activeTab === "board") renderKanban(boardWrap, { t, candidates: state?.candidates ?? [], view });
     if (activeTab === "review") renderReview(reviewWrap, { t, candidates: state?.candidates ?? [], runs: state?.runs ?? [], view });
+    if (activeTab === "roles") renderRolesTab(rolesWrap, { t, workflow: state?.workflow ?? { templates: [] }, view });
     intake.style.display = activeTab === "list" ? "" : "none";
     triage.style.display = activeTab === "list" ? "" : "none";
-    main.append(intake, triage, boardWrap, reviewWrap);
+    main.append(intake, triage, boardWrap, reviewWrap, rolesWrap);
     shadow.append(style, header, tabsBar, main);
   };
 
