@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { groupCandidates, filterCandidates, pickTriageBatch, gateState, stageCounts, settingsPatch } from "../src/client/logic.mjs";
-import { stripCells, runBlock } from "../src/client/logic.mjs";
+import { stripCells, runBlock, needsReview, kanbanColumns } from "../src/client/logic.mjs";
 import { LOOP_V1 } from "../src/workflows/builtin.mjs";
 
 const t = (k) => k;
@@ -75,4 +75,32 @@ test("runBlock：按 currentRunId 取 runs 摘要，未命中/无 run 返回 nul
   assert.equal(runBlock({ currentRunId: "nope" }, runs), null);
   assert.equal(runBlock({ currentRunId: null }, runs), null);
   assert.equal(runBlock({}, runs), null);
+});
+
+// ---- Task 2：待我确认聚合 + 看板列（评审 D5/D6）----
+test("needsReview：gate 等待 + G3 待发版聚合（failed 入分区不入角标）", () => {
+  const candidates = [
+    { key: "k1", stage: "shipped", currentRunId: null, release: null },
+    { key: "k2", stage: "shipped", currentRunId: null, release: { confirmedAt: "T" } },
+    { key: "k3", stage: "building", currentRunId: null, release: null },
+  ];
+  const runs = [
+    { id: "r1", status: "waiting", waitingGate: "g2", currentNodeIds: ["g2"], error: null },
+    { id: "r2", status: "running", waitingGate: null, currentNodeIds: ["build"], error: null },
+    { id: "r3", status: "failed", waitingGate: null, currentNodeIds: [], failedNodeIds: ["deliver"], error: "push rejected" },
+  ];
+  const out = needsReview({ candidates, runs });
+  assert.deepEqual(out.gateRuns.map((r) => r.id), ["r1"]);
+  assert.deepEqual(out.failedRuns.map((r) => r.id), ["r3"]);     // 评审 P1：第三分区数据源
+  assert.deepEqual(out.releaseList.map((c) => c.key), ["k1"]);   // k2 已确认发版、k3 非 shipped
+  assert.equal(out.count, 2);                                    // D5 口径：failed 不计入角标
+});
+test("kanbanColumns：6 列同构 + 进行中列禁迁移", () => {
+  const out = kanbanColumns({ candidates: [c("inbox"), c("building"), c("verifying"), c("shipped"), c("held")] });
+  assert.deepEqual(out.columns.map((col) => col.id), ["inbox", "triaged", "gating", "building", "shipped", "closed"]);
+  const byId = Object.fromEntries(out.columns.map((col) => [col.id, col]));
+  assert.deepEqual(byId.building.cards.map((x) => x.stage), ["building", "verifying"]);
+  assert.deepEqual(byId.closed.cards.map((x) => x.stage), ["held"]);
+  assert.equal(byId.inbox.cards[0].movable, true);
+  assert.equal(byId.building.cards[0].movable, false);
 });

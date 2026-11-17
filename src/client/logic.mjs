@@ -75,3 +75,26 @@ export function runBlock(candidate, runs = []) {
   if (!candidate?.currentRunId) return null;
   return (runs ?? []).find((r) => r.id === candidate.currentRunId) ?? null;
 }
+
+// 待我确认聚合（design-v2 §13.5）：gate 等待 + failed 分区 + G3 待发版。
+// 角标口径（D5）：count = gate 等待数 + 待发版数——failed 不计入（失败走清单行内与飞书推送）。
+export function needsReview({ candidates, runs = [] } = {}) {
+  const gateRuns = (runs ?? []).filter((r) => r.status === "waiting" && r.waitingGate);
+  const failedRuns = (runs ?? []).filter((r) => r.status === "failed");
+  const releaseList = (candidates ?? []).filter((c) => c.stage === "shipped" && !c.release?.confirmedAt);
+  return { gateRuns, failedRuns, releaseList, count: gateRuns.length + releaseList.length };
+}
+
+// 看板列（design-v2 §13.6）：6 列与清单分组同构（bucketOf）；卡片 movable 仅白名单
+// stage（building/verifying 禁手工迁移，v1 postStage 校验沿用）；run 状态由调用方经 runBlock 在行内承载。
+export function kanbanColumns({ candidates } = {}) {
+  const movableStages = new Set(["inbox", "triaged", "gating", "shipped", "held", "closed"]);
+  const columns = [["inbox", false], ["triaged", false], ["gating", false], ["building", false], ["shipped", false], ["closed", false]]
+    .map(([id, dim]) => ({ id, dim, cards: [], movable: false }));
+  const byId = Object.fromEntries(columns.map((col) => [col.id, col]));
+  for (const c of candidates ?? []) {
+    const col = byId[bucketOf(c.stage)];
+    if (col) col.cards.push({ ...c, movable: movableStages.has(c.stage) });
+  }
+  return { columns };
+}
