@@ -33,7 +33,6 @@
 
 ## 文件结构与职责
 
-- Modify: `src/host.mjs` — 装配链可测化微调（如需：把 ctx→装配参数的预备步骤抽为可注入形态；路由表不变）
 - Create: `test/host-smoke.test.mjs` — host 装配冒烟（最小 ctx stub → apply → 断言路由在位/装配不抛）
 - Modify: `test/i18n.test.mjs` — 增动态前缀键白名单守护用例
 - Modify: `test/roles.test.mjs` — loop-builder prompt 逐字 deepEqual（对齐 builtin.mjs build.prefix 原文）
@@ -54,14 +53,14 @@
 - 目标：主人已追认的三项 §14 修订回写；kanban 口径注记；README 致谢核对。
 - 涉及文件：Modify `docs/design-v2.md`、`README.md`、`README.en.md`、GLOSSARY（仓根）
 - 内容：
-  1. §14.7 补 runId 字样（startRun 可选 runId——决议 D7，M4 已实现）
+  1. §14.7 补 runId 语义（评审 R-5 修正文案：**startRun 返回 { runId }**（引擎 makeRunId 生成）；run/start 路由响应含 runId——出处表述为「M4 计划评审自检修正」，**不写「可选 runId 入参」**：engine.mjs:84 实文签名无此参，原稿会把事实错误固化进基线）
   2. kanban 全白名单口径注记（§14 附近或 GLOSSARY stage 条目：迁移不设相邻限制）
   3. README/README.en 致谢段核对：LoopForge UI 交互参考致谢在位（§15.1 D 组；缺则补）
 
 - [ ] Step 1: Run: `grep -n 'runId' docs/design-v2.md | head -3 && grep -n 'LoopForge' README.md | head -3`
   Expected: §14.7 无 runId 字样（待补）；README 致谢现状可读（补或不补据实）。
 - [ ] Step 2: 按上述三点编辑实文（§14.7 runId、口径注记、README 致谢按需）。
-- [ ] Step 3: Run: `grep -c 'runId' docs/design-v2.md` — Expected: ≥1。
+- [ ] Step 3: Run: `sed -n '/^7\. \*\*startRun/,/^8\./p' docs/design-v2.md | grep -c runId` — Expected: 基线 0 → 编辑后 ≥1（评审 R-4 修正：全局 grep 基线已 =5 永真，须条目段锚定）。
 - [ ] Step 4: docs commit：`git add docs README.md README.en.md GLOSSARY.md && git commit -m "docs: M5 T1 §14 追认回写 + kanban 口径注记 + README 致谢核对"`
 
 ### Task 2: loadTemplateDefs 警告对称性
@@ -70,10 +69,10 @@
 - 涉及文件：Modify `src/workflows/loader.mjs`；Test `test/workflows.test.mjs`
 - 接口契约：
   - Consumes: loadTemplates 的 warnings 范式（skip+push file: message）
-  - Produces: `loadTemplateDefs({dataDir})` → `{ defs, warnings }`（**返回形状变化**：原为数组）；调用侧 host.mjs `templateDefs` 构造同步改 `.defs`
+  - Produces: `loadTemplateDefs({dataDir})` → `{ defs, warnings }`（**返回形状变化**：原为数组）；调用侧 host.mjs `templateDefs` 构造同步改 `.defs`；评审 R-9 措辞修正：**三类失败模式拆分入 warnings**（坏 JSON / 校验失败 / 撞 id——:28 一行双条件拆两支各产文案，对称 loadTemplates）；目录缺席与非 .json **保持静默**（同 loadTemplates）
 - 验证范围：`npm test`（workflows 段）+ host 冒烟间接覆盖
 
-- [ ] Step 1: 失败测试（workflows.test：坏 JSON 用户模板 → defs 不含它且 warnings 含文件名；两内置恒在 defs）
+- [ ] Step 1: 失败测试（评审 R-11 粒度钉死，三例：①坏 JSON 用户模板 → defs 不含且 warnings 含文件名；②校验失败模板 → warnings 文案对称 loadTemplates；③撞 id 用户模板 → warnings；另断言两内置恒在 defs）
 - Run: 红（现返回数组无 warnings）。
 - [ ] Step 2: 确认失败信号。
 - [ ] Step 3: 实现——loader.mjs 改返回 `{ defs, warnings }`（三处 continue 改 warnings.push）；host.mjs `templateDefs` 构造改 `loadTemplateDefs(...).defs`；测试同步。
@@ -87,9 +86,9 @@
 - 接口契约：url === PREFIX（空 token）→ fail("invalid webhook")；合法带 token → 现行为。
 - 验证范围：`npm test`（handlers feishu 段）
 
-- [ ] Step 1: 失败测试：`putFeishuWebhook({url: PREFIX})` → error（现状通过）。
+- [ ] Step 1: 失败测试（评审 R-11 粒度钉死，三例）：`putFeishuWebhook({url: PREFIX})` → error（现状通过）；`{url: PREFIX + "   "}` → error（空白 token）；`{url: PREFIX + "token-1"}` → 现行为不变。
 - [ ] Step 2: 确认失败信号。
-- [ ] Step 3: 实现：`if (url === PREFIX || !url.startsWith(PREFIX)) return fail("invalid webhook");`
+- [ ] Step 3: 实现（评审 R-10：空白 token 一并挡）：`if (!url.startsWith(PREFIX) || !url.slice(PREFIX.length).trim()) return fail("invalid webhook");`
 - [ ] Step 4: Run: 全绿 → checkpoint commit。
 
 ### Task 4: feishu 保存/测试 C 形态（独立保存 + 测试前自动保存）
@@ -121,7 +120,7 @@
 - 涉及文件：Modify `test/i18n.test.mjs`
 - 接口契约：
   - Consumes: M4 T9 静态守护用例（保持绿）
-  - Produces: 新用例：正则提取 `t\("([a-z]+)\." * \+` 动态前缀 → 每前缀在双字典为对象段 → 断言白名单映射（如 `gates` → 键集 ⊆ /^G\d$/；`stages` → 7 stage 名；`groups` → 6 列 id；`run.status` → 状态枚举）——白名单表在测试内显式列出，新动态前缀出现时守护红提示补表
+  - Produces: 新用例（评审 R-3 修正：正则跨点 + 白名单 7 前缀）：正则提取 `t\("([a-z.]+)\." * \+` 动态前缀（[a-z.]+ 跨点，捕获 run.status 类多段）→ 白名单表显式 7 前缀：`groups`→6 列 id、`urgency`→P0–P3、`gates`→键集 ⊆ /^G\d$/、`validity`→high/medium/low/none、`recommendedActions`→start/feedback/close/hold、`run.status`→状态枚举、`stages`→7 stage 名；段键存在性按点分路径逐级下钻（run.status = 字典二段）；新动态前缀出现时守护红提示补表
 
 - [ ] Step 1: 失败测试（先在源码临时加一个未入白名单的动态前缀调用 → 红 → 移除）。
 - [ ] Step 2: 确认两向有效。
@@ -133,13 +132,12 @@
 - 目标：堵 host.mjs 装配层盲区（R1-1 根因）——最小 ctx stub 驱动装配链，断言装配不抛 + 路由表关键键在位。
 - 涉及文件：Create `test/host-smoke.test.mjs`；如装配不可测需微调 `src/host.mjs`（仅可测化抽取，路由行为零变化）
 - 接口契约：
-  - Consumes: **host.mjs 导出面（实文锚点）**——`export const inject = ["webServer","credentials","agents","agentDefaultModel","timer","llm","approval","workingDirectory"]`（:26）；`export function buildRuntime(ctx, config, { makeTriage, listCatalog, hostDefault, onSettingsChange } = {})`（:65，返回含 engine/handlers 的装配对象）；`export async function apply(ctx, config)`（:130，套壳 buildRuntime+路由注册）。冒烟驱动 **buildRuntime**（非 apply——避免 webServer/timer 真注册）；stub ctx 面按 inject 清单 × buildRuntime 实读消费面构造
-  - Produces: 冒烟用例：stub ctx（credentials.set/resolve 空实现、workingDirectory/approval 空实现、agents/llm/timer/webServer 空实现、agentDefaultModel null、storage 若消费则记忆实现）→ `buildRuntime(stubCtx, config)` → 断言：①不抛；②返回路由表含 /dsh-l/roles GET+POST、/dsh-l/run/start、/dsh-l/release/confirm（M4/M2 关键键）；③engine.templates 含 loop-v1 与 devflow-lite（R1-1 回归锚）；④engine.listRoles() 读 store（覆盖用户角色后解析生效）
+  - Consumes: **host.mjs 导出面（实文锚点）+ 数据目录隔离（评审 R-7）**——paths.dataDir() 依赖 `DSH_L_DATA` env（profile root 判定在 node --test 下不命中会抛错）；测试 setup 设 `process.env.DSH_L_DATA = mkdtempSync(join(tmpdir(), "dsh-l-smoke-"))`、teardown 还原（隔离 + 可重复）——`export const inject = ["webServer","credentials","agents","agentDefaultModel","timer","llm","approval","workingDirectory"]`（:26）；`export function buildRuntime(ctx, config, { makeTriage, listCatalog, hostDefault, onSettingsChange } = {})`（:65，返回含 engine/handlers 的装配对象）；`export async function apply(ctx, config)`（:130，套壳 buildRuntime+路由注册）。冒烟驱动 **buildRuntime**（非 apply——避免 webServer/timer 真注册）；stub ctx 面按 inject 清单 × buildRuntime 实读消费面构造
+  - Produces: 冒烟用例（评审 R-2 修正断言③④——engine 对象不暴露 templates/listRoles 闭包参）：stub ctx（credentials.set/resolve 空实现、workingDirectory/approval 空实现、agents/llm/timer/webServer 空实现、agentDefaultModel null）→ `buildRuntime(stubCtx, config)` → 断言：①不抛；②返回路由表含 /dsh-l/roles GET+POST、/dsh-l/run/start、/dsh-l/release/confirm（M4/M2 关键键）；③**模板解析探针**：种子候选后 `rt.engine.startRun(key,{templateId:"loop-v1"})` 与 `{templateId:"devflow-lite"}` 均可建跑、`{templateId:"nope"}` 抛 unknown-template 404（R1-1 注入面回归锚）；④**角色解析源探针**：store.upsertRole → store.listRoles 往返生效（引擎侧 role 解析由既有 engine/scheduler 测试覆盖）
 - 验证范围：`npm test`（新增文件）+ `npm run build`
 
-- [ ] Step 1: 读 src/host.mjs 实文确定装配入口签名与 ctx 消费面 → 失败测试（host-smoke.test.mjs：路由表断言——现 host 无可测导出则红/或直接驱动 apply 形态）。
-- [ ] Step 2: 确认失败信号；如需可测化抽取（buildRuntime 导出），host.mjs 最小改造。
-- [ ] Step 3: 实现冒烟测试（四断言）。
+- [ ] Step 1: 读实文定 stub 面（inject 八项 × buildRuntime 消费面）→ 直接写断言（**绿基线任务**——buildRuntime 已于 :65 导出，无红可确认；评审 R-8：红证=一次性变异，见执行纪律）。
+- [ ] Step 2: 实现冒烟测试（四断言 + DSH_L_DATA 隔离）。
 - [ ] Step 4: Run: `set -o pipefail; npm test 2>&1 | tail -3 && npm run build 2>&1 | tail -1` — Expected: 全绿 + 双包成功。
 - [ ] Step 5: checkpoint commit。
 
@@ -147,10 +145,10 @@
 
 - 目标：0.1.0 发版前置就绪（publish 本身在产出评审通过后执行——验收后动作）。
 - 涉及文件：Modify `package.json`（version 0.0.1 → 0.1.0）、`README.md`、`README.en.md`（终审如有措辞修正随本任务 docs commit）
-- 接口契约：version 0.1.0；build 指纹随版本重算；npm 占名核查 `npm view dsh-l` （404 = 可发）。
+- 接口契约：version 0.1.0；build 指纹随 src/ 源码变化（bump 不影响指纹，评审 R-6）；占名核查判据见 Step 1（占位在位且归属本人）。
 
-- [ ] Step 1: Run: `npm view dsh-l version` — Expected: E404（名字可发；若已被占立即停下报告主人）。
-- [ ] Step 2: package.json version → 0.1.0；npm run build（指纹随版本变化）。
+- [ ] Step 1: Run: `npm view dsh-l version && npm owner ls dsh-l` — Expected: **version 0.0.1 且 owner 含 `npm whoami` 本人账号**（评审 R-1 修正：dsh-l 为主人自有占位包——npm-packages claim 工作区模式，原稿 E404 判据与现实相反；publish 0.1.0 定性为占位包正式接管）。
+- [ ] Step 2: package.json version → 0.1.0；npm run build（评审 R-6 修正：build-id 只哈希 src/ 树——**bump 单独不改变指纹**；指纹变化由 T2–T7 源码变更贡献）。
 - [ ] Step 3: README 双语终审（安装段/致谢段/版本号如有硬编码核对）；装机注记核对（inject 八项/生效探针/approval·policy durable 事件）。
 - [ ] Step 4: Run: `set -o pipefail; npm test 2>&1 | tail -3` — Expected: 全绿（无测试锁 version 值；若有即同步）。
 - [ ] Step 5: checkpoint commit（package.json + docs 分开：docs 变更独立 commit 纪律）。
@@ -165,7 +163,7 @@
 
 - 开始实现前先批判性复查整份计划；发现缺项、矛盾、命名不一致或验证命令无效，先修计划再动手。
 - 按任务编号顺序执行；每任务跑完它定义的验证再进下一个；docs 变更独立 commit。
-- **先红后绿再 commit**（M4 备忘升格硬纪律）：commit 前本任务验证必须全绿；禁止带伤提交后 amend。
+- **先红后绿再 commit**（M4 备忘升格硬纪律）：commit 前本任务验证必须全绿；禁止带伤提交后 amend。**绿基线任务范式（评审 R-8）**：golden/冒烟/逐字锁类任务的红证=一次性变异（改一侧或断开注入→红→还原），变异不保留。
 - 测试桩只走注入，单测不真实出网/spawn/clone；禁 jsdom。
 - 遇阻、重复失败或计划与仓库现实不符：立即停下说明，不猜。
 - 回应前 grep 实文验证（M2 R2-1/M3 R1/M4 R1-1 备忘）。
