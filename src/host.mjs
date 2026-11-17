@@ -78,7 +78,7 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
   const notifier = makeFeishu({ fetch: globalThis.fetch, getWebhook });
   const setWebhook = (url) => ctx.credentials.set("DSH_L_FEISHU_WEBHOOK_URL", url);
   // 模板全量 defs（M4 评审 R1-1：引擎 templates 注入 + 守卫数据源共源）；角色解析 store.roles 优先（listRoles 闭包）
-  const templateDefs = Object.fromEntries(loadTemplateDefs({ dataDir: dir }).map((d) => [d.id, d]));
+  const templateDefs = Object.fromEntries(loadTemplateDefs({ dataDir: dir }).defs.map((d) => [d.id, d]));   // M5 T2：{defs, warnings} 形状
   const engine = makeEngine({
     store, workspace, executor, concurrencyOf: () => store.getSettings().engineConcurrency ?? 2,
     templates: templateDefs,

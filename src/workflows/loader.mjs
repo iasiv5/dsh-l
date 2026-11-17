@@ -13,24 +13,27 @@ const metaOf = (t) => ({
 
 // 全量定义通道（M4 T2 评审 P2①）：builtin 二模板 + 用户原始 def（含 script/prefix/edges/maxReworks 等）——
 // 供引擎 dispatch 与删除守卫消费的唯一数据源；getState 的 workflow.templates 只出 meta。
+// warnings 对称（M5 T2 评审 R-9）：坏 JSON / 校验失败 / 撞 id 三类失败模式拆分入 warnings；
+// 目录缺席与非 .json 保持静默（同 loadTemplates）。
 export function loadTemplateDefs({ dataDir, readdirSync: ls = readdirSync, readFileSync: rf = readFileSync }) {
   const defs = [LOOP_V1, DEVFLOW_LITE];   // 评审 R1-8：builtin 二模板
   const warnings = [];
   const seen = new Set([LOOP_V1.id, DEVFLOW_LITE.id]);
   let files;
-  try { files = ls(join(dataDir, "workflows")); } catch { return defs; }
+  try { files = ls(join(dataDir, "workflows")); } catch { return { defs, warnings }; }
   for (const file of [...files].sort()) {
     if (!file.endsWith(".json")) continue;
     let t;
     try { t = JSON.parse(rf(join(dataDir, "workflows", file), "utf8")); }
-    catch { continue; }
+    catch (err) { warnings.push(file + ": " + String(err?.message ?? err)); continue; }
     const v = validateTemplate(t);
-    if (!v.ok || seen.has(t.id)) continue;
+    if (!v.ok) { warnings.push(file + ": " + v.errors[0]); continue; }
+    if (seen.has(t.id)) { warnings.push(file + ": duplicate template id " + t.id); continue; }
     t.revision ??= computeRevision(t);
     seen.add(t.id);
     defs.push(t);
   }
-  return defs;
+  return { defs, warnings };
 }
 
 // 模板目录：内置 loop-v1 在前 + 数据目录 workflows/*.json 用户模板（文件名序）。

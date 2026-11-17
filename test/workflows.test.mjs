@@ -97,7 +97,7 @@ test("loader 契约（M4 T2）：meta agent 节点带 roleId；loadTemplateDefs 
   const dir = mkdtempSync(join(tmpdir(), "dsh-l-wf2-"));
   mkdirSync(join(dir, "workflows"));
   writeFileSync(join(dir, "workflows", "b.json"), JSON.stringify({ ...okT, id: "user-b", name: "UB" }));
-  const defs = loadTemplateDefs({ dataDir: dir });
+  const { defs } = loadTemplateDefs({ dataDir: dir });   // M5 T2：返回形状 {defs, warnings}
   assert.deepEqual(defs.map((t) => t.id), ["loop-v1", "devflow-lite", "user-b"]);   // 评审 R1-8：builtin 二模板
   const agentNode = defs.find((t) => t.id === "loop-v1").nodes.find((n) => n.id === "build");
   assert.ok(agentNode.prompt || agentNode.prefix, "全量 def 保留 agent 节点正文");
@@ -109,6 +109,27 @@ test("loader 契约（M4 T2）：meta agent 节点带 roleId；loadTemplateDefs 
   const loopMeta = loadTemplates({ dataDir: dir }).templates.find((t) => t.id === "loop-v1");
   const loopBuild = loopMeta.nodes.find((n) => n.id === "build");
   assert.equal(loopBuild.roleId, "loop-builder");   // builtin 同款投影
+});
+test("loadTemplateDefs warnings 对称（M5 T2）：三类失败模式 + 目录缺席静默", async () => {
+  const { loadTemplateDefs } = await import("../src/workflows/loader.mjs");
+  const dir = mkdtempSync(join(tmpdir(), "dsh-l-wf3-"));
+  mkdirSync(join(dir, "workflows"));
+  writeFileSync(join(dir, "workflows", "bad.json"), "{ not json");                                    // ①坏 JSON
+  writeFileSync(join(dir, "workflows", "invalid.json"), JSON.stringify({ id: "bad2", name: "B2", version: 1,
+    nodes: [{ id: "gx", name: "Gx", type: "gate", gateId: "G2", rejectTarget: null }], edges: [] })); // ②校验失败（F2：非 G1 gate 带 rejectTarget=null）
+  writeFileSync(join(dir, "workflows", "uniq.json"), JSON.stringify(okT));                           // 合法、id 唯一 → 入 defs
+  writeFileSync(join(dir, "workflows", "dup.json"), JSON.stringify(okT));                            // 与 uniq 撞 id t1 → warning
+  writeFileSync(join(dir, "workflows", "note.txt"), "ignore me");                                    // 非 .json 静默
+  const { defs, warnings } = loadTemplateDefs({ dataDir: dir });
+  assert.deepEqual(defs.map((t) => t.id), ["loop-v1", "devflow-lite", "t1"]);   // uniq 入 defs；bad/invalid/dup 不入
+  assert.equal(warnings.length, 3);   // bad/invalid/dup 各一条（字母序处理）
+  assert.match(warnings[0], /bad\.json/);
+  assert.match(warnings[1], /invalid\.json/);
+  assert.match(warnings[2], /uniq\.json.*duplicate/);   // 字母序：dup.json 先载入（t1），uniq.json 才撞 id
+  // 目录缺席静默（不抛、零警告）
+  const empty = loadTemplateDefs({ dataDir: mkdtempSync(join(tmpdir(), "dsh-l-wf4-")) });
+  assert.deepEqual(empty.defs.map((t) => t.id), ["loop-v1", "devflow-lite"]);
+  assert.deepEqual(empty.warnings, []);
 });
 test("F2：非 G1 gate 缺 rejectTarget 报错；G1 豁免", () => {
   const bad = { ...okT, nodes: [ ...okT.nodes, { id: "g2", name: "G2", type: "gate", gateId: "G2" } ],
