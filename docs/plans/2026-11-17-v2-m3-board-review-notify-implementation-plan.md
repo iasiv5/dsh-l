@@ -49,7 +49,7 @@
 - Modify: `src/client/api.mjs` — releaseConfirm/feishuTest/putFeishuWebhook 三端点
 - Modify: `src/engine/executor.mjs` — lastText 死代码清理（backlog）
 - Modify: `src/engine/workspace.mjs` — sweep 保留期口径注释（backlog）
-- Modify: `src/client/locale/zh-CN.mjs`、`en.mjs` — 增键（tabs×3 / review×6 / kanban 标题 / feishu×5 / badge.pending）+ panelLabel 改名
+- Modify: `src/client/locale/zh-CN.mjs`、`en.mjs` — 增键一次落齐 13 个（tabs.list/board/review×3、review.gates/release/failed/confirm/empty×5、feishu.url/test/testOk/testFail×4、badge.pending×1——评审 P4：parity 只守两字典同集不守完备，全量在 T7 首个 UI 任务落齐，避免 T9 显示键名字面量）+ panelLabel 改名
 - Modify: `README.md`、`PRODUCT.md`、`GLOSSARY.md` — 改名 + 免责声明（docs commit）
 - Test: `test/feishu.test.mjs`（新）、`test/logic.test.mjs`（needsReview/kanbanColumns/runBlock 增量）、`test/handlers.test.mjs`（release/confirm + feishu 路由）、`test/engine.test.mjs`（emit 钉例）、`test/i18n.test.mjs`/`locale-parity.test.mjs`（自动覆盖新键）
 - 不动：src/http.mjs、src/github.mjs、src/triage.mjs、src/poll.mjs、src/paths.mjs、cordis.patch.yml、package.json、src/store.mjs（release 块 M1 已在 schema，本计划零 store 改动）
@@ -67,7 +67,7 @@
   - Produces: panelLabel 双字典均为 `DSH Loop Forge`；README/PRODUCT/GLOSSARY 标题与行文改名 + README 增一行「独立项目，与 Tencent LoopForge 无隶属关系。」；PRODUCT 显示名 durable fact 同步
 - 验证范围：`npm test`（locale-parity 自动覆盖改名）；`grep -c 'Loop Engineering' README.md PRODUCT.md`（期望仅历史沿革/免责声明处可保留 0–2 处，正文 0）
 
-- [ ] Step 1: docs 编辑（README 标题与正文、PRODUCT.md 第 5/37 行显示名、GLOSSARY 首行）→ docs commit `docs: 显示名改名 DSH Loop Forge + 免责声明`
+- [ ] Step 1: docs 编辑（README 标题与正文、**README.en.md 两处——:1 标题「Loop Engineering Workbench (dsh-l)」→「DSH Loop Forge (dsh-l)」与 :46 激活段，免责声明双语加行**（评审 P5）、PRODUCT.md 第 5/37 行显示名、GLOSSARY 首行）→ docs commit `docs: 显示名改名 DSH Loop Forge + 免责声明`
 - [ ] Step 2: locale 两文件 panelLabel 改 `DSH Loop Forge` → Run: `npm test 2>&1 | tail -4` — Expected: parity 全绿（两字典同改）。
 - [ ] Step 3: 代码 commit `feat(ui): 显示名 DSH Loop Forge（panelLabel 双字典）`
 
@@ -77,7 +77,7 @@
 - 涉及文件：Modify `src/client/logic.mjs`；Test `test/logic.test.mjs`
 - 接口契约：
   - Consumes: bucketOf（logic.mjs:5）、MANUAL_STAGES 语义（handlers.mjs:5 同名单，logic 侧自置常量 `["inbox","triaged","gating","shipped","closed","held"]` 不可迁移集 `["building","verifying"]`）
-  - Produces: `needsReview({ candidates, runs })` → `{ gateRuns: [run 摘要]，releaseList: [候选]，count }`（gateRuns = runs 中 status==="waiting" 且 waitingGate 真值；releaseList = candidates 中 stage==="shipped" 且 release 未确认；count = gateRuns.length + releaseList.length）；`kanbanColumns({ candidates, runs })` → `{ columns: [{id, label, dim, cards:[candidate], movable:false|true}] }`（6 列 id 同 GROUPS；building 列含 building+verifying、closed 列含 held；卡片 movable 仅当其 stage ∈ 白名单——building/verifying 卡 movable:false）
+  - Produces: `needsReview({ candidates, runs })` → `{ gateRuns: [run 摘要]，failedRuns: [run 摘要]，releaseList: [候选]，count }`（gateRuns = runs 中 status==="waiting" 且 waitingGate 真值；failedRuns = runs 中 status==="failed"——评审 P1：D5 动作齐备的第三分区数据源；releaseList = candidates 中 stage==="shipped" 且 release 未确认；**count = gateRuns.length + releaseList.length，failed 不计入——D5 角标口径**）；`kanbanColumns({ candidates, runs })` → `{ columns: [{id, dim, cards:[candidate], movable:false|true}] }`（**列头 label 移除——渲染层用 t("groups."+id) 解析**，评审 P9；6 列 id 同 GROUPS；building 列含 building+verifying、closed 列含 held；卡片 movable 仅当其 stage ∈ 白名单——building/verifying 卡 movable:false）
 - 验证范围：`npm test`（logic 段）
 
 - [ ] Step 1: 失败测试（logic.test.mjs 追加，夹具用既有 c()/t()）
@@ -91,11 +91,13 @@ test("needsReview：gate 等待 + G3 待发版聚合", () => {
   const runs = [
     { id: "r1", status: "waiting", waitingGate: "g2", currentNodeIds: ["g2"], error: null },
     { id: "r2", status: "running", waitingGate: null, currentNodeIds: ["build"], error: null },
+    { id: "r3", status: "failed", waitingGate: null, currentNodeIds: [], failedNodeIds: ["deliver"], error: "push rejected" },
   ];
   const out = needsReview({ candidates, runs });
   assert.deepEqual(out.gateRuns.map((r) => r.id), ["r1"]);
+  assert.deepEqual(out.failedRuns.map((r) => r.id), ["r3"]);     // 评审 P1：第三分区数据源
   assert.deepEqual(out.releaseList.map((c) => c.key), ["k1"]);   // k2 已确认发版、k3 非 shipped
-  assert.equal(out.count, 2);
+  assert.equal(out.count, 2);                                    // D5 口径：failed 不计入角标
 });
 test("kanbanColumns：6 列同构 + 进行中列禁迁移", () => {
   const out = kanbanColumns({ candidates: [c("inbox"), c("building"), c("verifying"), c("shipped"), c("held")], runs: [] });
@@ -116,10 +118,10 @@ test("kanbanColumns：6 列同构 + 进行中列禁迁移", () => {
 ### Task 3: release/confirm 路由
 
 - 目标：G3 发版闸的人工确认落痕（不代跑发版）。
-- 涉及文件：Modify `src/handlers.mjs`；Test `test/handlers.test.mjs`
+- 涉及文件：Modify `src/handlers.mjs`、`src/host.mjs`（路由表增 `"/dsh-l/release/confirm": { POST: handlers.postReleaseConfirm }`——评审 P2②）、`src/client/api.mjs`（`releaseConfirm(key, note)` 端点——评审 P2①：T9 消费但原计划无任务承接）；Test `test/handlers.test.mjs`
 - 接口契约：
   - Consumes: store 候选 release 块（M1 schema：`{confirmedAt, note}|null`）、requireAuth、fail 助手
-  - Produces: `postReleaseConfirm({key, note})`：401 auth-required → 404 → 409 release-requires-shipped（stage 非 shipped）→ 409 release-already-confirmed（release.confirmedAt 已在）→ 落 `release={confirmedAt, note}` + history `release.confirmed` → `{ok}`
+  - Produces: `postReleaseConfirm({key, note})`：401 auth-required → 404 → 409 release-requires-shipped（stage 非 shipped）→ 409 release-already-confirmed（release.confirmedAt 已在）→ 落 `release={confirmedAt, note}` + history `release.confirmed` → `{ok}`；随本任务落地 `api.releaseConfirm(key, note)` 端点与 host 路由表行（评审 P2①②：T9 的消费依赖由此闭合）
 - 验证范围：`npm test`（handlers 段）
 
 - [ ] Step 1: 失败测试（handlers.test.mjs 追加）
@@ -138,7 +140,7 @@ test("release/confirm：G3 发版确认落痕；非 shipped/重复确认 409", a
 ```
 - Run: `npm test 2>&1 | tail -6` — Expected: postReleaseConfirm 不是函数。
 - [ ] Step 2: 确认失败信号。
-- [ ] Step 3: 最小实现——handlers 增 postReleaseConfirm（按 Produces 校验链；note 缺省 ""）。
+- [ ] Step 3: 最小实现——handlers 增 postReleaseConfirm（按 Produces 校验链；note 缺省 ""）；api.mjs 增 `releaseConfirm: (key, note = "") => send("dsh-l/release/confirm", { key, note }),`；host.mjs 路由表增 `"/dsh-l/release/confirm": { POST: handlers.postReleaseConfirm },`。
 - [ ] Step 4: Run: `npm test 2>&1 | tail -5` — Expected: 全绿。
 - [ ] Step 5: checkpoint commit：`git add -A && git commit -m "feat(api): release/confirm G3 发版确认路由"`
 
@@ -187,7 +189,7 @@ test("sendNotice：webhook 就绪发 POST；未配置静默；网络失败不 th
 - 涉及文件：Modify `src/engine/engine.mjs`；Test `test/engine.test.mjs`
 - 接口契约：
   - Consumes: Task 4 formatNotice 的 evt 形状（引擎只发 evt，格式化在 feishu.mjs）
-  - Produces: `makeEngine({ …, emit = null })`；三触发点各 `try { emit?.({ type, key, runId, gateId?, error?, title? }) } catch {}`——①dispatch 内 gateArrive 后（type:"gate"，带 node.gateId 与候选 title）②onNodeDone 中 applyFailure 致 run.status==="failed" 时（type:"failed"，error 取节点 error）③startRun clone catch（type:"failed"）。emit 抛错被吞（通知永不阻塞引擎）
+  - Produces: `makeEngine({ …, emit = null })`；三触发点各 `try { emit?.({ type, key, runId, nodeId, error?, title? }) } catch {}`——①dispatch 内 gateArrive 后（type:"gate"，**nodeId=闸节点 id**——与 waitingGate/api.runGate 同域（"g2"），评审 P3②；并带候选 title）②onNodeDone 中 applyFailure 致 run.status==="failed" 时（type:"failed"，error 取节点 error）③startRun clone catch（type:"failed"）。emit 抛错被吞（通知永不阻塞引擎）
 - 验证范围：`npm test`（engine 段）
 
 - [ ] Step 1: 失败测试（engine.test.mjs；setup 增可注入 emitter）
@@ -199,20 +201,20 @@ const setup2 = ({ failClone = false, concurrency = 2 } = {}) => {
     now: () => new Date(), concurrencyOf: () => concurrency, emit: (e) => { events.push(e); } });
   return { ...base, events };
 };
-test("emit：G2 挂起与 run failed 各一条；成功零条", async () => {
+test("emit：gate 挂起与 run failed 各一条；成功路径零通知", async () => {
   const { store, engine, executor, events } = setup2();
   const key = "o/r#issue#1";
   const { runId } = engine.startRun(key, {});
   await drain();
   executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  assert.deepEqual(events.map((e) => e.type), []);   // 评审 P3①：成功零通知断言前移——此时 verify 在跑、闸未到达
   executor.inflight.get(runId + ":verify").resolve({ ok: true, error: null, artifacts: [] }); await drain();
-  assert.deepEqual(events.map((e) => e.type), []);   // 成功路径零通知
+  const gateEvt = events.find((e) => e.type === "gate");
+  assert.equal(gateEvt.nodeId, "g2");   // 评审 P3②：nodeId=闸节点 id，与 waitingGate/api.runGate 同域
   engine.applyGateDecision(runId, "g2", "pass");
   await drain();
   executor.inflight.get(runId + ":deliver").resolve({ ok: false, error: "push rejected", artifacts: [] }); await drain();
-  const gateEvt = events.find((e) => e.type === "gate");
   const failedEvt = events.find((e) => e.type === "failed");
-  assert.equal(gateEvt.gateId, "g2");
   assert.equal(failedEvt.error, "push rejected");
 });
 ```
@@ -258,10 +260,10 @@ test("feishu 路由：webhook 写入 credentials、测试发送走注入通知�
 ### Task 7: 主栏 tab 三切 + 页头 badge + 侧栏 label 计数
 
 - 目标：三视图导航骨架 + 待确认计数双载体（页头 chip + 侧栏 label）。
-- 涉及文件：Create `src/client/badge.mjs`；Modify `src/client/index.mjs`、`src/client/components/workbench.mjs`；Test `test/logic.test.mjs`
+- 涉及文件：Create `src/client/badge.mjs`；Modify `src/client/index.mjs`、`src/client/components/workbench.mjs`、`src/client/locale/zh-CN.mjs`、`en.mjs`（**M3 全量新键 13 个一次落齐**——评审 P4：T9 消费 review.* 键，晚落会显示键名字面量）；Test `test/logic.test.mjs`
 - 接口契约：
   - Consumes: Task 2 needsReview、M1 label 解析式注册（index.mjs:23 `const label = () => makeT(lang.get())("panelLabel")`）、M2 lastRuns 先例
-  - Produces: `src/client/badge.mjs` 导出 `badge = { count: 0 }`；index.mjs label 改 `() => { const n = badge.count; const base = makeT(lang.get())("panelLabel"); return n > 0 ? makeT(lang.get())("badge.pending").replace("{n}", String(n)) + " · " + base : base; }`；workbench：paint 时 `badge.count = needsReview({candidates: state.candidates, runs: state.runs}).count`；主栏顶部 tab bar 三按钮（清单/看板/待我确认，i18n `tabs.*`），activeTab 状态在 workbench 内部（视图切换仅重排既有 DOM 区块：清单板块常显、看板/待我确认为新区块）；页头增 badge chip（`待确认 (N)`，N>0 才显）点击切待我确认 tab
+  - Produces: `src/client/badge.mjs` 导出 `badge = { count: 0 }`；index.mjs label 改 `() => { const n = badge.count; const base = makeT(lang.get())("panelLabel"); return n > 0 ? makeT(lang.get())("badge.pending").replace("{n}", String(n)) + " · " + base : base; }`；workbench：paint 时 `badge.count = needsReview({candidates: state.candidates, runs: state.runs}).count`；主栏顶部 tab bar 三按钮（i18n `tabs.*`——**全量 13 键随本任务一次落齐**，评审 P4：parity 只守同集不守完备，晚落会让 T9 显示键名字面量）；**tab 互斥显隐**：activeTab==="list"|"board"|"review" 为 mountWorkbench 闭包内部状态（paint 全量重建时保持，不进 store——评审 P10 措辞钉死：非「清单常显」）；页头增 badge chip（N>0 才显）点击切待我确认 tab
 - 验证范围：`npm test`（logic badge 相关纯函数 + 既有全量）+ `npm run build`
 
 - [ ] Step 1: 失败测试（logic.test.mjs：badge 文案格式化纯函数 `badgeLabel({ count, label, template })`——template 由调用方传 `t("badge.pending")`（`待确认 ({n})`），logic 层零 i18n 依赖）
@@ -308,11 +310,11 @@ test("badgeLabel：计数前缀格式（i18n 模板注入）", () => {
 
 ### Task 10: 设置面板飞书 Webhook + i18n 键清点
 
-- 目标：URL 输入 + 测试按钮走新路由；i18n 键一次到位。
-- 涉及文件：Modify `src/client/components/actions.mjs`（openSettings 增飞书段）、`src/client/api.mjs`（feishuTest/putFeishuWebhook——T6 若未落则本任务落）、`src/client/locale/zh-CN.mjs`、`en.mjs`；Test `test/i18n.test.mjs`（parity 自动）
+- 目标：URL 输入 + 测试按钮走新路由（i18n 键已在 T7 落齐）。
+- 涉及文件：Modify `src/client/components/actions.mjs`（openSettings 增飞书段）、`src/client/api.mjs`（feishuTest/putFeishuWebhook——T6 若未落则本任务落）；Test `test/i18n.test.mjs`（parity 自动）；**i18n 键已在 T7 全量落齐，本任务零 locale 改动**（评审 P4：消除「键未落地先消费」窗口）
 - 接口契约：
   - Consumes: Task 6 路由（PUT /dsh-l/feishu/webhook、POST /dsh-l/feishu/test）
-  - Produces: 设置对话框增「飞书 Webhook URL」input（type=url）+「发送测试消息」按钮（成功 → chip 提示已发送；失败 → 错误 chip）；新 i18n 键：`settings.feishuUrl`、`settings.feishuTest`、`settings.feishuTestOk`、`tabs.list/board/review`、`review.empty`
+  - Produces: 设置对话框增「飞书 Webhook URL」input（type=url）+「发送测试消息」按钮（成功 → chip 提示已发送；失败 → 错误 chip）；i18n 键消费（已由 T7 全量落齐：settings.feishuUrl/feishuTest/feishuTestOk、tabs.*）
 - 验证范围：`npm test`（parity + logic）+ `npm run build`
 
 - [ ] Step 1: 失败测试——i18n parity：仅在 zh-CN 加键不改 en → locale-parity 红（既有测试自动覆盖，无需新用例；本步骤为「确认 parity 守护在工作」的冒烟，可跳过）。改为直接实现 + 既有 parity/全量测试收口。
@@ -330,7 +332,7 @@ test("badgeLabel：计数前缀格式（i18n 模板注入）", () => {
 - 验证范围：`npm test` 全绿 + `grep -c lastText src/engine/executor.mjs`（期望 0）
 
 - [ ] Step 1: 变更前检查——Run: `grep -c lastText src/engine/executor.mjs` — Expected: ≥2（记录基数）。
-- [ ] Step 2: 删除 lastText 采集与 textOf 助手（保留 turn/end endKind 捕获——成功路径需要它）；workspace.mjs sweep 注释增口径说明。
+- [ ] Step 2: 删除 lastText 采集与 textOf 助手（保留 turn/end endKind 捕获——成功路径需要它）；workspace.mjs sweep 注释增口径说明；**runbook inject 提示落点=本计划 T12 Step 2 装机注记**（评审 P6：原「无需改动」措辞删除，装机注记补写 inject 排查要点——自 M2 计划装机注记精简继承）。
 - [ ] Step 3: Run: `set -o pipefail; grep -c lastText src/engine/executor.mjs >/dev/null; echo grep-exit=$?; npm test 2>&1 | tail -5` — Expected: grep-exit=1（0 命中）且全绿。
 - [ ] Step 4: checkpoint commit：`git add -A && git commit -m "chore(engine): lastText 死代码清理 + sweep 保留期口径注释（backlog）"`
 
@@ -338,7 +340,7 @@ test("badgeLabel：计数前缀格式（i18n 模板注入）", () => {
 
 - 目标：全量收口，停下交产出评审。
 - [ ] Step 1: Run: `set -o pipefail; npm run build && npm test 2>&1 | tail -8 && git log --oneline -18`
-  Expected: 双包构建成功（新指纹）；全量测试绿（143 存量 + 新增 ≥10）；提交序列 docs + Task 1–11。
+  Expected: 双包构建成功（新指纹）；全量测试绿（143 存量 + 新增 ≥8——评审 P7：计划内 test 块实数 8）；提交序列 docs + Task 1–11。
 - [ ] Step 2: 停下交产出评审（章程同 M1/M2：独立评审 Agent + 台账 + 最多 5 轮）。装机冒烟（可选）判据同 T12 装机注记。
 
 ## 执行纪律
@@ -353,7 +355,7 @@ test("badgeLabel：计数前缀格式（i18n 模板注入）", () => {
 ## 最终验证
 
 - Run: `set -o pipefail; npm run build && npm test 2>&1 | tail -8 && git log --oneline -18`
-- Expected: 双包构建成功（新指纹，区别于 M2 的 e1cd038eeb46）；全量测试绿（143 存量 + 新增 ≥10；测试文件 17 → 18：新增 feishu.test.mjs）；提交序列 docs + Task 1–11。
+- Expected: 双包构建成功（新指纹，区别于 M2 的 e1cd038eeb46）；全量测试绿（143 存量 + 新增 ≥8——评审 P7：计划内 test 块实数 8；测试文件 17 → 18：新增 feishu.test.mjs）；提交序列 docs + Task 1–11。
 - 生效探针：构建指纹变化；`GET /dsh-l/state` 无新键（M3 聚合在客户端）——冒烟观察点为主栏三 tab、看板 6 列、待我确认两分区、设置面板飞书段（装机可选）。
 
 ## 审阅 Checkpoint
