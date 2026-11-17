@@ -30,6 +30,7 @@ export const api = {
   runGate: (runId, nodeId, decision, note = "", targetNode = null) => send("dsh-l/run/gate", { runId, nodeId, decision, note, targetNode }),
   runCancel: (runId, reason = "user") => send("dsh-l/run/cancel", { runId, reason }),
   runRetry: (runId, nodeId) => send("dsh-l/run/retry", { runId, nodeId }),
+  releaseConfirm: (key, note = "") => send("dsh-l/release/confirm", { key, note }),
   settings: () => get("dsh-l/settings"),
   putSettings: (patch) => send("dsh-l/settings", patch, "PUT"),
 };

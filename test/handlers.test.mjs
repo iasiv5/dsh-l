@@ -345,3 +345,15 @@ test("postGate 别名：G1 pass 追加 runId 并创建 run", async () => {
   assert.equal(store.getRun(r.runId).nodeStates.g1.status, "succeeded");
   assert.equal(store.getCandidate("o/r#issue#1").stage, "building");
 });
+
+test("release/confirm：G3 发版确认落痕；非 shipped/重复确认 409", async () => {
+  const store = openStore(); login(store); seed(store);
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
+  assert.equal((await h.postReleaseConfirm({ key: "o/r#issue#1" })).error, "release-requires-shipped");
+  store.setStage("o/r#issue#1", "shipped", "v2");
+  assert.equal((await h.postReleaseConfirm({ key: "o/r#issue#1", note: "0.2.5" })).ok, true);
+  const c = store.getCandidate("o/r#issue#1");
+  assert.ok(c.release.confirmedAt);
+  assert.equal(c.history.at(-1).event, "release.confirmed");
+  assert.equal((await h.postReleaseConfirm({ key: "o/r#issue#1" })).error, "release-already-confirmed");
+});

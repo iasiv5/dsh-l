@@ -90,6 +90,7 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     "/dsh-l/run/gate": { POST: handlers.postRunGate },
     "/dsh-l/run/cancel": { POST: handlers.postRunCancel },
     "/dsh-l/run/retry": { POST: handlers.postRunRetry },
+    "/dsh-l/release/confirm": { POST: handlers.postReleaseConfirm },
     "/dsh-l/auth": { GET: handlers.getAuth },
     "/dsh-l/auth/bind": { POST: handlers.postAuthBind },
     "/dsh-l/auth/logout": { POST: handlers.postAuthLogout },

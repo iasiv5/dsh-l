@@ -138,6 +138,13 @@ export function createStore({ filePath, now = () => new Date() }) {
     getRun: (id) => doc.runs[id] ?? null,
     listRuns: () => Object.values(doc.runs),
     saveRun(run) { run.updatedAt = now().toISOString(); doc.runs[run.id] = run; persist(); },
+    // G3 发版确认落痕（design-v2 §13.5 / M2 T3）：候选 release 块 + history，不代跑发版。
+    setRelease(key, note = "") {
+      const c = need(key);
+      c.release = { confirmedAt: now().toISOString(), note };
+      touch(c, "release.confirmed", note);
+      persist();
+    },
     appendRunHistory(id, event, detail = "") {
       const run = doc.runs[id];
       if (!run) throw Object.assign(new Error("run not found: " + id), { status: 404 });

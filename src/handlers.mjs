@@ -290,6 +290,17 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       try { engine.retryNode(body?.runId, body?.nodeId); return { ok: true }; }
       catch (e) { return fail(String(e?.message ?? e), e?.status ?? 400); }
     },
+    // G3 发版闸人工确认（design-v2 §13.5）：只落痕，不代跑发版；重复确认 409。
+    async postReleaseConfirm(body) {
+      const gate = requireAuth(); if (gate) return gate;
+      const key = body?.key;
+      const c = store.getCandidate(key);
+      if (!c) return fail("not found", 404);
+      if (c.stage !== "shipped") return fail("release-requires-shipped", 409);
+      if (c.release?.confirmedAt) return fail("release-already-confirmed", 409);
+      store.setRelease(key, body?.note ?? "");
+      return { ok: true };
+    },
     async getSettings() { return store.getSettings(); },
     async putSettings(body) {
       const patch = {};
