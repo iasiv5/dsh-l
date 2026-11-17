@@ -1,6 +1,7 @@
 import { makeT } from "../i18n.mjs";
-import { groupCandidates, filterCandidates } from "../logic.mjs";
+import { groupCandidates, filterCandidates, needsReview } from "../logic.mjs";
 import { api } from "../api.mjs";
+import { badge } from "../badge.mjs";
 import { renderRow } from "./candidateRow.mjs";
 import { renderLoginGate } from "./loginGate.mjs";
 
@@ -76,6 +77,7 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
   let notice = null;
   let busy = false;
   let disposed = false;
+  let activeTab = "list";   // 评审 P10：tab 互斥显隐（list|board|review），闭包状态——paint 全量重建时保持，不进 store
   const filters = { type: "all", repo: "all", urgency: "all" };
   const expanded = new Set();
   const view = {};
@@ -107,11 +109,20 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
     }
     const header = el("header");
     header.append(el("h2", null, t("panelLabel")));
+    // 待确认聚合（design-v2 §13.5）：页头 badge chip（N>0 才显）+ 侧栏 label 计数（badge.count 供 index label 读取）。
+    const review = needsReview({ candidates: state?.candidates ?? [], runs: state?.runs ?? [] });
+    badge.count = review.count;
     const refreshBtn = el("button", null, busy ? t("refreshing") : t("refresh"));
     refreshBtn.type = "button";
     refreshBtn.disabled = busy;
     refreshBtn.onclick = () => view.refresh();
     header.append(refreshBtn);
+    if (badge.count > 0) {
+      const pendingChip = el("button", "chip", t("badge.pending").replace("{n}", String(badge.count)));
+      pendingChip.type = "button";
+      pendingChip.onclick = () => { activeTab = "review"; paint(); };
+      header.append(pendingChip);
+    }
     extend?.header?.(header, { t, state, view });
     const account = state?.auth?.login || state?.auth?.account;
     if (account) {
@@ -140,6 +151,16 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
     );
     extend?.bar?.(bar, { t, state, filters, view });
     const main = el("main");
+    // 主栏 tab bar（design-v2 §13.5/D6）：三视图互斥显隐（评审 P10）。
+    const tabsBar = el("div");
+    tabsBar.style.cssText = "display:flex;gap:6px;padding:10px 16px 0";
+    for (const [id, label] of [["list", t("tabs.list")], ["board", t("tabs.board")], ["review", t("tabs.review")]]) {
+      const b = el("button", null, label);
+      b.type = "button";
+      if (activeTab === id) b.style.cssText = "font-weight:700;border-bottom:2px solid currentColor;border-radius:0";
+      b.onclick = () => { activeTab = id; paint(); };
+      tabsBar.append(b);
+    }
     // 板块一：收活 —— 已连接账号下的仓源概况与监看管理入口。
     const intake = el("section", "intake");
     intake.append(el("h3", null, t("sections.intake")));
@@ -179,8 +200,15 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
         triage.append(sec);
       }
     }
-    main.append(intake, triage);
-    shadow.append(style, header, main);
+    // 三视图互斥显隐（评审 P10）：清单 = 收活+分诊两板块；看板/待我确认为 M3 新视图容器（T8/T9 挂载组件）。
+    const boardWrap = el("div");
+    const reviewWrap = el("div");
+    boardWrap.style.display = activeTab === "board" ? "" : "none";
+    reviewWrap.style.display = activeTab === "review" ? "" : "none";
+    intake.style.display = activeTab === "list" ? "" : "none";
+    triage.style.display = activeTab === "list" ? "" : "none";
+    main.append(intake, triage, boardWrap, reviewWrap);
+    shadow.append(style, header, tabsBar, main);
   };
 
   view.reload = async () => {

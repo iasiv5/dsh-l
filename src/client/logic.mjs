@@ -76,6 +76,11 @@ export function runBlock(candidate, runs = []) {
   return (runs ?? []).find((r) => r.id === candidate.currentRunId) ?? null;
 }
 
+// 侧栏角标/页头 chip 文案（design-v2 §13.2）：i18n 模板由调用方注入（logic 层零 i18n 依赖）。
+export function badgeLabel({ count, label, template }) {
+  return count > 0 ? String(template).replace("{n}", String(count)) + " · " + label : label;
+}
+
 // 待我确认聚合（design-v2 §13.5）：gate 等待 + failed 分区 + G3 待发版。
 // 角标口径（D5）：count = gate 等待数 + 待发版数——failed 不计入（失败走清单行内与飞书推送）。
 export function needsReview({ candidates, runs = [] } = {}) {

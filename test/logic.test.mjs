@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { groupCandidates, filterCandidates, pickTriageBatch, gateState, stageCounts, settingsPatch } from "../src/client/logic.mjs";
-import { stripCells, runBlock, needsReview, kanbanColumns } from "../src/client/logic.mjs";
+import { stripCells, runBlock, needsReview, kanbanColumns, badgeLabel } from "../src/client/logic.mjs";
 import { LOOP_V1 } from "../src/workflows/builtin.mjs";
 
 const t = (k) => k;
@@ -103,4 +103,8 @@ test("kanbanColumns：6 列同构 + 进行中列禁迁移", () => {
   assert.deepEqual(byId.closed.cards.map((x) => x.stage), ["held"]);
   assert.equal(byId.inbox.cards[0].movable, true);
   assert.equal(byId.building.cards[0].movable, false);
+});
+test("badgeLabel：计数前缀格式（i18n 模板注入，logic 层零 i18n 依赖）", () => {
+  assert.equal(badgeLabel({ count: 2, label: "DSH Loop Forge", template: "待确认 ({n})" }), "待确认 (2) · DSH Loop Forge");
+  assert.equal(badgeLabel({ count: 0, label: "DSH Loop Forge", template: "待确认 ({n})" }), "DSH Loop Forge");
 });

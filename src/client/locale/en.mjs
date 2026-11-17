@@ -78,6 +78,10 @@ export const en = {
     noToken: "No GitHub credential found: configure a token or sign in to gh on this machine.",
   },
   meta: { lastRefreshAt: "Last refresh" },
+  tabs: { list: "List", board: "Board", review: "Needs review" },
+  review: { gates: "Waiting for you", release: "Release pending", failed: "Failed", confirm: "Confirm released", empty: "Nothing waiting for you" },
+  feishu: { url: "Feishu webhook URL", test: "Send test message", testOk: "Test message sent", testFail: "Test send failed" },
+  badge: { pending: "Pending ({n})" },
   actions: { triageBatch: "Triage inbox", override: "Save my judgment", reason: "Reason", moveTo: "Move to", pass: "Pass", reject: "Reject", copyPackage: "Copy task package", cancelRun: "Cancel run", retryRun: "Retry node" },
   run: {
     status: { running: "Running", waiting: "Waiting for you", succeeded: "Delivered", failed: "Failed", cancelled: "Cancelled" },

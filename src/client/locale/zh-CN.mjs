@@ -78,6 +78,10 @@ export const zhCN = {
     noToken: "未找到 GitHub 凭据：请配置 token，或在本机登录 gh。",
   },
   meta: { lastRefreshAt: "上次刷新" },
+  tabs: { list: "清单", board: "看板", review: "待我确认" },
+  review: { gates: "待你放行", release: "待发版确认", failed: "执行失败", confirm: "确认已发版", empty: "没有待确认事项" },
+  feishu: { url: "飞书 Webhook URL", test: "发送测试消息", testOk: "测试消息已发送", testFail: "测试发送失败" },
+  badge: { pending: "待确认 ({n})" },
   actions: { triageBatch: "分诊待分诊", override: "保存人工判断", reason: "理由", moveTo: "移到", pass: "放行", reject: "驳回", copyPackage: "复制任务包", cancelRun: "取消执行", retryRun: "重试该节点" },
   run: {
     status: { running: "执行中", waiting: "待你放行", succeeded: "已交付", failed: "失败", cancelled: "已取消" },
