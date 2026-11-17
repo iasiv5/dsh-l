@@ -1,6 +1,6 @@
 {
   "name": "dsh-l",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Loop Engineering 工作台 — GitHub issue/PR triage & loop orchestration workbench for DeepSeek Harness",
   "icon": "./icon.svg",
   "license": "MIT",
