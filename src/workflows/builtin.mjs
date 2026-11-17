@@ -11,6 +11,7 @@ export const LOOP_V1 = {
   name: "Loop v1",
   version: 1,
   builtin: true,
+  entryPresucceeded: ["g1"],   // 入口闸预置（评审 P16：审批时序语义——G1 放行即建 run，非结构位置）
   nodes: [
     { id: "g1", name: "G1", type: "gate", gateId: "G1", rejectTarget: null },
     { id: "build", name: "build", type: "agent", executionPolicy: "auto", maxAttempts: 2, roleId: "loop-builder",

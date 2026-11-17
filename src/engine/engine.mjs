@@ -32,7 +32,7 @@ export function hasAliveRun(store, key) {
 const stageOf = (run) => run.status === "succeeded" ? "shipped" : run.status === "failed" ? "held" : run.status === "cancelled" ? "gating"
   : run.waitingGate ? "gating" : "building";
 
-export function makeEngine({ store, workspace, executor, template = LOOP_V1, now = () => new Date(), concurrencyOf = () => 2, emit = null, listRoles = () => ({}) }) {
+export function makeEngine({ store, workspace, executor, template = LOOP_V1, templates = {}, now = () => new Date(), concurrencyOf = () => 2, emit = null, listRoles = () => ({}) }) {
   const inflight = new Map();   // "runId:nodeId" → cancel
   const clone = (v) => JSON.parse(JSON.stringify(v));
   const titleOf = (key) => store.getCandidate(key)?.title ?? "";
@@ -46,16 +46,20 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, now
   const engine = {
     hasAliveRun: (key) => hasAliveRun(store, key),
     // G1 放行即建 run（评审 D3）：g1 预置 succeeded（其余 pending）；工作区 clone 为引擎首步（评审 D2 异步）。
-    startRun(key, { taskPackage = null } = {}) {
+    // 模板选择（评审 D7）：templateId 缺省 template（loop-v1）；可解析 builtin（loop-v1/devflow-lite）或用户模板。
+    startRun(key, { taskPackage = null, templateId = null } = {}) {
       if (!store.getCandidate(key)) throw Object.assign(new Error("candidate not found"), { status: 404 });
       if (hasAliveRun(store, key)) throw Object.assign(new Error("run-already-active"), { status: 409 });
+      const tpl = templateId && templates[templateId] ? templates[templateId] : template;
       const runId = makeRunId(now);
+      const entryPreset = Array.isArray(tpl.entryPresucceeded) ? tpl.entryPresucceeded : [];   // 评审 P16：模板级显式声明（审批时序语义，非结构位置泛化）
       const nodeStates = {};
-      for (const n of template.nodes) {
-        nodeStates[n.id] = { status: n.id === "g1" ? "succeeded" : "pending", attempt: n.id === "g1" ? 1 : 0, reworkCount: 0, error: null, artifacts: [] };
+      for (const n of tpl.nodes) {
+        const isEntry = entryPreset.includes(n.id);
+        nodeStates[n.id] = { status: isEntry ? "succeeded" : "pending", attempt: isEntry ? 1 : 0, reworkCount: 0, error: null, artifacts: [] };
       }
-      store.createRun({ id: runId, candidateKey: key, templateId: template.id, templateRevision: template.revision,
-        snapshot: clone(template), nodeStates, status: "running", cancelReason: null,
+      store.createRun({ id: runId, candidateKey: key, templateId: tpl.id, templateRevision: tpl.revision,
+        snapshot: clone(tpl), nodeStates, status: "running", cancelReason: null,
         createdAt: now().toISOString(), updatedAt: now().toISOString(), history: [] });
       syncStage(key, store.getRun(runId));   // run 创建 → 候选 building（§8 映射）
       const repo = store.getCandidate(key).repo;
@@ -66,7 +70,9 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, now
       }).catch((err) => {
         const run = store.getRun(runId); if (!run || run.status !== "running") return;
         const msg = "workspace clone: " + String(err?.message ?? err);
-        run.nodeStates.build = { ...run.nodeStates.build, status: "failed", error: msg };
+        // 评审 P18 泛化：clone 失败标记「首个 pending 非 gate 节点」（LOOP_V1=build / devflow=design），找不到则仅 run failed
+        const firstPending = (run.snapshot.nodes ?? []).find((n) => n.type !== "gate" && run.nodeStates[n.id]?.status === "pending");
+        if (firstPending) run.nodeStates[firstPending.id] = { ...run.nodeStates[firstPending.id], status: "failed", error: msg };
         run.status = "failed";                       // 评审 R1-3①/D2：clone 失败 → run failed
         store.saveRun(run);
         store.appendRunHistory(runId, "workspace.clone-failed", msg);   // 评审 R1-14
