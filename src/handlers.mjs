@@ -1,5 +1,6 @@
 import { candidateKey } from "./store.mjs";
 import { summarizeRun } from "./engine/scheduler.mjs";
+import { BUILTIN_ROLES } from "../workflows/roles.mjs";
 
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 const ACCOUNT_RE = /^[A-Za-z0-9-]{1,39}$/;
@@ -48,7 +49,7 @@ export function buildTaskPackage(candidate, repoInfo = null, now = () => new Dat
   return pkg;
 }
 
-export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null, workflowCatalog = { templates: [], warnings: [] }, engine = null, feishu = null }) {
+export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null, workflowCatalog = { templates: [], warnings: [] }, engine = null, feishu = null, templates = {} }) {
   const token = () => provider.resolveToken({ credentials, tokenRef, execFile, ghPath: ghBin });
   // 收活闸门：未绑定 GitHub 账号前，仓库勾选与摄取一律拒绝（design.md §4）。
   const requireAuth = () => (store.getAuth()?.account ? null : fail("auth-required", 401));
@@ -323,6 +324,49 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       if (!url.startsWith(PREFIX)) return fail("invalid webhook");
       await feishu.setWebhook(url);
       return { ok: true };
+    },
+    // 角色三方法（design-v2 §14/M4 T6）：引用守卫在 handler 侧（templates 全量定义 + 存活 run 快照）。
+    async postRolesUpsert(body) {
+      const gate = requireAuth(); if (gate) return gate;
+      const role = body?.role;
+      if (!role || typeof role.id !== "string" || !role.id.trim()) return fail("role id required");
+      if (!["ask", "auto"].includes(role?.executionPolicy)) return fail("invalid executionPolicy");
+      if (!role.name) return fail("role name required");
+      store.upsertRole({ id: role.id, name: role.name, description: role.description ?? "", prompt: role.prompt ?? "", executionPolicy: role.executionPolicy });
+      return { ok: true };
+    },
+    async postRolesDelete(body) {
+      const gate = requireAuth(); if (gate) return gate;
+      const id = body?.id;
+      if (!id) return fail("id required");
+      // 引用守卫（评审 P2②）：扫 templates 全量定义 + 存活 run 快照的 roleId
+      const refs = [];
+      for (const t of Object.values(templates)) {
+        for (const n of t.nodes ?? []) if (n.type === "agent" && n.roleId === id) refs.push(t.id + "/" + n.id);
+      }
+      for (const run of store.listRuns()) {
+        if (["running", "waiting"].includes(run.status)) {
+          for (const [nid, s] of Object.entries(run.nodeStates ?? {})) {
+            if (s.roleId === id && ["running", "waiting", "ready"].includes(s.status)) refs.push(run.id + "/" + nid);
+          }
+        }
+      }
+      if (refs.length > 0) return fail("role-in-use: " + id + " (" + refs.join(", ") + ")", 409);
+      store.deleteRole(id);
+      return { ok: true };
+    },
+    async getRoles() {
+      const gate = requireAuth(); if (gate) return gate;
+      // 合并单列表（评审 P9③）：builtin + 用户覆盖（overridden:true + 用户 prompt）+ 纯自定义
+      const roles = [];
+      for (const r of Object.values(BUILTIN_ROLES)) {
+        const override = store.getRole(r.id);
+        roles.push({ ...r, ...(override ? { overridden: true } : {}) });
+      }
+      for (const r of store.listRoles()) {
+        if (!BUILTIN_ROLES[r.id]) roles.push({ ...r, builtin: false });
+      }
+      return { ok: true, roles };
     },
     async getSettings() { return store.getSettings(); },
     async putSettings(body) {

@@ -10,8 +10,8 @@ import { makeWorkspace } from "./engine/workspace.mjs";
 import { makeExecutor } from "./engine/executor.mjs";
 import { makeEngine } from "./engine/engine.mjs";
 import { makeFeishu, formatNotice } from "./feishu.mjs";
-import * as github from "./github.mjs";
-import { makeHandlers } from "./handlers.mjs";
+import { loadTemplateDefs } from "./workflows/loader.mjs";
+import * as github from "./github.mjs";import { makeHandlers } from "./handlers.mjs";
 import { createTrustGuard, makeHttpHandler } from "./http.mjs";
 import { armInterval } from "./poll.mjs";
 

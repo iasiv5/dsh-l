@@ -346,6 +346,10 @@ test("postGate 别名：G1 pass 追加 runId 并创建 run", async () => {
   assert.equal(store.getCandidate("o/r#issue#1").stage, "building");
 });
 
+  const noFeishu = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
+  assert.equal((await noFeishu.postFeishuTest()).error, "feishu-not-wired");
+});
+
 test("release/confirm：G3 发版确认落痕；非 shipped/重复确认 409", async () => {
   const store = openStore(); login(store); seed(store);
   const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
@@ -356,6 +360,32 @@ test("release/confirm：G3 发版确认落痕；非 shipped/重复确认 409", a
   assert.ok(c.release.confirmedAt);
   assert.equal(c.history.at(-1).event, "release.confirmed");
   assert.equal((await h.postReleaseConfirm({ key: "o/r#issue#1" })).error, "release-already-confirmed");
+});
+
+test("角色三方法：upsert 往返/删除守卫/getRoles 合并列表", async () => {
+  const store = openStore(); login(store); seed(store);
+  const { makeEngine } = await import("../src/engine/engine.mjs");
+  const { makeWorkspace } = await import("../src/engine/workspace.mjs");
+  const { makeExecutor } = await import("../src/engine/executor.mjs");
+  const { LOOP_V1 } = await import("../src/workflows/builtin.mjs");
+  const { BUILTIN_ROLES } = await import("../src/workflows/roles.mjs");
+  const engine = makeEngine({ store, workspace: fakeRunWorkspace(), executor: fakeRunExecutor(), concurrencyOf: () => 2 });
+  const templates = { [LOOP_V1.id]: LOOP_V1 };
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine, templates });
+  // upsert 往返
+  assert.equal((await h.postRolesUpsert({ role: { id: "my-builder", name: "我的构建", prompt: "p", executionPolicy: "auto" } })).ok, true);
+  assert.equal(store.getRole("my-builder").prompt, "p");
+  // delete 被引用 → 409（loop-v1 build 节点引 loop-builder）
+  assert.equal((await h.postRolesDelete({ id: "loop-builder" })).error, "role-in-use: loop-builder");
+  // delete 空闲成功
+  assert.equal((await h.postRolesUpsert({ role: { id: "tmp", name: "临时", prompt: "x", executionPolicy: "ask" } })).ok, true);
+  assert.equal((await h.postRolesDelete({ id: "tmp" })).ok, true);
+  // getRoles 合并单列表 + overridden
+  const roles = await h.getRoles();
+  assert.ok(roles.roles.length >= 4);   // 4 builtin
+  const lb = roles.roles.find((r) => r.id === "loop-builder");
+  assert.equal(lb.overridden, false);
+  assert.equal(lb.builtin, true);
 });
 
 test("feishu 路由：webhook 写入 credentials、测试发送走注入通知器；未装配 503", async () => {
