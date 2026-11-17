@@ -314,7 +314,7 @@ test("badgeLabel：计数前缀格式（i18n 模板注入）", () => {
 - 涉及文件：Modify `src/client/components/actions.mjs`（openSettings 增飞书段）、`src/client/api.mjs`（feishuTest/putFeishuWebhook——T6 若未落则本任务落）；Test `test/i18n.test.mjs`（parity 自动）；**i18n 键已在 T7 全量落齐，本任务零 locale 改动**（评审 P4：消除「键未落地先消费」窗口）
 - 接口契约：
   - Consumes: Task 6 路由（PUT /dsh-l/feishu/webhook、POST /dsh-l/feishu/test）
-  - Produces: 设置对话框增「飞书 Webhook URL」input（type=url）+「发送测试消息」按钮（成功 → chip 提示已发送；失败 → 错误 chip）；i18n 键消费（已由 T7 全量落齐：settings.feishuUrl/feishuTest/feishuTestOk、tabs.*）
+  - Produces: 设置对话框增「飞书 Webhook URL」input（type=url）+「发送测试消息」按钮（成功 → chip 提示已发送；失败 → 错误 chip）；i18n 键消费 **feishu.url/feishu.test/feishu.testOk/feishu.testFail**（产出评审 R3 定口径：与 T7/:52 权威清单一致——原稿 settings.feishu* 系列系计划内部矛盾，已按消费侧修正）
 - 验证范围：`npm test`（parity + logic）+ `npm run build`
 
 - [ ] Step 1: 失败测试——i18n parity：仅在 zh-CN 加键不改 en → locale-parity 红（既有测试自动覆盖，无需新用例；本步骤为「确认 parity 守护在工作」的冒烟，可跳过）。改为直接实现 + 既有 parity/全量测试收口。
