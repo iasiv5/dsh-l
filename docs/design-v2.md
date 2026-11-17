@@ -185,7 +185,7 @@ coordinator adapter（会话协调者，role→派发缝）、sub-SOP / preview-
 4. **角色管理 UI（Q4 主人升级 + Q6-A/Q7-A/Q8-A）**：主栏第四 tab「角色」——信息架构参照 LoopForge `agents.js`（**仅借鉴信息架构与交互模式，vanilla DOM 全自写**，MIT 致谢注明）：搜索框 + 行卡（名称/职责/executionPolicy/被引用计数「N 个节点」/更多菜单）+ 「新增角色」+ 编辑对话框（name/description/prompt textarea/executionPolicy select；roleId 创建时定不可改）+ **删除保护**（被任何工作流节点引用 → 禁删并提示，`agentDeleteBlockReason` 同款语义）；内置角色可改 prompt 但可恢复默认。
 5. **i18n 消费键守护（Q5-A）**：轻量测试折叠进 M4（扫描源码 `t("…")` 字面量 ⊆ 双字典键集，堵 M3 R3 类「消费键/词典键脱节」）；DOM 冒烟不折叠（jsdom 重依赖违反零依赖，留 M5+）。
 6. **store schema（Q9-A）**：store.json v2 doc 增 `roles: {}` 键（additive、无版本 bump、旧档 `??=` 回填空）；角色引用计数守卫面（评审 P14 定口径）：扫 **templates 全量定义** agent 节点 roleId + **存活 run 快照** snapshot 节点 roleId（非存活旧失败 run 重派时 resolveRole null → prefix 兜底/空则 throw 快速失败——降级可接受；D6「全部快照」字面以本实现口径备注取代）。
-7. **startRun 模板参数化**：`startRun(key, {taskPackage, templateId})`——templateId 缺省 loop-v1，可解析 builtin（loop-v1/devflow-lite）或 store 用户模板；postRunStart/postGate 路由透传 templateId。M2 遗留 backlog 折叠：R4 gate 文案映射（多 gate 模板前置需要，待我确认/行内按钮文案改按 gateId 映射）。
+7. **startRun 模板参数化**：`startRun(key, {taskPackage, templateId})`——templateId 缺省 loop-v1，可解析 builtin（loop-v1/devflow-lite）或 store 用户模板，未知 templateId 404 unknown-template；**startRun 返回 { runId }**（引擎 makeRunId 生成），run/start 路由响应含 runId（出处：M4 计划评审自检修正——评审 R-5 回写实文语义）。M2 遗留 backlog 折叠：R4 gate 文案映射（多 gate 模板前置需要，待我确认/行内按钮文案改按 gateId 映射——M4 已落地 waitingGateId 快照语义键）。
 8. **发版时机（Q10-B）**：M4 后**不发版**，攒 M5 再发；M5 候选清单——设置面板深化、putFeishuWebhook 空 token 后缀校验、「保存并测试」复合动作、kanban 迁移「相邻 vs 全白名单」口径、R4 文案映射收尾、DOM 冒烟（jsdom 评估）。
 
 ## 15. M5 补钉（2026-11-18 grill 定稿，Q1–Q5 全按推荐）
