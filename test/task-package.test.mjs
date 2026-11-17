@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { buildTaskPackage } from "../src/handlers.mjs";
-
 // 契约守卫：任务包是工作台与执行引擎的交接契约（design.md §6，ADR-0001）。
 // 顶层与各块字段在此精确锁定——任何字段增删改名都必须在此测试里显式改判。
 const CAND = (triage) => ({
@@ -51,4 +50,30 @@ test("emit 块逐字段满足 autoloop 事件信封（白名单外字段会被 a
   assert.equal(pkg.emit.link, "https://github.com/o/r/pull/7");
   // id 确定性：同一放行时刻重复构建得到同一 id → 重发可被 autoloop 幂等去重。
   assert.equal(pkg.emit.id, "dsh-l:o/r#pull#7:G1:2026-11-12T14:00:00.000Z");
+});
+
+test("任务包 v2 golden：role/workflow 块 + v1 字段全保留（评审 D6/M4 T5）", () => {
+  const now = () => new Date("2026-11-16T10:00:00.000Z");
+  const pkg = buildTaskPackage(
+    { ...CAND({ validity: "high", urgency: "P1", action: "start", reason: "r" }), key: "o/r#issue#3", type: "issue", number: 3, url: "https://github.com/o/r/issues/3" },
+    { defaultBranch: "main", cloneUrl: "git@github.com:o/r.git" },
+    now,
+    { role: { roleId: "loop-builder", name: "Loop 构建者", executionPolicy: "auto" },
+      workflow: { runId: "run-1731730000000-a1b2", nodeId: "build", templateId: "loop-v1", templateRevision: "abc" } },
+  );
+  assert.equal(pkg.version, 2);
+  // v1 字段全保留
+  assert.equal(pkg.kind, "dsh-l.task-package");
+  assert.ok(pkg.candidate && pkg.triage && pkg.gate && pkg.instructions && pkg.repo && pkg.emit);
+  assert.equal(pkg.emit.type, "build.requested");
+  // v2 新增块
+  assert.deepEqual(pkg.role, { roleId: "loop-builder", name: "Loop 构建者", executionPolicy: "auto" });
+  assert.deepEqual(pkg.workflow, { runId: "run-1731730000000-a1b2", nodeId: "build", templateId: "loop-v1", templateRevision: "abc" });
+});
+
+test("任务包 v1 形状不变（无 ctx.role/workflow 时零 v2 泄漏）", () => {
+  const pkg = buildTaskPackage(CAND(null), null, () => new Date(0));
+  assert.equal(pkg.version, 1);
+  assert.equal(pkg.role, undefined);
+  assert.equal(pkg.workflow, undefined);
 });

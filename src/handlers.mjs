@@ -11,7 +11,7 @@ const fail = (error, status = 400) => ({ error, status });
 const validTriage = (r) => Boolean(r) && VALIDITY.has(r.validity) && URGENCY.has(r.urgency) && ACTION.has(r.action);
 const langOf = (v) => (v === "en" ? "en" : "zh-CN");
 
-export function buildTaskPackage(candidate, repoInfo = null, now = () => new Date()) {
+export function buildTaskPackage(candidate, repoInfo = null, now = () => new Date(), ctx = {}) {
   const at = now().toISOString();
   // emit 块 = 一条可原样 POST 给 autoloop /v1/events 的事件（source 身份由摄入方密钥承担，不在信封内；
   // id 确定性 → 重发去重；信封字段白名单 id/type/subject/summary/detail/link/hops，见
@@ -23,8 +23,8 @@ export function buildTaskPackage(candidate, repoInfo = null, now = () => new Dat
     summary: candidate.title,
     link: candidate.url,
   };
-  return {
-    version: 1,
+  const pkg = {
+    version: ctx.role || ctx.workflow ? 2 : 1,
     kind: "dsh-l.task-package",
     candidate: { key: candidate.key, repo: candidate.repo, type: candidate.type, number: candidate.number, title: candidate.title, url: candidate.url },
     triage: candidate.triage
@@ -40,6 +40,12 @@ export function buildTaskPackage(candidate, repoInfo = null, now = () => new Dat
     },
     emit,
   };
+  // 任务包 v2（design-v2 §6/M4 T5）：role/workflow 块在位 → version:2 新增块；否则 version:1 零变化。
+  if (ctx.role || ctx.workflow) {
+    pkg.role = ctx.role ?? { roleId: null, name: null, executionPolicy: null };
+    pkg.workflow = ctx.workflow ?? { runId: null, nodeId: null, templateId: null, templateRevision: null };
+  }
+  return pkg;
 }
 
 export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null, workflowCatalog = { templates: [], warnings: [] }, engine = null, feishu = null }) {
