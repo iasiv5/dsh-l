@@ -75,7 +75,7 @@
 - [ ] Step 1: 失败测试（评审 R-11 粒度钉死，三例：①坏 JSON 用户模板 → defs 不含且 warnings 含文件名；②校验失败模板 → warnings 文案对称 loadTemplates；③撞 id 用户模板 → warnings；另断言两内置恒在 defs）
 - Run: 红（现返回数组无 warnings）。
 - [ ] Step 2: 确认失败信号。
-- [ ] Step 3: 实现——loader.mjs 改返回 `{ defs, warnings }`（三处 continue 改 warnings.push）；host.mjs `templateDefs` 构造改 `loadTemplateDefs(...).defs`；测试同步。
+- [ ] Step 3: 实现——loader.mjs 改返回 `{ defs, warnings }`（**三类失败模式拆分**：坏 JSON / 校验失败 / 撞 id——:28 一行双条件拆两支各产文案，对称 loadTemplates；目录缺席与非 .json 保持静默）；host.mjs `templateDefs` 构造改 `loadTemplateDefs(...).defs`；测试同步。
 - [ ] Step 4: Run: `set -o pipefail; npm test 2>&1 | tail -3` — Expected: 全绿。
 - [ ] Step 5: checkpoint commit（先确认全绿再 commit——M4 备忘硬纪律）。
 
@@ -130,10 +130,10 @@
 ### Task 7: host 装配冒烟测试
 
 - 目标：堵 host.mjs 装配层盲区（R1-1 根因）——最小 ctx stub 驱动装配链，断言装配不抛 + 路由表关键键在位。
-- 涉及文件：Create `test/host-smoke.test.mjs`；如装配不可测需微调 `src/host.mjs`（仅可测化抽取，路由行为零变化）
+- 涉及文件：Create `test/host-smoke.test.mjs`（评审 R-8 已证 buildRuntime :65 可直驱，host.mjs 零改动）
 - 接口契约：
   - Consumes: **host.mjs 导出面（实文锚点）+ 数据目录隔离（评审 R-7）**——paths.dataDir() 依赖 `DSH_L_DATA` env（profile root 判定在 node --test 下不命中会抛错）；测试 setup 设 `process.env.DSH_L_DATA = mkdtempSync(join(tmpdir(), "dsh-l-smoke-"))`、teardown 还原（隔离 + 可重复）——`export const inject = ["webServer","credentials","agents","agentDefaultModel","timer","llm","approval","workingDirectory"]`（:26）；`export function buildRuntime(ctx, config, { makeTriage, listCatalog, hostDefault, onSettingsChange } = {})`（:65，返回含 engine/handlers 的装配对象）；`export async function apply(ctx, config)`（:130，套壳 buildRuntime+路由注册）。冒烟驱动 **buildRuntime**（非 apply——避免 webServer/timer 真注册）；stub ctx 面按 inject 清单 × buildRuntime 实读消费面构造
-  - Produces: 冒烟用例（评审 R-2 修正断言③④——engine 对象不暴露 templates/listRoles 闭包参）：stub ctx（credentials.set/resolve 空实现、workingDirectory/approval 空实现、agents/llm/timer/webServer 空实现、agentDefaultModel null）→ `buildRuntime(stubCtx, config)` → 断言：①不抛；②返回路由表含 /dsh-l/roles GET+POST、/dsh-l/run/start、/dsh-l/release/confirm（M4/M2 关键键）；③**模板解析探针**：种子候选后 `rt.engine.startRun(key,{templateId:"loop-v1"})` 与 `{templateId:"devflow-lite"}` 均可建跑、`{templateId:"nope"}` 抛 unknown-template 404（R1-1 注入面回归锚）；④**角色解析源探针**：store.upsertRole → store.listRoles 往返生效（引擎侧 role 解析由既有 engine/scheduler 测试覆盖）
+  - Produces: 冒烟用例（评审 R-2 修正断言③④——engine 对象不暴露 templates/listRoles 闭包参）：stub ctx（credentials.set/resolve 空实现、workingDirectory/approval 空实现、agents/llm/timer/webServer 空实现、agentDefaultModel null）→ `buildRuntime(stubCtx, config)` → 断言：①不抛；②返回路由表含 /dsh-l/roles GET+POST、/dsh-l/run/start、/dsh-l/release/confirm（M4/M2 关键键）；③**模板解析探针**（评审执行细节钉死）：种子候选用 `store.upsertCandidates`（store.mjs:79）；**只断同步面**——`{templateId:"nope"}` 同步 throw unknown-template 404；known templateId → 返回 `{runId}` 且 `store.getRun(runId).templateId/snapshot` 断言，**不等待异步**（startRun 同步解析后异步触发 workspace.ensure，buildRuntime 无 workspace 注入缝）；异步 ensure 在 DSH_L_DATA=tmp 下因 ghBin ENOENT 确定性失败、被引擎 catch 收敛为 run failed——不真实出网/clone，测试退出码不受污染（预期路径）；④**角色解析源探针**：store.upsertRole → store.listRoles 往返生效（引擎侧 role 解析由既有 engine/scheduler 测试覆盖）
 - 验证范围：`npm test`（新增文件）+ `npm run build`
 
 - [ ] Step 1: 读实文定 stub 面（inject 八项 × buildRuntime 消费面）→ 直接写断言（**绿基线任务**——buildRuntime 已于 :65 导出，无红可确认；评审 R-8：红证=一次性变异，见执行纪律）。
@@ -147,7 +147,7 @@
 - 涉及文件：Modify `package.json`（version 0.0.1 → 0.1.0）、`README.md`、`README.en.md`（终审如有措辞修正随本任务 docs commit）
 - 接口契约：version 0.1.0；build 指纹随 src/ 源码变化（bump 不影响指纹，评审 R-6）；占名核查判据见 Step 1（占位在位且归属本人）。
 
-- [ ] Step 1: Run: `npm view dsh-l version && npm owner ls dsh-l` — Expected: **version 0.0.1 且 owner 含 `npm whoami` 本人账号**（评审 R-1 修正：dsh-l 为主人自有占位包——npm-packages claim 工作区模式，原稿 E404 判据与现实相反；publish 0.1.0 定性为占位包正式接管）。
+- [ ] Step 1: Run: `npm view dsh-l version && npm view dsh-l maintainers` — Expected: **version 0.0.1 且 maintainers 含 iasiv5**（评审 R-12 二次修正：本机 `npm owner ls` 返回 no admin found——trusted publishing 无管理员列表零证明力；`npm whoami` E401 无登录态不可求值——认证核对由 publish 动作自身认证兜底，属验收后动作。dsh-l 为主人自有占位包，01_docs/npm-claim/INVENTORY.md:50 佐证；publish 0.1.0 定性为占位包正式接管）。
 - [ ] Step 2: package.json version → 0.1.0；npm run build（评审 R-6 修正：build-id 只哈希 src/ 树——**bump 单独不改变指纹**；指纹变化由 T2–T7 源码变更贡献）。
 - [ ] Step 3: README 双语终审（安装段/致谢段/版本号如有硬编码核对）；装机注记核对（inject 八项/生效探针/approval·policy durable 事件）。
 - [ ] Step 4: Run: `set -o pipefail; npm test 2>&1 | tail -3` — Expected: 全绿（无测试锁 version 值；若有即同步）。
