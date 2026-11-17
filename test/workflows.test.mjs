@@ -59,7 +59,7 @@ test("devflow-lite golden：形状锁（评审 D2/D3）", () => {
   assert.equal(byId.requirement.gateId, "G1");
   assert.equal(byId.design.roleId, "devflow-architect");
   assert.equal(byId.implement.roleId, "devflow-developer");
-  assert.equal(byId.implement.executionPolicy, "ask");
+  assert.equal(byId.implement.executionPolicy, "auto");
   assert.equal(byId.review.roleId, "devflow-code-reviewer");
   assert.equal(byId.review.maxReworks, 2);
   assert.equal(byId.g2.gateId, "G2");
@@ -98,7 +98,7 @@ test("loader 契约（M4 T2）：meta agent 节点带 roleId；loadTemplateDefs 
   mkdirSync(join(dir, "workflows"));
   writeFileSync(join(dir, "workflows", "b.json"), JSON.stringify({ ...okT, id: "user-b", name: "UB" }));
   const defs = loadTemplateDefs({ dataDir: dir });
-  assert.deepEqual(defs.map((t) => t.id), ["loop-v1", "user-b"]);
+  assert.deepEqual(defs.map((t) => t.id), ["loop-v1", "devflow-lite", "user-b"]);   // 评审 R1-8：builtin 二模板
   const agentNode = defs.find((t) => t.id === "loop-v1").nodes.find((n) => n.id === "build");
   assert.ok(agentNode.prompt || agentNode.prefix, "全量 def 保留 agent 节点正文");
   assert.ok("script" in defs.find((t) => t.id === "user-b").nodes[2]);

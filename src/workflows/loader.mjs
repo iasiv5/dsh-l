@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { validateTemplate, computeRevision } from "./validate.mjs";
-import { LOOP_V1 } from "./builtin.mjs";
+import { LOOP_V1, DEVFLOW_LITE } from "./builtin.mjs";
 
 // meta 投影：script 正文不出模块（design-v2 §3）——state/客户端只拿 id/name/version/revision/builtin/
 // 节点名与类型/**agent 节点 roleId**（M4 T2 评审 P2①/P3：roleRows uses 计数数据源）/边数。
@@ -14,9 +14,9 @@ const metaOf = (t) => ({
 // 全量定义通道（M4 T2 评审 P2①）：builtin 二模板 + 用户原始 def（含 script/prefix/edges/maxReworks 等）——
 // 供引擎 dispatch 与删除守卫消费的唯一数据源；getState 的 workflow.templates 只出 meta。
 export function loadTemplateDefs({ dataDir, readdirSync: ls = readdirSync, readFileSync: rf = readFileSync }) {
-  const defs = [LOOP_V1];
+  const defs = [LOOP_V1, DEVFLOW_LITE];   // 评审 R1-8：builtin 二模板
   const warnings = [];
-  const seen = new Set([LOOP_V1.id]);
+  const seen = new Set([LOOP_V1.id, DEVFLOW_LITE.id]);
   let files;
   try { files = ls(join(dataDir, "workflows")); } catch { return defs; }
   for (const file of [...files].sort()) {

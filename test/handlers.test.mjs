@@ -366,13 +366,25 @@ test("角色三方法：upsert 往返/删除守卫/getRoles 合并列表", async
   const { LOOP_V1 } = await import("../src/workflows/builtin.mjs");
   const { BUILTIN_ROLES } = await import("../src/workflows/roles.mjs");
   const engine = makeEngine({ store, workspace: fakeRunWorkspace(), executor: fakeRunExecutor(), concurrencyOf: () => 2 });
-  const templates = { [LOOP_V1.id]: LOOP_V1 };
+  const fakeT = { id: "user-t", nodes: [{ id: "x", type: "agent", roleId: "busy" }], edges: [] };
+  const templates = { [LOOP_V1.id]: LOOP_V1, "user-t": fakeT };
   const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine, templates });
   // upsert 往返
   assert.equal((await h.postRolesUpsert({ role: { id: "my-builder", name: "我的构建", prompt: "p", executionPolicy: "auto" } })).ok, true);
   assert.equal(store.getRole("my-builder").prompt, "p");
-  // delete 被引用 → 409（loop-v1 build 节点引 loop-builder）
-  assert.match((await h.postRolesDelete({ id: "loop-builder" })).error, /role-in-use: loop-builder/);   // 评审 P2②：引用守卫含位置详情
+  // builtin 覆盖层放行删除（评审 R1-4/P9②）：模板引用内置本体，删覆盖层回落内置
+  await h.postRolesUpsert({ role: { id: "loop-builder", name: "覆盖版", prompt: "覆盖 prompt", executionPolicy: "ask" } });
+  assert.equal((await h.postRolesDelete({ id: "loop-builder" })).ok, true);
+  assert.equal(store.getRole("loop-builder"), null);
+  // 自定义角色被模板引用 → 409（评审 P2②/R1-2：引用守卫含位置详情）
+  await h.postRolesUpsert({ role: { id: "busy", name: "被引用", prompt: "p", executionPolicy: "ask" } });
+  assert.match((await h.postRolesDelete({ id: "busy" })).error, /role-in-use: busy/);
+  // 存活 run 快照守卫（评审 R1-2 修正）：snapshot.nodes roleId 在活跃 run 中 → 409
+  store.saveRun({ id: "r-snap", candidateKey: "o/r#issue#1", templateId: "user-t", templateRevision: "x",
+    snapshot: { id: "user-t", nodes: [{ id: "x", type: "agent", roleId: "my-builder" }], edges: [] },
+    nodeStates: { x: { status: "running", attempt: 1, reworkCount: 0, error: null, artifacts: [] } },
+    status: "running", cancelReason: null, createdAt: "T", updatedAt: "T", history: [] });
+  assert.match((await h.postRolesDelete({ id: "my-builder" })).error, /r-snap/);
   // delete 空闲成功
   assert.equal((await h.postRolesUpsert({ role: { id: "tmp", name: "临时", prompt: "x", executionPolicy: "ask" } })).ok, true);
   assert.equal((await h.postRolesDelete({ id: "tmp" })).ok, true);

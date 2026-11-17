@@ -108,12 +108,15 @@ export function renderRolesTab(container, { t, workflow, view }) {
       dlg.remove();
     });
     btnRow.append(closeBtn, saveBtn);
-    // 删除（内置覆盖层与自定义角色可删；被引用禁删——uses>0 由行卡禁入编辑亦可删但服务端守卫兜底）
+    // 删除（评审 R1-7：确认步骤 + uses>0 禁用——仅对自定义角色；builtin 覆盖层删除回落内置始终可删（R1-4 豁免））
     if (!isNew) {
       const delBtn = document.createElement("button");
       delBtn.type = "button"; delBtn.textContent = t("roles.delete");
       delBtn.style.cssText = "color:crimson;margin-right:auto";
+      delBtn.disabled = !role.builtin && role.uses > 0;
+      delBtn.title = delBtn.disabled ? t("roles.inUse") : "";
       delBtn.onclick = act(async () => {
+        if (!window.confirm(t("roles.deleteConfirm").replace("{id}", role.id))) { return; }
         await api.rolesDelete(role.id);
         dlg.remove();
       });

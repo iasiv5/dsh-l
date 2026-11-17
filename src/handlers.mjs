@@ -332,36 +332,40 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       if (!role || typeof role.id !== "string" || !role.id.trim()) return fail("role id required");
       if (!["ask", "auto"].includes(role?.executionPolicy)) return fail("invalid executionPolicy");
       if (!role.name) return fail("role name required");
-      store.upsertRole({ id: role.id, name: role.name, description: role.description ?? "", prompt: role.prompt ?? "", executionPolicy: role.executionPolicy });
+      store.upsertRole({ id: role.id, name: role.name, description: role.description ?? "", prompt: role.prompt ?? "", executionPolicy: role.executionPolicy, ...(role.model ? { model: role.model } : {}) });
       return { ok: true };
     },
     async postRolesDelete(body) {
       const gate = requireAuth(); if (gate) return gate;
       const id = body?.id;
       if (!id) return fail("id required");
-      // 引用守卫（评审 P2②）：扫 templates 全量定义 + 存活 run 快照的 roleId
-      const refs = [];
-      for (const t of Object.values(templates)) {
-        for (const n of t.nodes ?? []) if (n.type === "agent" && n.roleId === id) refs.push(t.id + "/" + n.id);
-      }
-      for (const run of store.listRuns()) {
-        if (["running", "waiting"].includes(run.status)) {
-          for (const [nid, s] of Object.entries(run.nodeStates ?? {})) {
-            if (s.roleId === id && ["running", "waiting", "ready"].includes(s.status)) refs.push(run.id + "/" + nid);
+      // builtin 覆盖层放行（评审 R1-4/P9②）：id ∈ BUILTIN_ROLES 时删的是用户覆盖层，回落内置（resolveRole 天然支持），
+      // 模板引用的是内置角色本体而非覆盖层 → 守卫扫描跳过。
+      if (!BUILTIN_ROLES[id]) {
+        const refs = [];
+        for (const t of Object.values(templates)) {
+          for (const n of t.nodes ?? []) if (n.type === "agent" && n.roleId === id) refs.push(t.id + "/" + n.id);
+        }
+        // 存活 run 快照守卫（评审 R1-2 修正）：roleId 在 run.snapshot.nodes（快照模板定义），非 nodeStates
+        for (const run of store.listRuns()) {
+          if (["running", "waiting"].includes(run.status)) {
+            for (const n of run.snapshot?.nodes ?? []) {
+              if (n.type === "agent" && n.roleId === id) refs.push(run.id + "/" + n.id);
+            }
           }
         }
+        if (refs.length > 0) return fail("role-in-use: " + id + " (" + refs.join(", ") + ")", 409);
       }
-      if (refs.length > 0) return fail("role-in-use: " + id + " (" + refs.join(", ") + ")", 409);
       store.deleteRole(id);
       return { ok: true };
     },
     async getRoles() {
       const gate = requireAuth(); if (gate) return gate;
-      // 合并单列表（评审 P9③）：builtin + 用户覆盖（overridden:true + 用户 prompt）+ 纯自定义
+      // 合并单列表（评审 P9③/R1-3）：覆盖行显用户值（override 字段优先展开）
       const roles = [];
       for (const r of Object.values(BUILTIN_ROLES)) {
         const override = store.getRole(r.id);
-        roles.push({ ...r, overridden: Boolean(override) });   // 评审 P9③：显式 false/true，不省略
+        roles.push(override ? { ...r, ...override, overridden: true } : { ...r, overridden: false });
       }
       for (const r of store.listRoles()) {
         if (!BUILTIN_ROLES[r.id]) roles.push({ ...r, builtin: false });

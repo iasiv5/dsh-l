@@ -11,7 +11,8 @@ import { makeExecutor } from "./engine/executor.mjs";
 import { makeEngine } from "./engine/engine.mjs";
 import { makeFeishu, formatNotice } from "./feishu.mjs";
 import { loadTemplateDefs } from "./workflows/loader.mjs";
-import * as github from "./github.mjs";import { makeHandlers } from "./handlers.mjs";
+import * as github from "./github.mjs";
+import { makeHandlers } from "./handlers.mjs";
 import { createTrustGuard, makeHttpHandler } from "./http.mjs";
 import { armInterval } from "./poll.mjs";
 
@@ -76,8 +77,12 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
   };
   const notifier = makeFeishu({ fetch: globalThis.fetch, getWebhook });
   const setWebhook = (url) => ctx.credentials.set("DSH_L_FEISHU_WEBHOOK_URL", url);
+  // 模板全量 defs（M4 评审 R1-1：引擎 templates 注入 + 守卫数据源共源）；角色解析 store.roles 优先（listRoles 闭包）
+  const templateDefs = Object.fromEntries(loadTemplateDefs({ dataDir: dir }).map((d) => [d.id, d]));
   const engine = makeEngine({
     store, workspace, executor, concurrencyOf: () => store.getSettings().engineConcurrency ?? 2,
+    templates: templateDefs,
+    listRoles: () => Object.fromEntries(store.listRoles().map((r) => [r.id, r])),
     emit: (evt) => { Promise.resolve(notifier.sendNotice(formatNotice(evt))).catch(() => {}); },
   });
   const handlers = makeHandlers({
@@ -90,6 +95,7 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     workflowCatalog: loadTemplates({ dataDir: dir }),
     engine,
     feishu: { notifier, setWebhook },
+    templates: templateDefs,   // M4 T6/R1-1②：引用守卫数据源（templates 全量定义）
   });
   const table = {
     "/dsh-l/health": { GET: async () => ({ ok: true, name, build: BUILD, dataDir: dir }) },

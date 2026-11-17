@@ -87,6 +87,7 @@ export const zhCN = {
     edit: "编辑", editTitle: "编辑角色", new: "新增角色", roleId: "角色 ID", name: "名称",
     description: "职责描述", prompt: "Prompt（角色提示词）", executionPolicy: "执行策略",
     save: "保存", cancel: "取消", delete: "删除",
+    deleteConfirm: "确认删除角色 {id}？（内置覆盖层删除后回落内置默认）", inUse: "被工作流节点引用，禁删",
   },
   review: { gates: "待你放行", release: "待发版确认", failed: "执行失败", confirm: "确认已发版", empty: "没有待确认事项" },
   feishu: { url: "飞书 Webhook URL", test: "发送测试消息", testOk: "测试消息已发送", testFail: "测试发送失败" },

@@ -87,6 +87,7 @@ export const en = {
     edit: "Edit", editTitle: "Edit role", new: "New role", roleId: "Role ID", name: "Name",
     description: "Description", prompt: "Prompt (role instructions)", executionPolicy: "Execution policy",
     save: "Save", cancel: "Cancel", delete: "Delete",
+    deleteConfirm: "Delete role {id}? (builtin overrides fall back to the builtin default)", inUse: "Referenced by workflow nodes; deletion disabled",
   },
   review: { gates: "Waiting for you", release: "Release pending", failed: "Failed", confirm: "Confirm released", empty: "Nothing waiting for you" },
   feishu: { url: "Feishu webhook URL", test: "Send test message", testOk: "Test message sent", testFail: "Test send failed" },

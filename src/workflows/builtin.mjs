@@ -44,7 +44,7 @@ export const DEVFLOW_LITE = {
   nodes: [
     { id: "requirement", name: "需求确认", type: "gate", gateId: "G1", rejectTarget: null },
     { id: "design", name: "设计", type: "agent", roleId: "devflow-architect", executionPolicy: "ask" },
-    { id: "implement", name: "实现", type: "agent", roleId: "devflow-developer", executionPolicy: "ask", maxAttempts: 2 },
+    { id: "implement", name: "实现", type: "agent", roleId: "devflow-developer", executionPolicy: "auto", maxAttempts: 2 },
     { id: "review", name: "评审", type: "agent", roleId: "devflow-code-reviewer", executionPolicy: "ask", maxReworks: 2 },
     { id: "test", name: "测试", type: "script", scriptLanguage: "shell", script: "npm test", maxAttempts: 2 },
     { id: "g2", name: "G2", type: "gate", gateId: "G2", rejectTarget: "implement" },

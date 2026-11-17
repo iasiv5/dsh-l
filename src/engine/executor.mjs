@@ -47,7 +47,7 @@ export function makeExecutor({ spawn: sp = spawn, world = null, ghBin = null, ag
               if (sid !== sessionId) return;
               if (event?.type === "turn/end") endKind = kindOf(event.data?.reason ?? event.data);
             });
-            handle = await world.createAgent(sessionId, {});
+            handle = await world.createAgent(sessionId, model ? { model } : {});   // 评审 R1-5：角色 model 通道闭环
             world.setPolicy?.(handle.agent, policy);
             world.setWorkingDirectory?.(handle.agent, cwd);
             await handle.agent.send(world.userMessage(prompt), "next-turn", true);
