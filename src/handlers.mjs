@@ -321,7 +321,7 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       if (!feishu) return fail("feishu-not-wired", 503);
       const url = String(body?.url ?? "");
       const PREFIX = "https://open.feishu.cn/open-apis/bot/v2/hook/";
-      if (!url.startsWith(PREFIX)) return fail("invalid webhook");
+      if (!url.startsWith(PREFIX) || !url.slice(PREFIX.length).trim()) return fail("invalid webhook");   // M5 T3：空/空白 token 一并挡（评审 R-10）
       await feishu.setWebhook(url);
       return { ok: true };
     },
