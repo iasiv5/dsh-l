@@ -4,6 +4,7 @@ import { api } from "../api.mjs";
 import { badge } from "../badge.mjs";
 import { renderRow } from "./candidateRow.mjs";
 import { renderLoginGate } from "./loginGate.mjs";
+import { renderKanban } from "./kanban.mjs";
 
 const CSS = [
   ":host{display:flex;flex-direction:column;height:100%;font-size:14px;line-height:1.45;color:inherit}",
@@ -205,6 +206,7 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
     const reviewWrap = el("div");
     boardWrap.style.display = activeTab === "board" ? "" : "none";
     reviewWrap.style.display = activeTab === "review" ? "" : "none";
+    if (activeTab === "board") renderKanban(boardWrap, { t, candidates: state?.candidates ?? [], view });
     intake.style.display = activeTab === "list" ? "" : "none";
     triage.style.display = activeTab === "list" ? "" : "none";
     main.append(intake, triage, boardWrap, reviewWrap);
