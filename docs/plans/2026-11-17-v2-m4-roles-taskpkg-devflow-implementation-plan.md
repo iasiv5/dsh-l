@@ -40,6 +40,7 @@
 - Modify: `src/engine/engine.mjs` — startRun 增 templateId 参（缺省 loop-v1）；dispatch 的 agent 分支经 resolveRole 组装 prompt/executionPolicy
 - Modify: `src/engine/executor.mjs` — composeAgentPrompt 改签名（{ rolePrompt, taskPackage, upstream }），prefix 语义由调用方以角色 prompt 传入；删除 lastText 相关残留零改动确认
 - Modify: `src/workflows/builtin.mjs` — build 节点增 roleId:"loop-builder"（保留 prefix 作 fallback——roleId 解析失败兜底）；LOOP_V1.revision 重算（golden 不锁值，安全）
+- Modify: `src/workflows/loader.mjs` — meta 投影 agent 节点增 roleId（客户端 uses 计数）+ 新增 `loadTemplateDefs` 全量定义通道（评审批次 1 同根三题合并修订：引擎 templates 注入与删除守卫的唯一数据源）
 - Modify: `src/handlers.mjs` — postRunStart 透传 templateId；postRolesUpsert/postRolesDelete/postRolesList 三方法（auth + 引用守卫）
 - Modify: `src/host.mjs` — 路由表增 `/dsh-l/roles` GET/POST/DELETE 三行（DELETE 走 body 传 id）
 - Modify: `src/client/api.mjs` — rolesList/rolesUpsert/rolesDelete 三端点
@@ -89,40 +90,21 @@ test("旧档回填：roles 空对象不炸", () => {
 - [ ] Step 4: Run: `npm test 2>&1 | tail -5` — Expected: 全绿。
 - [ ] Step 5: checkpoint commit：`git add -A && git commit -m "feat(store): roles 数据面（M4 T1）"`
 
-### Task 2: workflows/roles.mjs — 内置角色与解析顺序
+### Task 2: workflows 数据源——内置角色注册表 + loader meta/defs 契约
 
-- 目标：内置 4 角色常量 + resolveRole（store 优先）。
-- 涉及文件：Create `src/workflows/roles.mjs`；Test `test/roles.test.mjs`（新）
+- 目标：内置 4 角色常量 + resolveRole（store 优先）；**loader 数据源契约修订**（评审批次 1 同根三题：meta 投影 {id,name,type} 撑不起引擎全量定义/删除守卫/uses 计数三处消费）。
+- 涉及文件：Create `src/workflows/roles.mjs`；Modify `src/workflows/loader.mjs`；Test 新 `test/roles.test.mjs` + Modify `test/workflows.test.mjs`（loader 契约增量）
 - 接口契约：
   - Consumes: design-v2 §14.1/§14.3
-  - Produces: `BUILTIN_ROLES`（id: loop-builder / devflow-architect / devflow-developer / devflow-code-reviewer；字段 {id,name,description,prompt,executionPolicy,builtin:true}）；`resolveRole(roleId, userRoles = {})` → userRoles[roleId] ?? BUILTIN_ROLES[roleId] ?? null
-- 验证范围：`npm test`（roles 段）
+  - Produces: ①`BUILTIN_ROLES`（loop-builder / devflow-architect / devflow-developer / devflow-code-reviewer，字段 {id,name,description,prompt,executionPolicy,builtin:true}）；`resolveRole(roleId, userRoles = {})` → userRoles[roleId] ?? BUILTIN_ROLES[roleId] ?? null ②**loader 契约修订**：`metaOf` 投影 agent 节点增 `roleId`（非敏感，客户端 uses 计数需要——评审 R2/P2①/P3 数据源）；新增 `loadTemplateDefs({dataDir})` → 全量模板定义数组（builtin LOOP_V1/DEVFLOW_LITE + 用户 workflows/*.json 原始 def，含 script/prefix/edges/maxReworks 等——引擎 dispatch 与删除守卫的唯一数据源）
+- 验证范围：`npm test`（roles + workflows loader 段）
 
-- [ ] Step 1: 新建 `test/roles.test.mjs`
-```js
-import test from "node:test";
-import assert from "node:assert/strict";
-import { BUILTIN_ROLES, resolveRole } from "../src/workflows/roles.mjs";
-test("内置 4 角色齐全且字段完整", () => {
-  const ids = Object.keys(BUILTIN_ROLES);
-  assert.deepEqual(ids.sort(), ["devflow-architect", "devflow-code-reviewer", "devflow-developer", "loop-builder"].sort());
-  for (const r of Object.values(BUILTIN_ROLES)) {
-    assert.ok(r.name && r.prompt && ["ask", "auto"].includes(r.executionPolicy));
-    assert.equal(r.builtin, true);
-  }
-});
-test("resolveRole：用户角色优先于内置", () => {
-  const user = { "loop-builder": { id: "loop-builder", name: "用户覆盖", prompt: "自定义", executionPolicy: "ask" } };
-  assert.equal(resolveRole("loop-builder", user).name, "用户覆盖");
-  assert.equal(resolveRole("devflow-architect", user).builtin, true);
-  assert.equal(resolveRole("nope", user), null);
-});
-```
-- Run: `npm test 2>&1 | tail -6` — Expected: Cannot find module roles.mjs。
+- [ ] Step 1: 新建 `test/roles.test.mjs`（内置 4 角色 golden + resolveRole 优先序）+ `test/workflows.test.mjs` 追加 loader 契约用例（meta agent 节点含 roleId；loadTemplateDefs 返回用户原始 def 含 script 字段；坏 JSON 跳过警告不变）
+- Run: `npm test 2>&1 | tail -6` — Expected: roles.mjs/loader 契约未实现 → 红。
 - [ ] Step 2: 确认失败信号。
-- [ ] Step 3: 最小实现——roles.mjs（四个角色对象；prompt 为中文精简自写——architect=产出技术方案与改动清单、developer=按方案实现并自测、code-reviewer=独立审查 diff 给结论；executionPolicy 各自 ask/auto 按 design §14.3 与 loop-v1 现状对齐：loop-builder=auto，devflow 三角色=ask）。
+- [ ] Step 3: 最小实现——roles.mjs 四角色（中文 prompt 自写：architect=产出技术方案与改动清单、developer=按方案实现并自测、code-reviewer=独立审查 diff 给结论；executionPolicy 对齐 design §14.3：loop-builder=auto、devflow 三角色=ask）；loader.mjs：metaOf 的 agent 节点投影增 roleId + 新增 loadTemplateDefs({dataDir})（builtin 二模板 + 用户原始 def；坏 JSON 跳过警告不变；**defs 含 script 正文，仅供引擎/守卫消费，不出现在 getState 的 workflow.templates meta**）。
 - [ ] Step 4: Run: `npm test 2>&1 | tail -5` — Expected: 全绿。
-- [ ] Step 5: checkpoint commit：`git add -A && git commit -m "feat(workflows): 内置角色注册表与解析顺序（M4 T2）"`
+- [ ] Step 5: checkpoint commit：`git add -A && git commit -m "feat(workflows): 内置角色注册表 + loader meta/defs 契约（M4 T2）"`
 
 ### Task 3: executor composeAgentPrompt 改签名（rolePrompt 接线）
 
@@ -175,8 +157,8 @@ test("resolveRole：用户角色优先于内置", () => {
 - 目标：角色 CRUD 走 HTTP；引用守卫在 handler 侧。
 - 涉及文件：Modify `src/handlers.mjs`、`src/host.mjs`；Test `test/handlers.test.mjs`
 - 接口契约：
-  - Consumes: Task 1 store 四方法
-  - Produces: `postRolesUpsert({role})`（auth；id 必填；executionPolicy ∈ ask|auto）→ upsert → `{ok}`；`postRolesDelete({id})`（auth；**引用守卫**：扫 workflowCatalog 全模板节点 roleId + LOOP_V1——被引用 → 409 role-in-use: <id>）→ deleteRole → `{ok}`；`getRoles()`（auth）→ `{ builtin: [meta], custom: [meta] }`（meta=id/name/description/executionPolicy/prompt——UI 编辑需要 prompt 全文，直接返回）；路由表 `/dsh-l/roles` GET+POST、`/dsh-l/roles/delete` POST
+  - Consumes: Task 1 store 四方法；Task 2 loader defs 通道（**守卫数据源 = host 注入的 templates 全量定义 + 存活 run 快照 snapshot 节点 roleId——meta 投影无 roleId 不可作守卫源，评审 P2①②**）
+  - Produces: `postRolesUpsert({role})`（auth；id 必填；executionPolicy ∈ ask|auto）→ upsert → `{ok}`；`postRolesDelete({id})`（auth；**引用守卫**：扫 templates 全量定义 agent 节点 roleId + 存活 run 快照 snapshot 节点 roleId——被引用 → 409 role-in-use: <id>，提示含引用处数量）→ deleteRole → `{ok}`；`getRoles()`（auth）→ `{ builtin: [meta], custom: [meta] }`（meta=id/name/description/executionPolicy/prompt——UI 编辑需要 prompt 全文，直接返回）；路由表 `/dsh-l/roles` GET+POST、`/dsh-l/roles/delete` POST；makeHandlers 增 `templates` 参（host 由 loader defs + builtin 合成注入——评审 P2①）
 - 验证范围：`npm test`（handlers 段）
 
 - [ ] Step 1: 失败测试（三方法：upsert 往返、delete 空闲成功/被 LOOP_V1 引用 409、getRoles 双列表、engine 缺省行为不涉）
@@ -189,10 +171,10 @@ test("resolveRole：用户角色优先于内置", () => {
 ### Task 7: 角色 tab UI（LoopForge agents.js 信息架构参照）
 
 - 目标：主栏第四 tab「角色」——搜索 + 行卡（名称/职责/executionPolicy/被引用计数）+ 编辑对话框 + 删除保护。
-- 涉及文件：Create `src/client/components/rolesTab.mjs`；Modify `src/client/components/workbench.mjs`（第四 tab + 挂载 + runs 透传沿用 lastRuns 先例扩展为 lastState）；Test：UI 组件无 DOM 测试（零依赖约束），行卡数据组装纯函数放 logic.mjs（`roleRows({builtinRoles, customRoles, candidates, runs, templates})` → 行数组含 uses 计数）+ logic.test 钉例
+- 涉及文件：Create `src/client/components/rolesTab.mjs`；Modify `src/client/components/workbench.mjs`（第四 tab + 挂载 + runs 透传沿用 lastRuns 先例扩展为 lastState）；Test：UI 组件无 DOM 测试（零依赖约束），行卡数据组装纯函数放 logic.mjs（`roleRows({roles, workflow})` → 行数组含 uses 计数——**uses 数据源 = workflow.templates meta 的 agent 节点 roleId（Task 2 扩展后在位）**，扫 meta 而非全量 def，客户端不出敏感正文）+ logic.test 钉例
 - 接口契约：
-  - Consumes: Task 6 getRoles 三方法、Task 2 needsReview（计数无关）、kanbanColumns 引用扫描结果
-  - Produces: `roleRows(...)` 纯函数（行={id,name,description,executionPolicy,prompt,uses,builtin}，uses=全部模板 agent 节点 roleId 计数）；`renderRolesTab(container, { t, state, view, go, rolesApi })`：搜索 input（行卡 name/id/description 过滤）+ 行卡列表 + 新增/编辑对话框（name/description/prompt textarea/executionPolicy select）+ 删除按钮（uses>0 禁用）
+  - Consumes: Task 6 getRoles 三方法、Task 2 loader meta roleId 扩展、Task 2 needsReview（计数无关）、kanbanColumns 引用扫描结果
+  - Produces: `roleRows(...)` 纯函数（行={id,name,description,executionPolicy,prompt,uses,builtin}，uses=workflow.templates 全部模板 agent 节点 roleId 计数）；`renderRolesTab(container, { t, state, view, go, rolesApi })`：搜索 input（行卡 name/id/description 过滤）+ 行卡列表 + 新增/编辑对话框（name/description/prompt textarea/executionPolicy select）+ 删除按钮（uses>0 禁用）
 - 验证范围：`npm test`（logic roleRows）+ `npm run build`
 
 - [ ] Step 1: 失败测试（logic.test：roleRows 空输入/计数正确/builtin 标记）
@@ -208,12 +190,12 @@ test("resolveRole：用户角色优先于内置", () => {
 - 涉及文件：Modify `src/engine/engine.mjs`（startRun 增 templateId 参：模板解析 LOOP_V1/DEVFLOW_LITE/用户目录）、`src/client/components/actions.mjs`（待我确认与行内 G2 按钮文案改映射）、`src/client/components/review.mjs`（同）；Test `test/engine.test.mjs`
 - 接口契约：
   - Consumes: Task 2 resolveRole、Task 4 DEVFLOW_LITE
-  - Produces: startRun(key, {taskPackage, templateId, runId}) —— engine 构造参增 `templates`（id → 模板定义 map，host 由 loadTemplates 结果注入，含用户模板）；startRun 可选 `runId`（缺省 makeRunId(now)——供 postRunStart 先定 runId 再生成含 workflow.runId 的任务包 v2）；未知 templateId 404 unknown-template；emit 的 nodeId 即钉例锚；review.mjs/行内按钮文案 `t("gates." + (r.waitingGate ?? "").toUpperCase())`（G2→gates.G2 键已存在）；postRunStart 接线（handlers）：makeRunId 先行 → buildTaskPackage(…, ctx.workflow.runId=runId) → engine.startRun(key, {taskPackage, templateId, runId})
+  - Produces: startRun(key, {taskPackage, templateId, runId}) —— engine 构造参增 `templates`（id → 模板全量定义 map，host 由 **loader defs 通道 + builtin 合成**注入（T2 契约，含用户模板原始 def）——非 meta 投影）；startRun 可选 `runId`（缺省 makeRunId(now)——供 postRunStart 先定 runId 再生成含 workflow.runId 的任务包 v2）；未知 templateId 404 unknown-template；emit 的 nodeId 即钉例锚；review.mjs/行内按钮文案 `t("gates." + (r.waitingGate ?? "").toUpperCase())`（G2→gates.G2 键已存在）；postRunStart 接线（handlers）：makeRunId 先行 → buildTaskPackage(…, ctx.workflow.runId=runId) → engine.startRun(key, {taskPackage, templateId, runId})
 - 验证范围：`npm test`（engine 全链 devflow-lite 钉例：requirement gateArrive → design ok → implement ok → review fail→implement 重臂 → … → G2 → deliver → succeeded）
 
 - [ ] Step 1: 失败钉例（devflow-lite 全链：startRun(key,{templateId:"devflow-lite"}) → requirement gateArrive waiting → applyGateDecision pass → design/implement/review 轮转 → test ok → g2 pass → deliver ok → succeeded + 候选 shipped；中途 review fail 一次 → implement 重臂 running）→ 红（startRun 不识别 templateId）。
 - [ ] Step 2: 确认失败信号。
-- [ ] Step 3: 实现——engine.startRun 增 templateId 解析（构造参 templates 注入，缺省 {LOOP_V1.id: LOOP_V1}；host 装配时并入 loadTemplates 结果）+ emit nodeId 文案映射收尾（actions/review 两处）。
+- [ ] Step 3: 实现——engine.startRun 增 templateId 解析（构造参 templates 注入——host 由 **loader defs 通道 + builtin 合成**，缺省 {LOOP_V1.id: LOOP_V1, DEVFLOW_LITE.id: DEVFLOW_LITE}；用户模板经 loadTemplateDefs 并入）+ emit nodeId 文案映射收尾（actions/review 两处）。
 - [ ] Step 4: Run: `npm test 2>&1 | tail -5` — Expected: 全绿。
 - [ ] Step 5: checkpoint commit：`git add -A && git commit -m "feat(engine): startRun 模板参数化 + devflow-lite 全链钉例（M4 T8）"`
 
