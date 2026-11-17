@@ -174,20 +174,20 @@ test("旧档回填：roles 空对象不炸", () => {
 - 涉及文件：Create `src/client/components/rolesTab.mjs`；Modify `src/client/components/workbench.mjs`（第四 tab + 挂载 + runs 透传沿用 lastRuns 先例扩展为 lastState）、`src/client/locale/zh-CN.mjs`、`en.mjs`（**M4 全量新键随本任务一次落齐**——roles.* 段 + tabs.roles 等消费键；评审 P6：parity 只守同集不守完备，消费即加）；Test：UI 组件无 DOM 测试（零依赖约束），行卡数据组装纯函数放 logic.mjs（`roleRows({roles, workflow})` → 行数组含 uses 计数——**uses 数据源 = workflow.templates meta 的 agent 节点 roleId（Task 2 扩展后在位）**，扫 meta 而非全量 def，客户端不出敏感正文）+ logic.test 钉例
 - 接口契约：
   - Consumes: Task 6 getRoles 三方法、Task 2 loader meta roleId 扩展、Task 2 needsReview（计数无关）
-  - Produces: `roleRows(...)` 纯函数（行={id,name,description,executionPolicy,prompt,uses,builtin}，uses=workflow.templates 全部模板 agent 节点 roleId 计数）；`renderRolesTab(container, { t, state, view, go, rolesApi })`：搜索 input（行卡 name/id/description 过滤）+ 行卡列表 + 新增/编辑对话框（name/description/prompt textarea/executionPolicy select）+ 删除按钮（uses>0 禁用）
+  - Produces: `roleRows(...)` 纯函数（行={id,name,description,executionPolicy,prompt,uses,builtin}，uses=workflow.templates 全部模板 agent 节点 roleId 计数）；`renderRolesTab(container, { t, state, view, go, rolesApi })`：搜索 input（行卡 name/id/description 过滤）+ 行卡列表 + 新增/编辑对话框（**roleId input——创建态可编辑、编辑态只读**（评审 P9①：D4「roleId 创建时定不可改」的 UI 落点；name/description/prompt textarea/executionPolicy select）+ 删除按钮（uses>0 禁用）
 - 验证范围：`npm test`（logic roleRows）+ `npm run build`
 
 - [ ] Step 1: 失败测试（logic.test：roleRows 空输入/计数正确/builtin 标记）
 - Run: 红。
 - [ ] Step 2: 确认失败信号。
-- [ ] Step 3: 实现——logic.mjs roleRows 纯函数；rolesTab.mjs 组件（信息架构：搜索框→行卡列表→点击行开编辑对话框→对话框含 name/description/prompt textarea/executionPolicy select/save 走 api.rolesUpsert→删除按钮 uses>0 禁用+确认后走 api.rolesDelete）；workbench 第四 tab（tabs.roles 键已在 T7）+ lastState 闭包透传 state 给 rolesTab。
+- [ ] Step 3: 实现——logic.mjs roleRows 纯函数；rolesTab.mjs 组件（信息架构：搜索框→行卡列表→点击行开编辑对话框→**对话框含 roleId input（创建态可编辑/编辑态只读）**+ name/description/prompt textarea/executionPolicy select/save 走 api.rolesUpsert→删除按钮 uses>0 禁用+确认后走 api.rolesDelete）；workbench 第四 tab（tabs.roles 键已在 T7）+ lastState 闭包透传 state 给 rolesTab。
 - [ ] Step 4: Run: `npm test 2>&1 | tail -5 && npm run build 2>&1 | tail -1` — Expected: 全绿 + 双包成功。
 - [ ] Step 5: checkpoint commit：`git add -A && git commit -m "feat(ui): 角色 tab（搜索/行卡/编辑对话框/删除保护——LoopForge 信息架构参照）"`
 
 ### Task 8: 引擎接线收口（startRun templateId + devflow-lite 可跑 + emit 文案映射）
 
 - 目标：startRun 支持模板选择；devflow-lite 全链钉例（双 agent 角色 + rework + 双 gate）；G2/按钮文案按 gateId 映射（R4 折叠）。
-- 涉及文件：Modify `src/engine/engine.mjs`（startRun 增 templateId 参：模板解析 LOOP_V1/DEVFLOW_LITE/用户目录；**两处硬编码泛化**——评审 P10：①入口闸预置由 `n.id==="g1"` 泛化为「snapshot 首个 type==="gate" 节点」②clone 失败写 nodeStates.build 泛化为「首个 pending 非 gate 节点」，找不到则仅 run failed）、`src/client/components/review.mjs`（:40 按钮文案改 `t("gates." + (r.waitingGate ?? "").toUpperCase())` 映射——评审 P5：actions.mjs 行内 G2 按钮不动，nodeId "g2" 两模板兼容且标签一致）；Test `test/engine.test.mjs`
+- 涉及文件：Modify `src/engine/engine.mjs`（startRun 增 templateId 参：模板解析 LOOP_V1/DEVFLOW_LITE/用户目录；**入口闸预置不泛化**——评审 P16 采纳「模板级显式声明」：LOOP_V1 增 `entryPresucceeded:"g1"` 字段（语义=G1 审批发生在 run 创建前的时序声明，非「首个 gate」结构位置），engine startRun 仅预置 `template.entryPresucceeded` 列出的节点；DEVFLOW_LITE 无此字段 → requirement 正常 waiting（T8 钉例预期））、Modify `src/workflows/builtin.mjs`（LOOP_V1 增 entryPresucceeded 字段）、`src/client/components/review.mjs`（:40 按钮文案改 `t("gates." + (r.waitingGate ?? "").toUpperCase())` 映射——评审 P5：actions.mjs 行内 G2 按钮不动，nodeId "g2" 两模板兼容且标签一致）；Test `test/engine.test.mjs`
 - 接口契约：
   - Consumes: Task 2 resolveRole、Task 4 DEVFLOW_LITE
   - Produces: startRun(key, {taskPackage, templateId, runId}) —— engine 构造参增 `templates`（id → 模板全量定义 map，host 由 **loader defs 通道 + builtin 合成**注入（T2 契约，含用户模板原始 def）——非 meta 投影）；startRun 可选 `runId`（缺省 makeRunId(now)——供 postRunStart 先定 runId 再生成含 workflow.runId 的任务包 v2）；未知 templateId 404 unknown-template；emit 的 nodeId 即钉例锚；review.mjs/行内按钮文案 `t("gates." + (r.waitingGate ?? "").toUpperCase())`（G2→gates.G2 键已存在）；postRunStart 接线（handlers）：makeRunId 先行 → buildTaskPackage(…, ctx.workflow.runId=runId) → engine.startRun(key, {taskPackage, templateId, runId})
@@ -234,7 +234,7 @@ test("旧档回填：roles 空对象不炸", () => {
 
 - Run: `set -o pipefail; npm run build && npm test 2>&1 | tail -8 && git log --oneline -20`
 - Expected: 双包构建成功（新指纹 ≠ 48671d958690）；全量测试绿（152 存量 + 新增 ≥12；测试文件 18 → 19：新增 roles.test.mjs）；提交序列 Task 1–10（评审 P11：M4 任务为 T1–T10）（T10 无独立 commit 时按实际）。
-- 生效探针：构建指纹变化；角色 tab 行卡与对话框；`GET /dsh-l/roles` 返回 builtin+custom 双列表（装机可选）。
+- 生效探针：构建指纹变化；角色 tab 行卡与对话框；`GET /dsh-l/roles` 返回单列表（含 builtin/overridden 标志——评审 P17：随 P9③ 单列表同步）
 
 ## 审阅 Checkpoint
 
