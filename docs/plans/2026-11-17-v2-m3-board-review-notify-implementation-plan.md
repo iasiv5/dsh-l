@@ -341,7 +341,7 @@ test("badgeLabel：计数前缀格式（i18n 模板注入）", () => {
 - 目标：全量收口，停下交产出评审。
 - [ ] Step 1: Run: `set -o pipefail; npm run build && npm test 2>&1 | tail -8 && git log --oneline -18`
   Expected: 双包构建成功（新指纹）；全量测试绿（143 存量 + 新增 ≥8——评审 P7：计划内 test 块实数 8）；提交序列 docs + Task 1–11。
-- [ ] Step 2: 停下交产出评审（章程同 M1/M2：独立评审 Agent + 台账 + 最多 5 轮）。装机冒烟（可选）判据同 T12 装机注记。
+- [ ] Step 2: 停下交产出评审（章程同 M1/M2：独立评审 Agent + 台账 + 最多 5 轮）。装机冒烟（可选）判据同 T12 装机注记。**装机注记（评审 P6/R6 补写）：inject 已全部声明（八项）→ 宿主服务缺失 = 加载期抛错 fail-fast 而非静默降级；生效探针 = 构建指纹与 `GET /dsh-l/state` 的 runs 摘要（HTTP 200 不作数）；`dsh plugin add` 后 `approval/policy` durable 事件可查即 setPolicy 生效证据**（自 M2 计划装机注记精简继承）。
 
 ## 执行纪律
 
