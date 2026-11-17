@@ -31,6 +31,8 @@ export const en = {
     enterBtn: "Enter workbench",
     entering: "Entering…",
     readyNote: "A local credential is ready — one click to enter, no username needed.",
+    connected: "Connected",
+    logout: "Sign out",
     logoutHint: "Signing out only unbinds the workbench; the local gh login stays. Run gh auth logout in a terminal to revoke it fully.",
     errGhNotInstalled: "gh CLI not found: use the button above to install it, or install it in a terminal.",
     errGhNotAuthorized: "gh is not authorized yet: use the button above to sign in.",

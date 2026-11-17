@@ -31,6 +31,8 @@ export const zhCN = {
     enterBtn: "进入工作台",
     entering: "正在进入…",
     readyNote: "检测到本机凭据已就绪，一键进入，无需再填用户名。",
+    connected: "已连接",
+    logout: "退出",
     logoutHint: "退出只解除工作台绑定，不影响本机 gh 登录态；需彻底撤销时在终端执行 gh auth logout。",
     errGhNotInstalled: "未检测到 gh CLI：点上方按钮一键安装，或在终端自行安装。",
     errGhNotAuthorized: "gh 尚未授权：点上方按钮完成授权登录。",
