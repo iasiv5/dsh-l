@@ -10,7 +10,7 @@ test("normalizeLang", () => {
 });
 
 test("makeT 取嵌套键，缺键回显键名", () => {
-  assert.equal(makeT("en")("panelLabel"), "Loop Engineering Workbench");
+  assert.equal(makeT("en")("panelLabel"), "DSH Loop Forge");
   assert.equal(makeT("zh-CN")("groups.inbox"), "待分诊");
   assert.equal(makeT("en")("no.such.key"), "no.such.key");
 });
