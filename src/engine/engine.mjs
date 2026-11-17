@@ -50,7 +50,9 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, tem
     startRun(key, { taskPackage = null, templateId = null } = {}) {
       if (!store.getCandidate(key)) throw Object.assign(new Error("candidate not found"), { status: 404 });
       if (hasAliveRun(store, key)) throw Object.assign(new Error("run-already-active"), { status: 409 });
-      const tpl = templateId && templates[templateId] ? templates[templateId] : template;
+      const tpl = templateId
+        ? (templates[templateId] ?? (() => { throw Object.assign(new Error("unknown-template: " + templateId), { status: 404 }); })())
+        : template;
       const runId = makeRunId(now);
       const entryPreset = Array.isArray(tpl.entryPresucceeded) ? tpl.entryPresucceeded : [];   // 评审 P16：模板级显式声明（审批时序语义，非结构位置泛化）
       const nodeStates = {};

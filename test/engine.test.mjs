@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import { createStore } from "../src/store.mjs";
 import { makeEngine } from "../src/engine/engine.mjs";
 import { summarizeRun } from "../src/engine/scheduler.mjs";
+import { LOOP_V1, DEVFLOW_LITE } from "../src/workflows/builtin.mjs";
 
 // fake workspace：ensure 立即成功/失败可控；dirOf 固定（评审 R1-7②：与 T9 夹具同款形态）
 const fakeWorkspace = (fail = false) => ({
@@ -34,6 +35,11 @@ const setup = ({ failClone = false, concurrency = 2 } = {}) => {
   const workspace = fakeWorkspace(failClone); const executor = fakeExecutor();
   const engine = makeEngine({ store, workspace, executor, now: () => new Date(), concurrencyOf: () => concurrency });
   return { store, workspace, executor, engine };
+};
+const setupDevflow = () => {
+  const s = setup();
+  const engineDev = makeEngine({ store: s.store, workspace: s.workspace, executor: s.executor, now: () => new Date(), concurrencyOf: () => 2, templates: { [LOOP_V1.id]: LOOP_V1, [DEVFLOW_LITE.id]: DEVFLOW_LITE } });
+  return { ...s, engineDev };
 };
 const nodeState = (store, runId, id) => store.getRun(runId).nodeStates[id].status;
 const drain = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
@@ -252,4 +258,40 @@ test("emit：clone 失败 → failed 事件", async () => {
   const failedEvt = events.find((e) => e.type === "failed");
   assert.ok(failedEvt);
   assert.match(failedEvt.error, /clone/);
+});
+test("devflow-lite 全链钉例（M4 T8）：requirement(gate)→design→implement→review→test→G2→deliver", async () => {
+  const { store, executor, engineDev } = setupDevflow();
+  const key = "o/r#issue#1";
+  const { runId } = engineDev.startRun(key, { templateId: "devflow-lite" });
+  await drain();
+  // requirement 不预置（DEVFLOW_LITE 无 entryPresucceeded——评审 P16）→ 直接 ready → 派发为 gate waiting
+  assert.equal(nodeState(store, runId, "requirement"), "waiting");
+  engineDev.applyGateDecision(runId, "requirement", "pass");
+  await drain();
+  assert.equal(nodeState(store, runId, "design"), "running");
+  executor.inflight.get(runId + ":design").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  assert.equal(nodeState(store, runId, "implement"), "running");
+  executor.inflight.get(runId + ":implement").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  assert.equal(nodeState(store, runId, "review"), "running");
+  // review fail 一次 → implement 重臂（rework 边）
+  executor.inflight.get(runId + ":review").resolve({ ok: false, error: "驳回：缺测试", artifacts: [] }); await drain();
+  assert.equal(nodeState(store, runId, "implement"), "running");
+  executor.inflight.get(runId + ":implement").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  assert.equal(nodeState(store, runId, "review"), "running");
+  executor.inflight.get(runId + ":review").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  assert.equal(nodeState(store, runId, "test"), "running");
+  executor.inflight.get(runId + ":test").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  assert.equal(nodeState(store, runId, "g2"), "waiting");
+  engineDev.applyGateDecision(runId, "g2", "pass");
+  await drain();
+  assert.equal(nodeState(store, runId, "deliver"), "running");
+  executor.inflight.get(runId + ":deliver").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  assert.equal(store.getRun(runId).status, "succeeded");
+  assert.equal(store.getRun(runId).templateId, "devflow-lite");
+  assert.equal(store.getCandidate(key).stage, "shipped");
+});
+test("startRun 未知 templateId → 404 unknown-template（M4 T8）", async () => {
+  const { store, engineDev } = setupDevflow();
+  assert.throws(() => engineDev.startRun("o/r#issue#1", { templateId: "nope" }), /unknown-template/);
+  assert.equal(store.listRuns().length, 0);   // 未建 run
 });
