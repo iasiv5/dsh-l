@@ -31,6 +31,8 @@ export const api = {
   runCancel: (runId, reason = "user") => send("dsh-l/run/cancel", { runId, reason }),
   runRetry: (runId, nodeId) => send("dsh-l/run/retry", { runId, nodeId }),
   releaseConfirm: (key, note = "") => send("dsh-l/release/confirm", { key, note }),
+  feishuTest: () => send("dsh-l/feishu/test", {}),
+  putFeishuWebhook: (url) => send("dsh-l/feishu/webhook", { url }, "PUT"),
   settings: () => get("dsh-l/settings"),
   putSettings: (patch) => send("dsh-l/settings", patch, "PUT"),
 };

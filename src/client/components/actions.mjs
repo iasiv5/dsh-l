@@ -73,7 +73,26 @@ export function openSettings(shadow, { t, current, onSaved }) {
   };
   overlay.onclick = (e) => { if (e.target === overlay) close(); };
   overlay.onkeydown = (e) => { if (e.key === "Escape") close(); };
-  dialog.append(title, label, input, modelLabel, modelSel, err, save);
+  // 飞书 Webhook（design-v2 §13.3）：URL 写 credentials（宿主路由落库），测试发送走同一通知器。
+  const feishuLabel = document.createElement("label");
+  feishuLabel.textContent = t("settings.feishuUrl");
+  feishuLabel.style.marginTop = "8px";
+  const feishuInput = document.createElement("input");
+  feishuInput.type = "url";
+  feishuInput.placeholder = "https://open.feishu.cn/open-apis/bot/v2/hook/…";
+  const feishuRow = row();
+  const feishuMsg = document.createElement("span");
+  feishuMsg.style.cssText = "font-size:12px;opacity:.75";
+  feishuRow.append(btn(t("settings.feishuTest"), async () => {
+    feishuMsg.textContent = "";
+    try {
+      await api.putFeishuWebhook(feishuInput.value.trim());
+      const r = await api.feishuTest();
+      feishuMsg.textContent = r.sent ? t("settings.feishuTestOk") : t("settings.feishuTestFail");
+    } catch (e) { feishuMsg.textContent = e.message; }
+  }));
+  feishuRow.append(feishuMsg);
+  dialog.append(title, label, input, modelLabel, modelSel, err, save, feishuLabel, feishuInput, feishuRow);
   overlay.append(dialog);
   shadow.append(overlay);
   input.focus();
