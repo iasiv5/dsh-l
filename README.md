@@ -1,4 +1,6 @@
-# Loop Engineering 工作台（dsh-l）
+# DSH Loop Forge（dsh-l）
+
+> 独立项目，与 Tencent LoopForge 无隶属关系。
 
 [![License](https://img.shields.io/github/license/iasiv5/dsh-l?label=License)](./LICENSE)
 [![DSH](https://img.shields.io/badge/DSH-%E2%89%A50.2.2--rc.1-22d3ee)](https://github.com/deepseek-ai/deepseek-harness)
@@ -9,7 +11,7 @@
 
 插件只是建议者与记录者：**绝不自动改代码，绝不自动动你的仓库**。
 
-![Loop Engineering 工作台：管线条、过滤条与真实候选（深色皮肤示例数据）](docs/images/workbench.png)
+![DSH Loop Forge：管线条、过滤条与真实候选（深色皮肤示例数据）](docs/images/workbench.png)
 
 ## 功能
 
@@ -43,7 +45,7 @@ dsh plugin --profile web add "link:/path/to/dsh-l"
 sudo systemctl restart deepseek-harness.service
 ```
 
-- **验证已激活**：浏览器打开 DSH，侧栏面板列表出现「Loop Engineering 工作台」；也可访问 `http://<dsh>/dsh-l/health`，返回的 JSON 含 `build` 构建指纹（与仓库内 `lib/client.js` 尾部注释一致）。
+- **验证已激活**：浏览器打开 DSH，侧栏面板列表出现「DSH Loop Forge」；也可访问 `http://<dsh>/dsh-l/health`，返回的 JSON 含 `build` 构建指纹（与仓库内 `lib/client.js` 尾部注释一致）。
 - **卸载**：`dsh plugin --profile web remove dsh-l`。卸载不删除分诊与放行记录（数据在 profile 的 `data/dsh-l/` 下），重装自动读回。
 
 ## 配置
@@ -85,6 +87,6 @@ bash scripts/install-smoke.sh   # 隔离 profile 装机冒烟（不触在役宿�
 
 ## English summary
 
-Loop Engineering Workbench (dsh-l) is a DeepSeek Harness sidebar plugin that turns watched GitHub repositories into a visible loop: it ingests every open issue and pull request into a staged backlog, triages them with an LLM (validity, urgency P0–P3, recommended action — advice only, always overridable by a human), and gates work behind three human-approved gates (before build / before ship / before release). Passing G1 produces a structured task package that any execution engine can pick up. The plugin never writes to your repositories by itself; untrusted issue bodies are treated as data, tool approvals stay at the host default, and the GitHub token never touches disk or logs. Requirements: DSH `>=0.2.2-rc.1` (runtime-verified on `0.2.2-rc.2` Web), Node per host, Cordis peer `^4.0.2`. Install from a git clone with a link install until the npm release; see 配置 for token configuration and 安装 for activation checks.
+DSH Loop Forge (dsh-l) is a DeepSeek Harness sidebar plugin that turns watched GitHub repositories into a visible loop: it ingests every open issue and pull request into a staged backlog, triages them with an LLM (validity, urgency P0–P3, recommended action — advice only, always overridable by a human), and gates work behind three human-approved gates (before build / before ship / before release). Passing G1 produces a structured task package that any execution engine can pick up. The plugin never writes to your repositories by itself; untrusted issue bodies are treated as data, tool approvals stay at the host default, and the GitHub token never touches disk or logs. Requirements: DSH `>=0.2.2-rc.1` (runtime-verified on `0.2.2-rc.2` Web), Node per host, Cordis peer `^4.0.2`. Install from a git clone with a link install until the npm release; see 配置 for token configuration and 安装 for activation checks.
 
 [![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

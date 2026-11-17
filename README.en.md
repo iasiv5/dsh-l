@@ -1,4 +1,6 @@
-# Loop Engineering Workbench (dsh-l)
+# DSH Loop Forge (dsh-l)
+
+> Independent project — not affiliated with Tencent LoopForge.
 
 [![License](https://img.shields.io/github/license/iasiv5/dsh-l?label=License)](./LICENSE)
 [![DSH](https://img.shields.io/badge/DSH-%E2%89%A50.2.2--rc.1-22d3ee)](https://github.com/deepseek-ai/deepseek-harness)
@@ -43,7 +45,7 @@ dsh plugin --profile web add "link:/path/to/dsh-l"
 sudo systemctl restart deepseek-harness.service
 ```
 
-- **Verify activation**: open DSH — the panel list shows *Loop Engineering Workbench*; or fetch `http://<dsh>/dsh-l/health`, whose JSON carries a `build` fingerprint matching the trailer comment of `lib/client.js`.
+- **Verify activation**: open DSH — the panel list shows *DSH Loop Forge*; or fetch `http://<dsh>/dsh-l/health`, whose JSON carries a `build` fingerprint matching the trailer comment of `lib/client.js`.
 - **Uninstall**: `dsh plugin --profile web remove dsh-l`. Triage and gate records survive (stored under the profile's `data/dsh-l/`) and are picked up again on reinstall.
 
 ## Configuration
