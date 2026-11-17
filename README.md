@@ -1,6 +1,8 @@
 # DSH Loop Forge（dsh-l）
 
 > 独立项目，与 Tencent LoopForge 无隶属关系。
+>
+> 角色与工作台面板的 UI 交互参考 [Tencent LoopForge](https://github.com/Tencent/LoopForge) 的 agents.js 信息架构（MIT License）——仅借鉴交互模式，实现为本仓自有的 vanilla DOM。
 
 [![License](https://img.shields.io/github/license/iasiv5/dsh-l?label=License)](./LICENSE)
 [![DSH](https://img.shields.io/badge/DSH-%E2%89%A50.2.2--rc.1-22d3ee)](https://github.com/deepseek-ai/deepseek-harness)

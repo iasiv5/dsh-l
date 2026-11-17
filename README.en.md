@@ -1,6 +1,8 @@
 # DSH Loop Forge (dsh-l)
 
 > Independent project — not affiliated with Tencent LoopForge.
+>
+> The roles/workbench panels reference the UI interaction architecture of [Tencent LoopForge](https://github.com/Tencent/LoopForge)'s agents.js (MIT License) — interaction patterns only; the implementation is this repo's own vanilla DOM.
 
 [![License](https://img.shields.io/github/license/iasiv5/dsh-l?label=License)](./LICENSE)
 [![DSH](https://img.shields.io/badge/DSH-%E2%89%A50.2.2--rc.1-22d3ee)](https://github.com/deepseek-ai/deepseek-harness)
