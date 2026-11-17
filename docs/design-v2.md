@@ -187,3 +187,11 @@ coordinator adapter（会话协调者，role→派发缝）、sub-SOP / preview-
 6. **store schema（Q9-A）**：store.json v2 doc 增 `roles: {}` 键（additive、无版本 bump、旧档 `??=` 回填空）；角色引用计数守卫面（评审 P14 定口径）：扫 **templates 全量定义** agent 节点 roleId + **存活 run 快照** snapshot 节点 roleId（非存活旧失败 run 重派时 resolveRole null → prefix 兜底/空则 throw 快速失败——降级可接受；D6「全部快照」字面以本实现口径备注取代）。
 7. **startRun 模板参数化**：`startRun(key, {taskPackage, templateId})`——templateId 缺省 loop-v1，可解析 builtin（loop-v1/devflow-lite）或 store 用户模板；postRunStart/postGate 路由透传 templateId。M2 遗留 backlog 折叠：R4 gate 文案映射（多 gate 模板前置需要，待我确认/行内按钮文案改按 gateId 映射）。
 8. **发版时机（Q10-B）**：M4 后**不发版**，攒 M5 再发；M5 候选清单——设置面板深化、putFeishuWebhook 空 token 后缀校验、「保存并测试」复合动作、kanban 迁移「相邻 vs 全白名单」口径、R4 文案映射收尾、DOM 冒烟（jsdom 评估）。
+
+## 15. M5 补钉（2026-11-18 grill 定稿，Q1–Q5 全按推荐）
+
+1. **范围四组（Q1-A）**：A 工程守护（host 装配冒烟测试 / i18n 动态前缀键白名单守护 / roles golden 逐字锁 / loadTemplateDefs 警告对称性）+ B 面板深化（feishu 空 token 后缀校验 / 保存与测试动作拆分）+ C 口径裁决（kanban 迁移）+ D 文档清账（§14 追认回写 / README 致谢核对）。M5 = 工程守护 + 面板深化 + 发版前清账。
+2. **DOM 冒烟不做（Q2-A）**：零依赖纪律优先（devDependencies 仅 esbuild）；DOM 渲染层靠装机冒烟人工核验兜底，UI 纯函数（roleRows/needsReview/stripCells）已有单测。
+3. **kanban 迁移口径（Q3-A）**：保持全白名单自由迁移，不设相邻限制——单人工具灵活优先，误迁可再迁回；口径落 GLOSSARY/设计文档注记，代码零改动。
+4. **feishu 交互形态（Q5-C）**：独立「保存 Webhook」按钮 + 「发送测试消息」按钮（**测试前自动保存**输入框当前值）——消掉「改了没存就测」坑，两键语义清晰。
+5. **发版（Q4-A）**：M5 验收后发 **0.1.0**——发版准备（version bump / README 终审 / 装机冒烟 / npm 占名核查）入 M5 计划任务；`npm publish` 在产出评审通过后执行。全局约束相应放宽：不动面清单中 package.json 的 version 字段在发版任务内可改。
