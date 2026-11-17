@@ -3,7 +3,7 @@
 ## 目标
 
 - Role 数据面：builtin 角色常量（4 个）+ `store.roles` 用户自定义 + 解析顺序（store 优先）+ 引用计数与删除保护。
-- devflow-lite 内置模板：6 节点精简链（requirement gate → design → implement → review(fail→implement ≤2) → test → g2 → deliver），作为第二个内置模板验证非线性执行。
+- devflow-lite 内置模板：7 节点精简链（requirement gate → design → implement → review(fail→implement ≤2) → test → g2 → deliver），作为第二个内置模板验证非线性执行。
 - 任务包 v2：role 块 + workflow 块，双版本 golden 守卫；composeAgentPrompt 改用角色 prompt。
 - 角色管理 UI：主栏第四 tab「角色」（搜索/行卡/编辑对话框/删除保护），信息架构参照 LoopForge agents.js（交互模式借鉴，vanilla DOM 自写）。
 - 遗留清账：R4 gate 文案映射、i18n 消费键守护测试。
@@ -35,14 +35,14 @@
 ## 文件结构与职责
 
 - Create: `src/workflows/roles.mjs` — BUILTIN_ROLES 常量（loop-builder / devflow-architect / devflow-developer / devflow-code-reviewer）+ resolveRole(roleId, userRoles)
-- Create: `src/client/components/roles.mjs` — 角色 tab 组件（搜索/行卡/编辑对话框/删除保护）
+- Create: `src/client/components/rolesTab.mjs` — 角色 tab 组件（搜索/行卡/编辑对话框/删除保护）
 - Modify: `src/store.mjs` — doc.roles `{}` 回填；`upsertRole(role)` / `deleteRole(id)`（引用守卫在调用侧）/ `listRoles()`
 - Modify: `src/engine/engine.mjs` — startRun 增 templateId 参（缺省 loop-v1）；dispatch 的 agent 分支经 resolveRole 组装 prompt/executionPolicy
 - Modify: `src/engine/executor.mjs` — composeAgentPrompt 改签名（{ rolePrompt, taskPackage, upstream }），prefix 语义由调用方以角色 prompt 传入；删除 lastText 相关残留零改动确认
 - Modify: `src/workflows/builtin.mjs` — build 节点增 roleId:"loop-builder"（保留 prefix 作 fallback——roleId 解析失败兜底）；LOOP_V1.revision 重算（golden 不锁值，安全）
 - Modify: `src/workflows/loader.mjs` — meta 投影 agent 节点增 roleId（客户端 uses 计数）+ 新增 `loadTemplateDefs` 全量定义通道（评审批次 1 同根三题合并修订：引擎 templates 注入与删除守卫的唯一数据源）
 - Modify: `src/handlers.mjs` — postRunStart 透传 templateId；postRolesUpsert/postRolesDelete/postRolesList 三方法（auth + 引用守卫）
-- Modify: `src/host.mjs` — 路由表增 `/dsh-l/roles` GET/POST/DELETE 三行（DELETE 走 body 传 id）
+- Modify: `src/host.mjs` — 路由表增三条：`/dsh-l/roles` GET+POST、`/dsh-l/roles/delete` POST（评审 P11：与 T6 路由行措辞统一）
 - Modify: `src/client/api.mjs` — rolesList/rolesUpsert/rolesDelete 三端点
 - Modify: `src/client/components/workbench.mjs` — 第四 tab「角色」+ mountRoles 接线
 - Modify: `test/executor.test.mjs` — composeAgentPrompt 新签名用例改造
@@ -102,7 +102,7 @@ test("旧档回填：roles 空对象不炸", () => {
 - [ ] Step 1: 新建 `test/roles.test.mjs`（内置 4 角色 golden + resolveRole 优先序）+ `test/workflows.test.mjs` 追加 loader 契约用例（meta agent 节点含 roleId；loadTemplateDefs 返回用户原始 def 含 script 字段；坏 JSON 跳过警告不变）
 - Run: `npm test 2>&1 | tail -6` — Expected: roles.mjs/loader 契约未实现 → 红。
 - [ ] Step 2: 确认失败信号。
-- [ ] Step 3: 最小实现——roles.mjs 四角色（中文 prompt 自写：architect=产出技术方案与改动清单、developer=按方案实现并自测、code-reviewer=独立审查 diff 给结论；executionPolicy 对齐 design §14.3：loop-builder=auto、devflow 三角色=ask）；loader.mjs：metaOf 的 agent 节点投影增 roleId + 新增 loadTemplateDefs({dataDir})（builtin 二模板 + 用户原始 def；坏 JSON 跳过警告不变；**defs 含 script 正文，仅供引擎/守卫消费，不出现在 getState 的 workflow.templates meta**）。
+- [ ] Step 3: 最小实现——roles.mjs 四角色（中文 prompt 自写：architect=产出技术方案与改动清单、developer=按方案实现并自测、code-reviewer=独立审查 diff 给结论；**loop-builder 的 prompt=现 builtin.mjs:17 prefix 原文迁移**——评审 P12；executionPolicy 对齐 design §14.3：loop-builder=auto、devflow 三角色=ask）；loader.mjs：metaOf 的 agent 节点投影增 roleId + 新增 loadTemplateDefs({dataDir})（builtin 二模板 + 用户原始 def；坏 JSON 跳过警告不变；**defs 含 script 正文，仅供引擎/守卫消费，不出现在 getState 的 workflow.templates meta**）。
 - [ ] Step 4: Run: `npm test 2>&1 | tail -5` — Expected: 全绿。
 - [ ] Step 5: checkpoint commit：`git add -A && git commit -m "feat(workflows): 内置角色注册表 + loader meta/defs 契约（M4 T2）"`
 
@@ -157,8 +157,8 @@ test("旧档回填：roles 空对象不炸", () => {
 - 目标：角色 CRUD 走 HTTP；引用守卫在 handler 侧。
 - 涉及文件：Modify `src/handlers.mjs`、`src/host.mjs`；Test `test/handlers.test.mjs`
 - 接口契约：
-  - Consumes: Task 1 store 四方法；Task 2 loader defs 通道（**守卫数据源 = host 注入的 templates 全量定义 + 存活 run 快照 snapshot 节点 roleId——meta 投影无 roleId 不可作守卫源，评审 P2①②**）
-  - Produces: `postRolesUpsert({role})`（auth；id 必填；executionPolicy ∈ ask|auto）→ upsert → `{ok}`；`postRolesDelete({id})`（auth；**引用守卫**：扫 templates 全量定义 agent 节点 roleId + 存活 run 快照 snapshot 节点 roleId——被引用 → 409 role-in-use: <id>，提示含引用处数量）→ deleteRole → `{ok}`；`getRoles()`（auth）→ `{ builtin: [meta], custom: [meta] }`（meta=id/name/description/executionPolicy/prompt——UI 编辑需要 prompt 全文，直接返回）；路由表 `/dsh-l/roles` GET+POST、`/dsh-l/roles/delete` POST；makeHandlers 增 `templates` 参（host 由 loader defs + builtin 合成注入——评审 P2①）
+  - Consumes: Task 1 store 四方法；Task 2 loader defs 通道（**守卫数据源 = host 注入的 templates 全量定义 + 存活 run 快照 snapshot 节点 roleId——meta 投影无 roleId 不可作守卫源，评审 P2①②**；**存活快照口径（评审 P14）**：非存活旧失败 run 重派时 resolveRole null → prefix 兜底、空则 composeAgentPrompt throw 快速失败——降级可接受并在此注明，D6「全部快照」字面以本实现口径备注取代）
+  - Produces: `postRolesUpsert({role})`（auth；id 必填；executionPolicy ∈ ask|auto）→ upsert → `{ok}`；`postRolesDelete({id})`（auth；**引用守卫**：扫 templates 全量定义 agent 节点 roleId + 存活 run 快照 snapshot 节点 roleId——被引用 → 409 role-in-use: <id>，提示含引用处数量；**id ∈ BUILTIN_ROLES 的用户覆盖层放行删除**——删覆盖即回落内置，resolveRole 天然支持，评审 P9②）→ deleteRole → `{ok}`；`getRoles()`（auth）→ **单列表合并** `{ roles: [meta+{overridden}] }`（按 id 合并 builtin 与用户覆盖：覆盖内置的行标 overridden:true 且 prompt 显用户值；meta=id/name/description/executionPolicy/prompt——UI 编辑需要 prompt 全文，直接返回；评审 P9③）；路由表 `/dsh-l/roles` GET+POST、`/dsh-l/roles/delete` POST；makeHandlers 增 `templates` 参（host 由 loader defs + builtin 合成注入——评审 P2①）
 - 验证范围：`npm test`（handlers 段）
 
 - [ ] Step 1: 失败测试（三方法：upsert 往返、delete 空闲成功/被 LOOP_V1 引用 409、getRoles 双列表、engine 缺省行为不涉）
@@ -171,9 +171,9 @@ test("旧档回填：roles 空对象不炸", () => {
 ### Task 7: 角色 tab UI（LoopForge agents.js 信息架构参照）
 
 - 目标：主栏第四 tab「角色」——搜索 + 行卡（名称/职责/executionPolicy/被引用计数）+ 编辑对话框 + 删除保护。
-- 涉及文件：Create `src/client/components/rolesTab.mjs`；Modify `src/client/components/workbench.mjs`（第四 tab + 挂载 + runs 透传沿用 lastRuns 先例扩展为 lastState）；Test：UI 组件无 DOM 测试（零依赖约束），行卡数据组装纯函数放 logic.mjs（`roleRows({roles, workflow})` → 行数组含 uses 计数——**uses 数据源 = workflow.templates meta 的 agent 节点 roleId（Task 2 扩展后在位）**，扫 meta 而非全量 def，客户端不出敏感正文）+ logic.test 钉例
+- 涉及文件：Create `src/client/components/rolesTab.mjs`；Modify `src/client/components/workbench.mjs`（第四 tab + 挂载 + runs 透传沿用 lastRuns 先例扩展为 lastState）、`src/client/locale/zh-CN.mjs`、`en.mjs`（**M4 全量新键随本任务一次落齐**——roles.* 段 + tabs.roles 等消费键；评审 P6：parity 只守同集不守完备，消费即加）；Test：UI 组件无 DOM 测试（零依赖约束），行卡数据组装纯函数放 logic.mjs（`roleRows({roles, workflow})` → 行数组含 uses 计数——**uses 数据源 = workflow.templates meta 的 agent 节点 roleId（Task 2 扩展后在位）**，扫 meta 而非全量 def，客户端不出敏感正文）+ logic.test 钉例
 - 接口契约：
-  - Consumes: Task 6 getRoles 三方法、Task 2 loader meta roleId 扩展、Task 2 needsReview（计数无关）、kanbanColumns 引用扫描结果
+  - Consumes: Task 6 getRoles 三方法、Task 2 loader meta roleId 扩展、Task 2 needsReview（计数无关）
   - Produces: `roleRows(...)` 纯函数（行={id,name,description,executionPolicy,prompt,uses,builtin}，uses=workflow.templates 全部模板 agent 节点 roleId 计数）；`renderRolesTab(container, { t, state, view, go, rolesApi })`：搜索 input（行卡 name/id/description 过滤）+ 行卡列表 + 新增/编辑对话框（name/description/prompt textarea/executionPolicy select）+ 删除按钮（uses>0 禁用）
 - 验证范围：`npm test`（logic roleRows）+ `npm run build`
 
@@ -187,7 +187,7 @@ test("旧档回填：roles 空对象不炸", () => {
 ### Task 8: 引擎接线收口（startRun templateId + devflow-lite 可跑 + emit 文案映射）
 
 - 目标：startRun 支持模板选择；devflow-lite 全链钉例（双 agent 角色 + rework + 双 gate）；G2/按钮文案按 gateId 映射（R4 折叠）。
-- 涉及文件：Modify `src/engine/engine.mjs`（startRun 增 templateId 参：模板解析 LOOP_V1/DEVFLOW_LITE/用户目录）、`src/client/components/actions.mjs`（待我确认与行内 G2 按钮文案改映射）、`src/client/components/review.mjs`（同）；Test `test/engine.test.mjs`
+- 涉及文件：Modify `src/engine/engine.mjs`（startRun 增 templateId 参：模板解析 LOOP_V1/DEVFLOW_LITE/用户目录；**两处硬编码泛化**——评审 P10：①入口闸预置由 `n.id==="g1"` 泛化为「snapshot 首个 type==="gate" 节点」②clone 失败写 nodeStates.build 泛化为「首个 pending 非 gate 节点」，找不到则仅 run failed）、`src/client/components/review.mjs`（:40 按钮文案改 `t("gates." + (r.waitingGate ?? "").toUpperCase())` 映射——评审 P5：actions.mjs 行内 G2 按钮不动，nodeId "g2" 两模板兼容且标签一致）；Test `test/engine.test.mjs`
 - 接口契约：
   - Consumes: Task 2 resolveRole、Task 4 DEVFLOW_LITE
   - Produces: startRun(key, {taskPackage, templateId, runId}) —— engine 构造参增 `templates`（id → 模板全量定义 map，host 由 **loader defs 通道 + builtin 合成**注入（T2 契约，含用户模板原始 def）——非 meta 投影）；startRun 可选 `runId`（缺省 makeRunId(now)——供 postRunStart 先定 runId 再生成含 workflow.runId 的任务包 v2）；未知 templateId 404 unknown-template；emit 的 nodeId 即钉例锚；review.mjs/行内按钮文案 `t("gates." + (r.waitingGate ?? "").toUpperCase())`（G2→gates.G2 键已存在）；postRunStart 接线（handlers）：makeRunId 先行 → buildTaskPackage(…, ctx.workflow.runId=runId) → engine.startRun(key, {taskPackage, templateId, runId})
@@ -211,15 +211,15 @@ test("旧档回填：roles 空对象不炸", () => {
 - [ ] Step 1: 失败测试——先在 workbench.mjs 临时加一个 `t("guard.missing")` 调用 → 守护用例红 → 移除。
 - Run: 红/绿符合预期。
 - [ ] Step 2: 确认判据两向有效（假键红、真键绿）。
-- [ ] Step 3: 守护用例固化（读 ../src/client 递归 .mjs 源码字符串，正则提取 t("键") 字面量集合，对两字典扁平键集断言子集）。**守护范围限定：仅静态字面量键**——动态拼接键（如 `t("stages." + key)`、`t("groups." + id)`）无法静态提取，靠词典完备性人工保证（评审自检：勿在实现中尝试解析动态拼接）。
+- [ ] Step 3: 守护用例固化（读 ../src/client 递归 .mjs 源码字符串，正则提取 t("键") 字面量集合——**正则锚定引号与右括号** `t\((['"])([^'"]+)\1\)`，天然排除 `t("stages." + x)` 拼接调用（评审 P8）——对两字典扁平键集断言子集）。**守护范围限定：仅静态字面量键**——动态拼接键无法静态提取，靠词典完备性人工保证（评审自检：勿在实现中尝试解析动态拼接）。**存量前置（评审 P7）**：探针已证 workbench.mjs:131/:134 消费的 auth.connected / auth.logout 双字典缺失（存量脱节）——守护固化当天必红，同 commit 补双字典两键转绿。
 - [ ] Step 4: Run: `npm test 2>&1 | tail -5` — Expected: 全绿。
 - [ ] Step 5: checkpoint commit：`git add -A && git commit -m "test(i18n): 消费键守护（M4 T9，M2 建议折叠）"`
 
 ### Task 10: 最终验证与收口
 
 - [ ] Step 1: Run: `set -o pipefail; npm run build && npm test 2>&1 | tail -8 && git log --oneline -20`
-  Expected: 双包构建成功（新指纹）；全量测试绿（152 存量 + 新增 ≥12；测试文件 18 → 19：新增 roles.test.mjs）；提交序列 Task 1–11。
-- [ ] Step 2: 停下交产出评审（章程同 M1–M3）。装机冒烟注记沿 T12 Step 2（inject 八项 fail-fast / 生效探针=指纹+runs 摘要 / approval·policy durable 事件）。
+  Expected: 双包构建成功（新指纹）；全量测试绿（152 存量 + 新增 ≥12；测试文件 18 → 19：新增 roles.test.mjs）；提交序列 Task 1–10（评审 P11：M4 任务为 T1–T10）。
+- [ ] Step 2: 停下交产出评审（章程同 M1–M3）。**装机冒烟注记（本节内嵌，评审 P11 修正——原「沿 T12 Step 2」系 M3 残留引用，M4 无 T12）**：inject 已全部声明（八项）→ 宿主服务缺失 = 加载期抛错 fail-fast 而非静默降级；生效探针 = 构建指纹与 `GET /dsh-l/state` 的 runs 摘要（HTTP 200 不作数）；`dsh plugin add` 后 `approval/policy` durable 事件可查即 setPolicy 生效证据。
 
 ## 执行纪律
 
@@ -233,7 +233,7 @@ test("旧档回填：roles 空对象不炸", () => {
 ## 最终验证
 
 - Run: `set -o pipefail; npm run build && npm test 2>&1 | tail -8 && git log --oneline -20`
-- Expected: 双包构建成功（新指纹 ≠ 48671d958690）；全量测试绿（152 存量 + 新增 ≥12；测试文件 18 → 19：新增 roles.test.mjs）；提交序列 Task 1–11（T10 无独立 commit 时按实际）。
+- Expected: 双包构建成功（新指纹 ≠ 48671d958690）；全量测试绿（152 存量 + 新增 ≥12；测试文件 18 → 19：新增 roles.test.mjs）；提交序列 Task 1–10（评审 P11：M4 任务为 T1–T10）（T10 无独立 commit 时按实际）。
 - 生效探针：构建指纹变化；角色 tab 行卡与对话框；`GET /dsh-l/roles` 返回 builtin+custom 双列表（装机可选）。
 
 ## 审阅 Checkpoint
