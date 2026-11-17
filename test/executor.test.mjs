@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { makeExecutor, composeAgentPrompt } from "../src/engine/executor.mjs";
-
 const fakeChild = ({ code = 0 } = {}) => {
   const listeners = {};
   const child = {
@@ -72,19 +71,19 @@ const fakeWorld = () => {
 };
 const agentRun = (attempt = 0) => ({ id: "r1", nodeStates: { build: { attempt } }, snapshot: { nodes: [], edges: [] } });
 
-test("composeAgentPrompt：prefix + 任务包 + 上游段", () => {
-  const p = composeAgentPrompt({ prefix: "纪律句", taskPackage: { kind: "dsh-l.task-package", instructions: { goal: "g" } }, upstream: [{ node: "verify", text: "2 failed" }] });
+test("composeAgentPrompt：rolePrompt + 任务包 + 上游段", () => {
+  const p = composeAgentPrompt({ rolePrompt: "纪律句", taskPackage: { kind: "dsh-l.task-package", instructions: { goal: "g" } }, upstream: [{ node: "verify", text: "2 failed" }] });
   assert.ok(p.startsWith("纪律句"));
   assert.ok(p.includes("dsh-l.task-package"));
   assert.ok(p.includes("上游节点输出"));
   assert.ok(p.includes("verify"));
-  assert.equal(composeAgentPrompt({ prefix: "", taskPackage: { a: 1 } }).includes("上游节点输出"), false);
+  assert.throws(() => composeAgentPrompt({ rolePrompt: "", taskPackage: { a: 1 } }), /rolePrompt/);
 });
 test("runAgentNode：completed → ok；auto→never 映射；cwd 注入；成功不 dispose；sessionId :1", async () => {
   const w = fakeWorld();
   const ex = makeExecutor({ world: w, spawn: () => fakeChild() });
-  const node = { id: "build", type: "agent", executionPolicy: "auto", prefix: "纪律句" };
-  const { promise } = ex.runAgentNode({ run: agentRun(0), node, cwd: "/ws", taskPackage: { kind: "dsh-l.task-package" }, upstream: [] });
+  const node = { id: "build", type: "agent" };
+  const { promise } = ex.runAgentNode({ run: agentRun(0), node, cwd: "/ws", taskPackage: { kind: "dsh-l.task-package" }, upstream: [], rolePrompt: "纪律句", executionPolicy: "auto" });
   await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
   w.finish("completed");
   const r = await promise;
@@ -98,7 +97,7 @@ test("runAgentNode：completed → ok；auto→never 映射；cwd 注入；成�
 test("runAgentNode：非 completed fail-closed 且 dispose", async () => {
   const w = fakeWorld();
   const ex = makeExecutor({ world: w, spawn: () => fakeChild() });
-  const { promise } = ex.runAgentNode({ run: agentRun(), node: { id: "build", type: "agent", executionPolicy: "ask" }, cwd: "/ws", taskPackage: {}, upstream: [] });
+  const { promise } = ex.runAgentNode({ run: agentRun(), node: { id: "build", type: "agent" }, cwd: "/ws", taskPackage: {}, upstream: [], rolePrompt: "审查", executionPolicy: "ask" });
   await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
   w.finish("blocked");
   const r = await promise;
@@ -109,7 +108,7 @@ test("runAgentNode：非 completed fail-closed 且 dispose", async () => {
 test("runAgentNode：cancel → dispose + cancelled", async () => {
   const w = fakeWorld();
   const ex = makeExecutor({ world: w, spawn: () => fakeChild() });
-  const { promise, cancel } = ex.runAgentNode({ run: agentRun(), node: { id: "build", type: "agent", executionPolicy: "ask" }, cwd: "/ws", taskPackage: {}, upstream: [] });
+  const { promise, cancel } = ex.runAgentNode({ run: agentRun(), node: { id: "build", type: "agent" }, cwd: "/ws", taskPackage: {}, upstream: [], rolePrompt: "审查", executionPolicy: "ask" });
   await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
   cancel();
   const r = await promise;
@@ -120,16 +119,24 @@ test("runAgentNode：cancel → dispose + cancelled", async () => {
 test("runAgentNode：超时 fail-closed", async () => {
   const w = fakeWorld();
   const ex = makeExecutor({ world: w, spawn: () => fakeChild(), agentTimeoutMs: 20 });
-  const r = await ex.runAgentNode({ run: agentRun(), node: { id: "build", type: "agent", executionPolicy: "ask" }, cwd: "/ws", taskPackage: {}, upstream: [] }).promise;
+  const r = await ex.runAgentNode({ run: agentRun(), node: { id: "build", type: "agent" }, cwd: "/ws", taskPackage: {}, upstream: [], rolePrompt: "审查", executionPolicy: "ask" }).promise;
   assert.equal(r.ok, false);
   assert.equal(r.error, "timeout");
 });
 test("runAgentNode：resume/resumeSeq → sessionId 追加 :resume<seq> 且 attempt 不加一（评审 R1-11）", async () => {
   const w = fakeWorld();
   const ex = makeExecutor({ world: w, spawn: () => fakeChild() });
-  const { promise } = ex.runAgentNode({ run: { id: "r9", nodeStates: { build: { attempt: 2 } }, snapshot: { nodes: [], edges: [] } }, node: { id: "build", type: "agent", executionPolicy: "ask" }, cwd: "/ws", taskPackage: {}, upstream: [], resume: true, resumeSeq: 2 });
+  const { promise } = ex.runAgentNode({ run: { id: "r9", nodeStates: { build: { attempt: 2 } }, snapshot: { nodes: [], edges: [] } }, node: { id: "build", type: "agent" }, cwd: "/ws", taskPackage: {}, upstream: [], rolePrompt: "审查", executionPolicy: "ask", resume: true, resumeSeq: 2 });
   await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
   w.finish("completed");
   await promise;
   assert.equal(w.created[0].sessionId, "dsh-l:run:r9:build:2:resume2");
+});
+
+test("composeAgentPrompt：rolePrompt 空则 throw；非空拼接上游", () => {
+  assert.throws(() => composeAgentPrompt({ rolePrompt: "", taskPackage: {} }), /rolePrompt/);
+  const p = composeAgentPrompt({ rolePrompt: "实现代码", taskPackage: { kind: "x" }, upstream: [{ node: "review", text: "fix bug" }] });
+  assert.ok(p.startsWith("实现代码"));
+  assert.ok(p.includes("x"));
+  assert.ok(p.includes("review"));
 });
