@@ -81,6 +81,21 @@ export function badgeLabel({ count, label, template }) {
   return count > 0 ? String(template).replace("{n}", String(count)) + " · " + label : label;
 }
 
+// 角色 tab 行卡数据组装（design-v2 §14.4/M4）：uses = workflow.templates 全部模板 agent 节点 roleId 计数。
+// query 为搜索过滤（匹配 name/id/description）；数据源为 meta 投影（roleId 在位，script 不出）。
+export function roleRows({ roles, workflow, query = "" } = {}) {
+  const uses = new Map();
+  for (const t of workflow?.templates ?? []) {
+    for (const n of t.nodes ?? []) {
+      if (n.type === "agent" && n.roleId) uses.set(n.roleId, (uses.get(n.roleId) ?? 0) + 1);
+    }
+  }
+  const q = query.trim().toLowerCase();
+  return (roles ?? [])
+    .filter((r) => !q || [r.name, r.id, r.description ?? ""].some((f) => String(f).toLowerCase().includes(q)))
+    .map((r) => ({ ...r, uses: uses.get(r.id) ?? 0 }));
+}
+
 // 待我确认聚合（design-v2 §13.5）：gate 等待 + failed 分区 + G3 待发版。
 // 角标口径（D5）：count = gate 等待数 + 待发版数——failed 不计入（失败走清单行内与飞书推送）。
 // flagged 排除（评审 R5-b / §13.5 括号口径）：上游消失（upstream-gone 留痕）的候选不计入 gate 等待。

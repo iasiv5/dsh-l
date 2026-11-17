@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { groupCandidates, filterCandidates, pickTriageBatch, gateState, stageCounts, settingsPatch } from "../src/client/logic.mjs";
-import { stripCells, runBlock, needsReview, kanbanColumns, badgeLabel } from "../src/client/logic.mjs";
+import { stripCells, runBlock, needsReview, kanbanColumns, badgeLabel, roleRows } from "../src/client/logic.mjs";
 import { LOOP_V1 } from "../src/workflows/builtin.mjs";
 
 const t = (k) => k;
@@ -75,6 +75,28 @@ test("runBlock：按 currentRunId 取 runs 摘要，未命中/无 run 返回 nul
   assert.equal(runBlock({ currentRunId: "nope" }, runs), null);
   assert.equal(runBlock({ currentRunId: null }, runs), null);
   assert.equal(runBlock({}, runs), null);
+});
+test("roleRows：搜索过滤 + builtin 标记 + uses 计数", () => {
+  const roles = [
+    { id: "loop-builder", name: "Loop 构建者", description: "构建执行", executionPolicy: "auto", builtin: true },
+    { id: "devflow-architect", name: "架构师", description: "技术方案", executionPolicy: "ask", builtin: true },
+    { id: "my-custom", name: "自定义", description: "", executionPolicy: "ask", builtin: false },
+  ];
+  const workflow = { templates: [
+    { id: "loop-v1", nodes: [{ id: "g1", type: "gate" }, { id: "build", type: "agent", roleId: "loop-builder" }] },
+    { id: "user-t", nodes: [{ id: "x", type: "agent", roleId: "my-custom" }, { id: "y", type: "agent", roleId: "my-custom" }] },
+  ] };
+  const rows = roleRows({ roles, workflow });
+  assert.equal(rows.length, 3);
+  const lb = rows.find((r) => r.id === "loop-builder");
+  assert.equal(lb.uses, 1);   // loop-v1 build 节点引一次
+  assert.equal(lb.builtin, true);
+  const mc = rows.find((r) => r.id === "my-custom");
+  assert.equal(mc.uses, 2);   // user-t 两个 agent 节点引两次
+  assert.equal(mc.builtin, false);
+  // 搜索过滤
+  const filtered = roleRows({ roles, workflow, query: "架构" });
+  assert.deepEqual(filtered.map((r) => r.id), ["devflow-architect"]);
 });
 
 // ---- Task 2：待我确认聚合 + 看板列（评审 D5/D6）----
