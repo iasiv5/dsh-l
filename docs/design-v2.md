@@ -164,3 +164,15 @@ coordinator adapter（会话协调者，role→派发缝）、sub-SOP / preview-
 8. **backlog 折叠（Q6）**：F1 workbench:159 注释清理、F2 校验器强制「非 G1 gate 必带 rejectTarget」、F3 loader 环检测、F4 迁移区外无条件 `doc.runs ??= {}` 回填、F5 `onFailure:"hold"` 钉例——全部进 M2 计划；docs 类变更自 M2 起独立 chore/docs commit。
 9. **settings 扩展**：`settings` 增 `engineConcurrency`（默认 2，PUT 校验 1..4）与 `workspaceRetentionDays`（默认 7，PUT 校验 1..90）；旧档 `??=` 回填；settings 面板 UI 不动（PUT 可用即可，UI 后续里程碑）。
 10. **路由适配（实现期勘定）**：宿主 `webServer.register` 仅有 exact 路径、`makeHttpHandler` 的 GET 回调只收 body 不收 req——`GET /dsh-l/run/:id` 参数路由不可落地；run 详情（含失败 error）改由 `state.runs` 摘要承载（`summarizeRun` 增 `error` 字段 = 首个 failed 节点的 error），POST 四路由（start/gate/cancel/retry）形状不变。
+
+## 13. M3 补钉（2026-11-17 grill 定稿，Q1–Q9 全按推荐）
+
+1. **范围（Q1）**：看板视图 + 待我确认收件箱（gate waiting + G3 发版分区 + `POST /dsh-l/release/confirm`）+ 飞书单向通知 + 角标；折叠清账：executor lastText 死代码清理、workspace sweep 保留期口径注释、装机冒烟 runbook 补 inject 排查提示；**cancelled-run 的 UI 重试入口不做**（行内取消已有，续跑走 API/完整重开——设计备注存档）；docs commit 纪律延续。
+2. **角标（Q2）**：宿主**无**公开 toggle-badge API（勘察实证：rc.3 类型无此服务；better-sidebar 的 badge 为其面板内 chip）——走 panellist **label 解析式计数**：`待确认 (N) · DSH Loop Forge`（N=待确认聚合数，无待确认保持原名）。宿主 label() 调用时机实测钉死；计数滞后一次刷新可接受。
+3. **飞书配置（Q3 + credentials 勘察）**：webhook URL 存 **credentials**（ref=`DSH_L_FEISHU_WEBHOOK_URL`，env 语法合法；`credentials.set(ref, url)` 写入 / `resolve(ref)→{value}` 读取——CredentialRef 为品牌化字符串，运行时直调字符串，零运行时依赖新增）；设置面板增 URL 输入框 + 「发送测试消息」按钮（走同一 sendNotice）。
+4. **通知触发点（Q4-B）**：gate 到达（g2 waiting）+ run failed（含 clone 失败）；succeeded 不推。通知尽力而为：未配置 webhook / 网络失败 → 静默跳过（warn 落日志），绝不阻塞引擎。
+5. **待我确认（Q6/Q8）**：主栏第三 tab（清单/看板/待我确认）+ 页头 badge 计数点击切 tab；卡片动作齐全——gate 等待卡片：G2 放行/驳回（run/gate）；G3 卡片：确认已发版（release/confirm）；failed run 卡片：重试/取消（run/retry、run/cancel）。聚合口径 = gate waiting run 数 + 待发版 shipped 候选数（badge 同口径，不含 upstream-gone flagged）。
+6. **看板（Q5）**：6 列与清单分组同构（待分诊/已分诊/待拍板/进行中[building+verifying]/已交付/已关闭·挂起，复用 bucketOf）；卡片点击迁移仅 MANUAL_STAGES 白名单内可用（进行中列禁迁移，v1 postStage 校验沿用）；无拖拽。
+7. **执行详情（Q9）**：不做独立视图——M2 行内 run 区块即详情（M4 后按需再议）。
+8. **改名（Q7）**：显示名 **DSH Loop Forge**（panelLabel 双字典同名不翻译；角标联动「待确认 (N) · DSH Loop Forge」）；README/PRODUCT/GLOSSARY 同步 + 一行免责声明「独立项目，与 Tencent LoopForge 无隶属关系」；npm 包名 dsh-l 与登录闸文案不动。
+9. **i18n**：增键（tabs×3 / review 分区与动作 / feishu 设置 / badge.pending）双字典 + parity 守护。
