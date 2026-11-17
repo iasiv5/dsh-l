@@ -83,10 +83,19 @@ export function openSettings(shadow, { t, current, onSaved }) {
   const feishuRow = row();
   const feishuMsg = document.createElement("span");
   feishuMsg.style.cssText = "font-size:12px;opacity:.75";
-  feishuRow.append(btn(t("feishu.test"), async () => {
+  feishuRow.append(btn(t("feishu.save"), async () => {   // M5 T4 C 形态：独立保存（只存不测）
     feishuMsg.textContent = "";
     try {
       await api.putFeishuWebhook(feishuInput.value.trim());
+      feishuMsg.textContent = t("feishu.saveOk");
+    } catch (e) { feishuMsg.textContent = e.message; }
+  }));
+  feishuRow.append(btn(t("feishu.test"), async () => {   // 测试前自动保存输入框当前值（评审 Q5-C：消掉「改了没存就测」）
+    feishuMsg.textContent = "";
+    try {
+      await api.putFeishuWebhook(feishuInput.value.trim());
+    } catch (e) { feishuMsg.textContent = e.message; return; }
+    try {
       const r = await api.feishuTest();
       feishuMsg.textContent = r.sent ? t("feishu.testOk") : t("feishu.testFail");
     } catch (e) { feishuMsg.textContent = e.message; }
