@@ -83,20 +83,22 @@ test("advanceRun ready 化：终态前 run 保持 running（评审 R4 采纳·�
   assert.equal(run.nodeStates.deliver.status, "ready");   // ready 即待执行（M2 执行器接手）
   assert.equal(run.status, "running");                    // deliver 未跑完，run 不终态
   const sum = summarizeRun({ ...run, id: "r1", candidateKey: "k" });
-  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "running", waitingGate: null, currentNodeIds: ["deliver"], error: null });
+  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "running", waitingGate: null, currentNodeIds: ["deliver"], failedNodeIds: [], error: null });
 });
 test("advanceRun 终态：全 succeeded 才收口（评审 R4 采纳·拆例②）", () => {
   let run = mkRun({ g1: "succeeded", build: "succeeded", verify: "succeeded", g2: "succeeded", deliver: "succeeded" });
   run = advanceRun(run);
   assert.equal(run.status, "succeeded");
   const sum = summarizeRun({ ...run, id: "r1", candidateKey: "k" });
-  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "succeeded", waitingGate: null, currentNodeIds: [], error: null });
+  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "succeeded", waitingGate: null, currentNodeIds: [], failedNodeIds: [], error: null });
 });
 test("summarizeRun.error：首个 failed 节点的 error", () => {
   assert.equal(summarizeRun({ id: "r", candidateKey: "k", status: "failed", waitingGate: null,
     nodeStates: { a: { status: "succeeded" }, b: { status: "failed", error: "boom" } } }).error, "boom");
   assert.equal(summarizeRun({ id: "r", candidateKey: "k", status: "succeeded", waitingGate: null,
     nodeStates: { a: { status: "succeeded" } } }).error, null);
+  assert.deepEqual(summarizeRun({ id: "r", candidateKey: "k", status: "failed", waitingGate: null,
+    nodeStates: { a: { status: "succeeded" }, b: { status: "failed", error: "boom" } } }).failedNodeIds, ["b"]);   // 产出评审问题 1：重试目标来源
 });
 test("skipped 重激活：reject 后目标重跑成功，skipped 后代逐级回 ready（评审 R7 采纳·配套）", () => {
   // G2 reject 后的形状：build=ready，verify=skipped，g2=skipped，deliver=pending（design-v2 §4 + T7 规则）

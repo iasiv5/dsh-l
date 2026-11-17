@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createStore } from "../src/store.mjs";
 import { makeEngine } from "../src/engine/engine.mjs";
+import { summarizeRun } from "../src/engine/scheduler.mjs";
 
 // fake workspace：ensure 立即成功/失败可控；dirOf 固定（评审 R1-7②：与 T9 夹具同款形态）
 const fakeWorkspace = (fail = false) => ({
@@ -85,6 +86,8 @@ test("verify 回炉超限 → run failed + 候选 held（回炉重臂经引擎�
   executor.inflight.get(runId + ":verify").resolve({ ok: false, error: "red again", artifacts: [] }); await drain();
   assert.equal(store.getRun(runId).status, "failed");
   assert.equal(store.getCandidate(key).stage, "held");
+  assert.equal(nodeState(store, runId, "verify"), "failed");   // 产出评审问题 2：终态守卫——耗尽后不再重臂回 ready
+  assert.equal(summarizeRun(store.getRun(runId)).error, "red again");   // 问题 2 后果①：error 摘要恢复可见
 });
 test("rework 重派：build 的 upstream 携带 verify 失败文本（评审 R1-10）", async () => {
   const { store, engine, executor } = setup();

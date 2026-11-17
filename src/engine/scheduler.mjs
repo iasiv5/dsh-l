@@ -106,11 +106,15 @@ export function advanceRun(run) {
   let nodeStates = run.nodeStates;
   // 回炉源重臂（评审 R1-2）：failed 节点存在 rework 出边且其 target 已 succeeded → 源回 ready
   // （reworkCount 已在 applyFailure 计过，不重复计；manual retry 的 maxAttempts 预算只约束 retryNode 路径）。
-  for (const e of run.snapshot.edges ?? []) {
-    if (e.kind !== "rework") continue;
-    const src = nodeStates[e.source]; const tgt = nodeStates[e.target];
-    if (src?.status === "failed" && tgt?.status === "succeeded") {
-      nodeStates = { ...nodeStates, [e.source]: { ...nodeStates[e.source], status: "ready" } };
+  // 终态守卫（产出评审问题 2）：run 已终态（回炉耗尽→failed 等）不再重臂——否则失败节点被翻回 ready，
+  // 抹掉 failed 语义（error 摘要失效/在途误亮/retry 守卫错位为 retry-requires-failed）。
+  if (!["succeeded", "failed", "cancelled"].includes(run.status)) {
+    for (const e of run.snapshot.edges ?? []) {
+      if (e.kind !== "rework") continue;
+      const src = nodeStates[e.source]; const tgt = nodeStates[e.target];
+      if (src?.status === "failed" && tgt?.status === "succeeded") {
+        nodeStates = { ...nodeStates, [e.source]: { ...nodeStates[e.source], status: "ready" } };
+      }
     }
   }
   for (const [id, s] of Object.entries(nodeStates)) {
@@ -133,6 +137,9 @@ export function summarizeRun(run) {
   const currentNodeIds = Object.entries(run.nodeStates)
     .filter(([, s]) => ["running", "waiting", "ready"].includes(s.status))
     .map(([id]) => id);
+  const failedNodeIds = Object.entries(run.nodeStates)
+    .filter(([, s]) => s.status === "failed")
+    .map(([id]) => id);   // 产出评审问题 1：重试按钮的目标来源（currentNodeIds 永不含 failed）
   const error = Object.values(run.nodeStates).find((s) => s.status === "failed")?.error ?? null;
-  return { id: run.id, candidateKey: run.candidateKey, status: run.status, waitingGate: run.waitingGate ?? null, currentNodeIds, error };
+  return { id: run.id, candidateKey: run.candidateKey, status: run.status, waitingGate: run.waitingGate ?? null, currentNodeIds, failedNodeIds, error };
 }
