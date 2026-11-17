@@ -83,8 +83,12 @@ export function badgeLabel({ count, label, template }) {
 
 // 待我确认聚合（design-v2 §13.5）：gate 等待 + failed 分区 + G3 待发版。
 // 角标口径（D5）：count = gate 等待数 + 待发版数——failed 不计入（失败走清单行内与飞书推送）。
+// flagged 排除（评审 R5-b / §13.5 括号口径）：上游消失（upstream-gone 留痕）的候选不计入 gate 等待。
 export function needsReview({ candidates, runs = [] } = {}) {
-  const gateRuns = (runs ?? []).filter((r) => r.status === "waiting" && r.waitingGate);
+  const gone = new Set((candidates ?? [])
+    .filter((c) => (c.history ?? []).some((h) => h.event === "upstream-gone"))
+    .map((c) => c.key));
+  const gateRuns = (runs ?? []).filter((r) => r.status === "waiting" && r.waitingGate && !gone.has(r.candidateKey));
   const failedRuns = (runs ?? []).filter((r) => r.status === "failed");
   const releaseList = (candidates ?? []).filter((c) => c.stage === "shipped" && !c.release?.confirmedAt);
   return { gateRuns, failedRuns, releaseList, count: gateRuns.length + releaseList.length };

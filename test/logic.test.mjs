@@ -83,14 +83,17 @@ test("needsReview：gate 等待 + G3 待发版聚合（failed 入分区不入角
     { key: "k1", stage: "shipped", currentRunId: null, release: null },
     { key: "k2", stage: "shipped", currentRunId: null, release: { confirmedAt: "T" } },
     { key: "k3", stage: "building", currentRunId: null, release: null },
+    { key: "k4", stage: "gating", currentRunId: "r4", release: null,
+      history: [{ at: "T", event: "upstream-gone", detail: "" }] },   // 评审 R5-b：flagged 候选不计入角标
   ];
   const runs = [
     { id: "r1", status: "waiting", waitingGate: "g2", currentNodeIds: ["g2"], error: null },
     { id: "r2", status: "running", waitingGate: null, currentNodeIds: ["build"], error: null },
     { id: "r3", status: "failed", waitingGate: null, currentNodeIds: [], failedNodeIds: ["deliver"], error: "push rejected" },
+    { id: "r4", status: "waiting", waitingGate: "g2", candidateKey: "k4", currentNodeIds: ["g2"], error: null },
   ];
   const out = needsReview({ candidates, runs });
-  assert.deepEqual(out.gateRuns.map((r) => r.id), ["r1"]);
+  assert.deepEqual(out.gateRuns.map((r) => r.id), ["r1"]);       // r4（flagged 候选）被排除
   assert.deepEqual(out.failedRuns.map((r) => r.id), ["r3"]);     // 评审 P1：第三分区数据源
   assert.deepEqual(out.releaseList.map((c) => c.key), ["k1"]);   // k2 已确认发版、k3 非 shipped
   assert.equal(out.count, 2);                                    // D5 口径：failed 不计入角标
