@@ -31,3 +31,34 @@ export const LOOP_V1 = {
 };
 
 LOOP_V1.revision = computeRevision(LOOP_V1);
+
+// devflow-lite（design-v2 §14.2/D2）：DevFlow 语义骨架精简——需求闸→设计→实现→独立评审→测试→交付闸→交付。
+// 砍 KNOWLEDGE/SUMMARY、不做规模分级（固定 medium 路由，small 需求走 loop-v1）；
+// rework 预算由 maxReworks 承载（对齐 LoopForge max_stage_failures:2 语义）。
+export const DEVFLOW_LITE = {
+  id: "devflow-lite",
+  name: "DevFlow Lite",
+  version: 1,
+  builtin: true,
+  nodes: [
+    { id: "requirement", name: "需求确认", type: "gate", gateId: "G1", rejectTarget: null },
+    { id: "design", name: "设计", type: "agent", roleId: "devflow-architect", executionPolicy: "ask" },
+    { id: "implement", name: "实现", type: "agent", roleId: "devflow-developer", executionPolicy: "ask", maxAttempts: 2 },
+    { id: "review", name: "评审", type: "agent", roleId: "devflow-code-reviewer", executionPolicy: "ask", maxReworks: 2 },
+    { id: "test", name: "测试", type: "script", scriptLanguage: "shell", script: "npm test", maxAttempts: 2 },
+    { id: "g2", name: "G2", type: "gate", gateId: "G2", rejectTarget: "implement" },
+    { id: "deliver", name: "交付", type: "script", scriptLanguage: "shell",
+      script: "git push -u origin HEAD && gh pr create --fill", maxAttempts: 2 },
+  ],
+  edges: [
+    { id: "d1", source: "requirement", target: "design", kind: "success" },
+    { id: "d2", source: "design", target: "implement", kind: "success" },
+    { id: "d3", source: "implement", target: "review", kind: "success" },
+    { id: "d4", source: "review", target: "implement", kind: "rework" },
+    { id: "d5", source: "review", target: "test", kind: "success" },
+    { id: "d6", source: "test", target: "g2", kind: "success" },
+    { id: "d7", source: "g2", target: "deliver", kind: "success" },
+  ],
+};
+
+DEVFLOW_LITE.revision = computeRevision(DEVFLOW_LITE);

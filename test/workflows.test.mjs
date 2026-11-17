@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { validateTemplate, computeRevision } from "../src/workflows/validate.mjs";
-import { LOOP_V1 } from "../src/workflows/builtin.mjs";
+import { LOOP_V1, DEVFLOW_LITE } from "../src/workflows/builtin.mjs";
 import { loadTemplates } from "../src/workflows/loader.mjs";
 
 const okT = { id: "t1", name: "T1", version: 1, builtin: false,
@@ -42,6 +42,7 @@ test("loop-v1 golden：形状锁", () => {
   const byId = Object.fromEntries(LOOP_V1.nodes.map((n) => [n.id, n]));
   assert.equal(byId.g1.gateId, "G1");
   assert.equal(byId.build.executionPolicy, "auto");
+  assert.equal(byId.build.roleId, "loop-builder");
   assert.equal(byId.verify.maxReworks, 3);
   assert.equal(byId.g2.gateId, "G2");
   assert.equal(byId.g2.rejectTarget, "build");
@@ -49,6 +50,22 @@ test("loop-v1 golden：形状锁", () => {
     [["g1","build","success"],["build","verify","success"],["verify","build","rework"],["verify","g2","success"],["g2","deliver","success"]]);
   assert.equal(validateTemplate(LOOP_V1).ok, true);
   assert.match(LOOP_V1.revision, /^[0-9a-f]{40}$/);
+});
+test("devflow-lite golden：形状锁（评审 D2/D3）", () => {
+  assert.equal(DEVFLOW_LITE.id, "devflow-lite");
+  assert.equal(DEVFLOW_LITE.builtin, true);
+  assert.deepEqual(DEVFLOW_LITE.nodes.map((n) => n.id), ["requirement", "design", "implement", "review", "test", "g2", "deliver"]);
+  const byId = Object.fromEntries(DEVFLOW_LITE.nodes.map((n) => [n.id, n]));
+  assert.equal(byId.requirement.gateId, "G1");
+  assert.equal(byId.design.roleId, "devflow-architect");
+  assert.equal(byId.implement.roleId, "devflow-developer");
+  assert.equal(byId.implement.executionPolicy, "ask");
+  assert.equal(byId.review.roleId, "devflow-code-reviewer");
+  assert.equal(byId.review.maxReworks, 2);
+  assert.equal(byId.g2.gateId, "G2");
+  assert.equal(byId.g2.rejectTarget, "implement");
+  assert.equal(validateTemplate(DEVFLOW_LITE).ok, true);
+  assert.match(DEVFLOW_LITE.revision, /^[0-9a-f]{40}$/);
 });
 
 test("loadTemplates：内置在前、坏文件/撞 id 跳过并警告、非 json 忽略、meta 不含 script", () => {
