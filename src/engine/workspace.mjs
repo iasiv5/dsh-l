@@ -15,6 +15,8 @@ const ghEnv = (ghBin) => ({
 // - ensure：不存在则 gh repo clone（https + gh 凭据 helper），存在则复用不 clone（回炉不回退）
 // - sweep：保留期清扫——先 sanitizeKey(activeKey) 再与目录名比对（评审 R2-8），
 //   非活跃且 mtime 超期的目录 rmSync 递归。io/execFile 全注入，测试不真实 clone。
+//   保留期口径（M2 产出评审 backlog 备注）：以目录 mtime（≈clone 时刻）起算，保守于 design §5
+//   「终态后保留 N 天」——工作区不回炉重建（mtime 只增不减），mtime 口径不会提前删除活跃工作区。
 export function makeWorkspace({ dataDir, ghBin = null, execFile, fs: io = {} } = {}) {
   const ls = io.readdirSync ?? readdirSync;
   const st = io.statSync ?? statSync;

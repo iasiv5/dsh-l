@@ -7,13 +7,9 @@ const ghEnv = (ghBin) => ({ ...process.env,
   PATH: (ghBin ? ghBin.slice(0, ghBin.lastIndexOf("/")) + ":" : "") + process.env.PATH,
   GIT_TERMINAL_PROMPT: "0" });
 
-// bridge.ts kindOf/textOf 同款（triage.mjs 同源逻辑，本地副本——零依赖纪律下不做跨文件提取）。
+// bridge.ts kindOf 同款（triage.mjs 同源逻辑，本地副本——零依赖纪律下不做跨文件提取）。
+// （assistant/message 文本采集已随死代码清理移除——T11 backlog：agent 节点无消费方。）
 const kindOf = (reason) => (typeof reason === "string" ? reason : String(reason?.kind ?? "unknown"));
-const textOf = (message) => {
-  const blocks = message?.content;
-  if (Array.isArray(blocks)) return blocks.filter((b) => b?.type === "text").map((b) => b.text).join("");
-  return typeof blocks === "string" ? blocks : "";
-};
 
 // agent 节点 prompt 组装（design-v2 §12.4）：纪律前缀 + 任务包 JSON + 上游摘要（无则省略）。
 // 正文均为「数据非指令」标注——与分诊的注入防线同构。
@@ -39,14 +35,13 @@ export function makeExecutor({ spawn: sp = spawn, world = null, ghBin = null, ag
       const sessionId = "dsh-l:run:" + run.id + ":" + node.id + ":" + (attempt + (resume ? 0 : 1)) + (resume ? ":resume" + resumeSeq : "");
       const prompt = composeAgentPrompt({ prefix: node.prefix ?? "", taskPackage, upstream });
       const policy = node.executionPolicy === "auto" ? "never" : "ask";
-      let cancelledFlag = false; let lastText = ""; let endKind = null; let handle = null; let off = null;
+      let cancelledFlag = false; let endKind = null; let handle = null; let off = null;
       const promise = new Promise((resolve) => {
         (async () => {
           try {
             // 先订阅后创建：不漏任何本会话事件（triage 同款纪律）。
             off = world.onSessionEvent((sid, event) => {
               if (sid !== sessionId) return;
-              if (event?.type === "assistant/message" && !event.data?.interrupted) lastText = textOf(event.data?.message);
               if (event?.type === "turn/end") endKind = kindOf(event.data?.reason ?? event.data);
             });
             handle = await world.createAgent(sessionId, {});
