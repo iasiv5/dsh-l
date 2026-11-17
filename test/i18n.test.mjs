@@ -76,3 +76,49 @@ test("createLangSource 跟随宿主 locale 快照与 locale/change", () => {
 test("无 locale 服务时按浏览器语言兜底", () => {
   assert.equal(createLangSource({}, { language: "en-GB" }).get(), "en");
 });
+
+test("i18n 动态前缀键白名单守护（M5 T6，评审 R-3）：源码动态 t 前缀 ⊆ 白名单且段键值域合法", async () => {
+  const fs = await import("node:fs");
+  const path = await import("node:path");
+  const zh = (await import("../src/client/locale/zh-CN.mjs")).zhCN;
+  const en = (await import("../src/client/locale/en.mjs")).en;
+  // 点分路径逐级下钻（run.status 类多段段键）
+  const drill = (obj, dotted) => dotted.split(".").reduce((o, k) => (o && typeof o === "object" ? o[k] : undefined), obj);
+  // 白名单表（评审 R-3：7 前缀显式值域；新动态前缀出现 → 本用例红，提示补表）
+  const WHITELIST = {
+    groups: ["inbox", "triaged", "gating", "building", "shipped", "closed"],
+    urgency: ["P0", "P1", "P2", "P3"],
+    gates: ["G1", "G2", "G3"],
+    validity: ["high", "medium", "low", "none"],
+    recommendedActions: ["start", "feedback", "close", "hold"],
+    "run.status": ["running", "waiting", "succeeded", "failed", "cancelled"],
+    stages: ["ingest", "backlog", "triage", "feedback", "build", "verify", "ship"],
+  };
+  const clientDir = path.resolve(import.meta.dirname, "../src/client");
+  const files = [];
+  const walk = (d) => {
+    for (const f of fs.readdirSync(d, { withFileTypes: true })) {
+      const full = path.join(d, f.name);
+      if (f.isDirectory()) walk(full);
+      else if (f.name.endsWith(".mjs")) files.push(full);
+    }
+  };
+  walk(clientDir);
+  const re = /\bt\("([a-zA-Z.]+?)" *\+/g;   // 评审 R-3：[a-zA-Z.] 跨点跨大写（run.status / recommendedActions）；非贪婪防吞尾点
+  const used = new Set();
+  for (const file of files) {
+    const src = fs.readFileSync(file, "utf8");
+    for (const m of src.matchAll(re)) used.add(m[1].replace(/\.$/, ""));   // 归一化：剥尾部段点
+  }
+  const problems = [];
+  for (const prefix of used) {
+    if (!(prefix in WHITELIST)) { problems.push("未知动态前缀（请补白名单表）: " + prefix); continue; }
+    for (const [lang, dict] of [["zh-CN", zh], ["en", en]]) {
+      const seg = drill(dict, prefix);
+      if (!seg || typeof seg !== "object") { problems.push(lang + " 段键缺失: " + prefix); continue; }
+      const extra = Object.keys(seg).filter((k) => !WHITELIST[prefix].includes(k));
+      if (extra.length > 0) problems.push(lang + " 段 " + prefix + " 含白名单外键: " + extra.join(","));
+    }
+  }
+  assert.deepEqual(problems, []);
+});
