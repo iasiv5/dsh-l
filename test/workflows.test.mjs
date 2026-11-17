@@ -9,7 +9,7 @@ import { loadTemplates } from "../src/workflows/loader.mjs";
 
 const okT = { id: "t1", name: "T1", version: 1, builtin: false,
   nodes: [ { id: "g1", name: "G1", type: "gate", gateId: "G1", rejectTarget: null },
-           { id: "a", name: "build", type: "agent", executionPolicy: "ask" },
+           { id: "a", name: "build", type: "agent", executionPolicy: "ask", roleId: "user-builder" },
            { id: "s", name: "verify", type: "script", scriptLanguage: "shell", script: "exit 0" } ],
   edges: [ { id: "e1", source: "g1", target: "a", kind: "success" },
            { id: "e2", source: "a", target: "s", kind: "success" } ] };
@@ -74,6 +74,24 @@ test("无 workflows 目录：仅内置、零警告", () => {
   const out = loadTemplates({ dataDir: mkdtempSync(join(tmpdir(), "dsh-l-wf0-")) });
   assert.deepEqual(out.templates.map((t) => t.id), ["loop-v1"]);
   assert.deepEqual(out.warnings, []);
+});
+test("loader 契约（M4 T2）：meta agent 节点带 roleId；loadTemplateDefs 全量含 script", async () => {
+  const { loadTemplateDefs } = await import("../src/workflows/loader.mjs");
+  const dir = mkdtempSync(join(tmpdir(), "dsh-l-wf2-"));
+  mkdirSync(join(dir, "workflows"));
+  writeFileSync(join(dir, "workflows", "b.json"), JSON.stringify({ ...okT, id: "user-b", name: "UB" }));
+  const defs = loadTemplateDefs({ dataDir: dir });
+  assert.deepEqual(defs.map((t) => t.id), ["loop-v1", "user-b"]);
+  const agentNode = defs.find((t) => t.id === "loop-v1").nodes.find((n) => n.id === "build");
+  assert.ok(agentNode.prompt || agentNode.prefix, "全量 def 保留 agent 节点正文");
+  assert.ok("script" in defs.find((t) => t.id === "user-b").nodes[2]);
+  const meta = loadTemplates({ dataDir: dir }).templates.find((t) => t.id === "user-b");
+  assert.equal(meta.nodes[2].roleId, undefined);   // meta 层 script 节点无 roleId 字段
+  const buildMeta = meta.nodes.find((n) => n.id === "a");
+  assert.equal(buildMeta.roleId, "user-builder");   // 评审 P2①/P3 数据源：meta agent 节点带 roleId
+  const loopMeta = loadTemplates({ dataDir: dir }).templates.find((t) => t.id === "loop-v1");
+  const loopBuild = loopMeta.nodes.find((n) => n.id === "build");
+  assert.equal(loopBuild.roleId, "loop-builder");   // builtin 同款投影
 });
 test("F2：非 G1 gate 缺 rejectTarget 报错；G1 豁免", () => {
   const bad = { ...okT, nodes: [ ...okT.nodes, { id: "g2", name: "G2", type: "gate", gateId: "G2" } ],

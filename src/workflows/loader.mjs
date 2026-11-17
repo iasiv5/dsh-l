@@ -3,16 +3,40 @@ import { join } from "node:path";
 import { validateTemplate, computeRevision } from "./validate.mjs";
 import { LOOP_V1 } from "./builtin.mjs";
 
-// meta 投影：script 正文不出模块（design-v2 §3）——state/客户端只拿 id/name/version/revision/builtin/节点名与类型/边数。
+// meta 投影：script 正文不出模块（design-v2 §3）——state/客户端只拿 id/name/version/revision/builtin/
+// 节点名与类型/**agent 节点 roleId**（M4 T2 评审 P2①/P3：roleRows uses 计数数据源）/边数。
 const metaOf = (t) => ({
   id: t.id, name: t.name, version: t.version, revision: t.revision, builtin: Boolean(t.builtin),
-  nodes: (t.nodes ?? []).map(({ id, name, type }) => ({ id, name, type })),
+  nodes: (t.nodes ?? []).map(({ id, name, type, roleId }) => roleId ? { id, name, type, roleId } : { id, name, type }),
   edgeCount: (t.edges ?? []).length,
 });
+
+// 全量定义通道（M4 T2 评审 P2①）：builtin 二模板 + 用户原始 def（含 script/prefix/edges/maxReworks 等）——
+// 供引擎 dispatch 与删除守卫消费的唯一数据源；getState 的 workflow.templates 只出 meta。
+export function loadTemplateDefs({ dataDir, readdirSync: ls = readdirSync, readFileSync: rf = readFileSync }) {
+  const defs = [LOOP_V1];
+  const warnings = [];
+  const seen = new Set([LOOP_V1.id]);
+  let files;
+  try { files = ls(join(dataDir, "workflows")); } catch { return defs; }
+  for (const file of [...files].sort()) {
+    if (!file.endsWith(".json")) continue;
+    let t;
+    try { t = JSON.parse(rf(join(dataDir, "workflows", file), "utf8")); }
+    catch { continue; }
+    const v = validateTemplate(t);
+    if (!v.ok || seen.has(t.id)) continue;
+    t.revision ??= computeRevision(t);
+    seen.add(t.id);
+    defs.push(t);
+  }
+  return defs;
+}
 
 // 模板目录：内置 loop-v1 在前 + 数据目录 workflows/*.json 用户模板（文件名序）。
 // 策略（评审 R12）：仅收 .json 后缀；解析/校验失败 → 跳过并警告；用户模板 id 撞内置或彼此重复 → 拒收并警告。
 // io 参数可注入以便测试。M1 启动时读一次（host.mjs 装配处），用户模板改动重启生效。
+// 全量 defs 通道见 loadTemplateDefs（M4 T2）。
 export function loadTemplates({ dataDir, readdirSync: ls = readdirSync, readFileSync: rf = readFileSync }) {
   const templates = [metaOf(LOOP_V1)];
   const warnings = [];
