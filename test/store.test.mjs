@@ -188,3 +188,20 @@ test("settings v2：engineConcurrency/workspaceRetentionDays 默认与旧档回�
   assert.equal(createStore({ filePath: file }).getSettings().engineConcurrency, 2);
   assert.equal(createStore({ filePath: file }).getSettings().workspaceRetentionDays, 7);
 });
+
+test("roles：upsert/list/get/delete 回填与幂等", () => {
+  const s = open();
+  assert.deepEqual(s.listRoles(), []);
+  s.upsertRole({ id: "my-builder", name: "我的构建", prompt: "p", executionPolicy: "auto" });
+  assert.equal(s.getRole("my-builder").name, "我的构建");
+  s.upsertRole({ id: "my-builder", name: "我的构建2", prompt: "p2", executionPolicy: "ask" });
+  assert.equal(s.getRole("my-builder").prompt, "p2");
+  assert.equal(s.listRoles().length, 1);
+  s.deleteRole("my-builder");
+  assert.equal(s.getRole("my-builder"), null);
+});
+test("旧档回填：roles 空对象不炸", () => {
+  const file = join(mkdtempSync(join(tmpdir(), "dsh-l-role-")), "store.json");
+  writeFileSync(file, JSON.stringify({ version: 2, watch: { repos: [], updatedAt: "T" }, candidates: {}, snapshots: {}, settings: {}, auth: {} }));
+  assert.deepEqual(createStore({ filePath: file }).listRoles(), []);
+});

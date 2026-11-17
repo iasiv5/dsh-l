@@ -21,6 +21,7 @@ export const makeRunId = (now = () => new Date()) =>
 const emptyDoc = (now) => ({
   version: 2,
   runs: {},           // 执行层（design-v2 §2）：runId → run（锁模板快照 + 节点状态机）
+  roles: {},          // 角色注册表（design-v2 §14.1，M4）：roleId → {name, description, prompt, executionPolicy, model?}；内置角色在 workflows/roles.mjs，不进 store
   watch: { repos: [...DEFAULT_WATCH_REPOS], updatedAt: now().toISOString() },
   candidates: {},
   snapshots: { lastIngestAt: null, perRepo: {} },
@@ -54,6 +55,7 @@ export function createStore({ filePath, now = () => new Date() }) {
     persist();   // v2 起「打开旧档」会重写 store.json（原子写不变）——相对 v1 先例的行为变更；此后不再触发。
   }
   doc.runs ??= {};   // 评审 F4：version 2 手改档缺 runs 块的无条件回填
+  doc.roles ??= {};   // 评审 P6/R5：version 2 手改档缺 roles 块的无条件回填
   doc.settings ??= { intervalMinutes: 0, triageModel: null, engineConcurrency: 2, workspaceRetentionDays: 7 };
   doc.settings.engineConcurrency ??= 2;             // design-v2 §12.9：M2 引擎并发上限
   doc.settings.workspaceRetentionDays ??= 7;        // design-v2 §5：工作区保留期
@@ -143,6 +145,19 @@ export function createStore({ filePath, now = () => new Date() }) {
       const c = need(key);
       c.release = { confirmedAt: now().toISOString(), note };
       touch(c, "release.confirmed", note);
+      persist();
+    },
+    // 角色注册表（design-v2 §14.1 / M4 T1）：用户自定义角色 CRUD；内置角色在 workflows/roles.mjs，不进 store。
+    upsertRole(role) {
+      if (!role || typeof role.id !== "string" || !role.id.trim()) throw Object.assign(new Error("role id required"), { status: 400 });
+      doc.roles[role.id] = { ...role, id: role.id };
+      persist();
+    },
+    getRole: (id) => doc.roles[id] ?? null,
+    listRoles: () => Object.values(doc.roles),
+    deleteRole(id) {
+      if (!doc.roles[id]) return;
+      delete doc.roles[id];
       persist();
     },
     appendRunHistory(id, event, detail = "") {
