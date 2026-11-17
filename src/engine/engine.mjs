@@ -31,9 +31,12 @@ export function hasAliveRun(store, key) {
 const stageOf = (run) => run.status === "succeeded" ? "shipped" : run.status === "failed" ? "held" : run.status === "cancelled" ? "gating"
   : run.waitingGate ? "gating" : "building";
 
-export function makeEngine({ store, workspace, executor, template = LOOP_V1, now = () => new Date(), concurrencyOf = () => 2 }) {
+export function makeEngine({ store, workspace, executor, template = LOOP_V1, now = () => new Date(), concurrencyOf = () => 2, emit = null }) {
   const inflight = new Map();   // "runId:nodeId" → cancel
   const clone = (v) => JSON.parse(JSON.stringify(v));
+  const titleOf = (key) => store.getCandidate(key)?.title ?? "";
+  // 事件发射（design-v2 §13.4）：尽力而为——emit 抛错被吞，通知永不阻塞引擎。三触发点：gate 挂起 / run failed / clone 失败。
+  const fire = (evt) => { try { emit?.(evt); } catch {} };
   const syncStage = (key, run) => {
     const stage = stageOf(run);
     const c = store.getCandidate(key);
@@ -66,6 +69,7 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, now
         run.status = "failed";                       // 评审 R1-3①/D2：clone 失败 → run failed
         store.saveRun(run);
         store.appendRunHistory(runId, "workspace.clone-failed", msg);   // 评审 R1-14
+        try { emit?.({ type: "failed", key, runId, error: msg, title: titleOf(key) }); } catch {}
         store.setStage(key, "held", "workspace-clone-failed");
       });
       return { runId };
@@ -83,7 +87,9 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, now
         const nodeId = ready[0];
         const node = run.snapshot.nodes.find((n) => n.id === nodeId);
         if (node.type === "gate") {
-          run = gateArrive(run, nodeId); store.saveRun(run); syncStage(run.candidateKey, run); continue;
+          run = gateArrive(run, nodeId); store.saveRun(run); syncStage(run.candidateKey, run);
+          fire({ type: "gate", key: run.candidateKey, runId, nodeId, title: titleOf(run.candidateKey) });
+          continue;
         }
         const ns = { ...run.nodeStates, [nodeId]: resume
           ? { ...run.nodeStates[nodeId], status: "running" }   // 恢复重派保持 attempt（评审 R1-11）
@@ -108,6 +114,7 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, now
         : applyFailure(run0, nodeId, result.error);
       store.saveRun(run);
       syncStage(run.candidateKey, run);
+      if (run.status === "failed") fire({ type: "failed", key: run.candidateKey, runId, nodeId, error: run.nodeStates[nodeId]?.error ?? result.error ?? "", title: titleOf(run.candidateKey) });
       run = advanceRun(store.getRun(runId));   // 含回炉源重臂（评审 R1-2）
       store.saveRun(run);
       syncStage(run.candidateKey, run);

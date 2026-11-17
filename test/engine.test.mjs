@@ -217,3 +217,39 @@ test("recover：run.status=running 但无 running 节点的窄窗状态也被拾
   await drain();
   assert.equal(nodeState(store, runId, "deliver"), "running");   // 但仍被重派（R3-2 修复点：scanned 全量重派）
 });
+
+// ---- Task 5：emit 三触发点（gate 挂起 / run failed / clone 失败；成功路径零通知）----
+const setup2 = ({ failClone = false, concurrency = 2 } = {}) => {
+  const base = setup({ failClone, concurrency });
+  const events = [];
+  const engine = makeEngine({ store: base.store, workspace: base.workspace, executor: base.executor,
+    now: () => new Date(), concurrencyOf: () => concurrency, emit: (e) => { events.push(e); } });
+  return { ...base, events, engine };
+};
+test("emit：G2 挂起与 run failed 各一条；成功路径零通知", async () => {
+  const { store, engine, executor, events } = setup2();
+  const key = "o/r#issue#1";
+  const { runId } = engine.startRun(key, {});
+  await drain();
+  executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  assert.deepEqual(events.map((e) => e.type), []);   // 评审 P3①：成功零通知断言前移——此时 verify 在跑、闸未到达
+  executor.inflight.get(runId + ":verify").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  const gateEvt = events.find((e) => e.type === "gate");
+  assert.equal(gateEvt.nodeId, "g2");   // 评审 P3②：nodeId=闸节点 id，与 waitingGate/api.runGate 同域
+  engine.applyGateDecision(runId, "g2", "pass");
+  await drain();
+  executor.inflight.get(runId + ":deliver").resolve({ ok: false, error: "push rejected", artifacts: [] }); await drain();
+  const failedEvt = events.find((e) => e.type === "failed");
+  assert.equal(failedEvt.error, "push rejected");
+});
+test("emit：clone 失败 → failed 事件", async () => {
+  const base = setup({ failClone: true });
+  const events = [];
+  const engine = makeEngine({ store: base.store, workspace: base.workspace, executor: base.executor,
+    now: () => new Date(), concurrencyOf: () => 2, emit: (e) => { events.push(e); } });
+  const { runId } = engine.startRun("o/r#issue#1", {});
+  await drain(); await drain();
+  const failedEvt = events.find((e) => e.type === "failed");
+  assert.ok(failedEvt);
+  assert.match(failedEvt.error, /clone/);
+});
