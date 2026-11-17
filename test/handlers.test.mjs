@@ -357,3 +357,19 @@ test("release/confirm：G3 发版确认落痕；非 shipped/重复确认 409", a
   assert.equal(c.history.at(-1).event, "release.confirmed");
   assert.equal((await h.postReleaseConfirm({ key: "o/r#issue#1" })).error, "release-already-confirmed");
 });
+
+test("feishu 路由：webhook 写入 credentials、测试发送走注入通知器；未装配 503", async () => {
+  const store = openStore(); login(store);
+  const saved = [];
+  const credentials = { set: async (ref, v) => { saved.push([ref, v]); }, resolve: async (ref) => { const hit = saved.find(([r]) => r === ref); return hit ? { value: hit[1] } : undefined; } };
+  const notifier = { sendNotice: async (t) => ({ sent: true, text: t }), testSend: async () => ({ sent: true }) };
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, credentials,
+    feishu: { notifier, setWebhook: async (url) => { await credentials.set("DSH_L_FEISHU_WEBHOOK_URL", url); } } });
+  assert.equal((await h.putFeishuWebhook({ url: "http://evil" })).error, "invalid webhook");
+  assert.equal((await h.putFeishuWebhook({ url: "https://open.feishu.cn/open-apis/bot/v2/hook/abc" })).ok, true);
+  assert.deepEqual(saved, [["DSH_L_FEISHU_WEBHOOK_URL", "https://open.feishu.cn/open-apis/bot/v2/hook/abc"]]);
+  const r = await h.postFeishuTest();
+  assert.equal(r.sent, true);
+  const noFeishu = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
+  assert.equal((await noFeishu.postFeishuTest()).error, "feishu-not-wired");
+});

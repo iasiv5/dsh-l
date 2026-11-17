@@ -9,6 +9,7 @@ import { loadTemplates } from "./workflows/loader.mjs";
 import { makeWorkspace } from "./engine/workspace.mjs";
 import { makeExecutor } from "./engine/executor.mjs";
 import { makeEngine } from "./engine/engine.mjs";
+import { makeFeishu, formatNotice } from "./feishu.mjs";
 import * as github from "./github.mjs";
 import { makeHandlers } from "./handlers.mjs";
 import { createTrustGuard, makeHttpHandler } from "./http.mjs";
@@ -65,7 +66,20 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
   const store = createStore({ filePath: join(dir, "store.json") });
   const workspace = makeWorkspace({ dataDir: dir, ghBin: join(dir, "bin", "gh"), execFile });
   const executor = makeExecutor({ world: makeExecWorld(ctx, dir), spawn: spawnCb, ghBin: join(dir, "bin", "gh") });
-  const engine = makeEngine({ store, workspace, executor, concurrencyOf: () => store.getSettings().engineConcurrency ?? 2 });
+  // 飞书通知（design-v2 §13.3/§13.4）：webhook 经 credentials 存取（ref=DSH_L_FEISHU_WEBHOOK_URL）；
+  // emit → formatNotice → sendNotice，fire-and-forget（尽力而为，通知失败不影响引擎）。
+  const getWebhook = async () => {
+    try {
+      const hit = await ctx.credentials?.resolve?.("DSH_L_FEISHU_WEBHOOK_URL");
+      return typeof hit?.value === "string" && hit.value ? hit.value : null;
+    } catch { return null; }
+  };
+  const notifier = makeFeishu({ fetch: globalThis.fetch, getWebhook });
+  const setWebhook = (url) => ctx.credentials.set("DSH_L_FEISHU_WEBHOOK_URL", url);
+  const engine = makeEngine({
+    store, workspace, executor, concurrencyOf: () => store.getSettings().engineConcurrency ?? 2,
+    emit: (evt) => { Promise.resolve(notifier.sendNotice(formatNotice(evt))).catch(() => {}); },
+  });
   const handlers = makeHandlers({
     store, provider: github,
     triage: makeTriage ? makeTriage(ctx, dir) : UNWIRED,
@@ -75,6 +89,7 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     // M1 启动时读一次模板目录（内置 loop-v1 + workflows/*.json）；用户模板改动重启生效——design-v2 §3。
     workflowCatalog: loadTemplates({ dataDir: dir }),
     engine,
+    feishu: { notifier, setWebhook },
   });
   const table = {
     "/dsh-l/health": { GET: async () => ({ ok: true, name, build: BUILD, dataDir: dir }) },
@@ -91,6 +106,8 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     "/dsh-l/run/cancel": { POST: handlers.postRunCancel },
     "/dsh-l/run/retry": { POST: handlers.postRunRetry },
     "/dsh-l/release/confirm": { POST: handlers.postReleaseConfirm },
+    "/dsh-l/feishu/test": { POST: handlers.postFeishuTest },
+    "/dsh-l/feishu/webhook": { PUT: handlers.putFeishuWebhook },
     "/dsh-l/auth": { GET: handlers.getAuth },
     "/dsh-l/auth/bind": { POST: handlers.postAuthBind },
     "/dsh-l/auth/logout": { POST: handlers.postAuthLogout },

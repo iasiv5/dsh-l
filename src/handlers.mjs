@@ -42,7 +42,7 @@ export function buildTaskPackage(candidate, repoInfo = null, now = () => new Dat
   };
 }
 
-export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null, workflowCatalog = { templates: [], warnings: [] }, engine = null }) {
+export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null, workflowCatalog = { templates: [], warnings: [] }, engine = null, feishu = null }) {
   const token = () => provider.resolveToken({ credentials, tokenRef, execFile, ghPath: ghBin });
   // 收活闸门：未绑定 GitHub 账号前，仓库勾选与摄取一律拒绝（design.md §4）。
   const requireAuth = () => (store.getAuth()?.account ? null : fail("auth-required", 401));
@@ -299,6 +299,23 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       if (c.stage !== "shipped") return fail("release-requires-shipped", 409);
       if (c.release?.confirmedAt) return fail("release-already-confirmed", 409);
       store.setRelease(key, body?.note ?? "");
+      return { ok: true };
+    },
+    // 飞书（design-v2 §13.3）：webhook 写 credentials（ref=DSH_L_FEISHU_WEBHOOK_URL，不落 store）；
+    // 测试发送走注入通知器；未装配 503 feishu-not-wired。
+    async postFeishuTest() {
+      const gate = requireAuth(); if (gate) return gate;
+      if (!feishu) return fail("feishu-not-wired", 503);
+      const r = await feishu.notifier.testSend();
+      return { ok: true, sent: Boolean(r?.sent) };
+    },
+    async putFeishuWebhook(body) {
+      const gate = requireAuth(); if (gate) return gate;
+      if (!feishu) return fail("feishu-not-wired", 503);
+      const url = String(body?.url ?? "");
+      const PREFIX = "https://open.feishu.cn/open-apis/bot/v2/hook/";
+      if (!url.startsWith(PREFIX)) return fail("invalid webhook");
+      await feishu.setWebhook(url);
       return { ok: true };
     },
     async getSettings() { return store.getSettings(); },
