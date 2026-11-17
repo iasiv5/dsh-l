@@ -1,5 +1,6 @@
 import { computeReady, gateArrive, applyGateDecision, applyFailure, advanceRun, cancelRun as schedCancelRun } from "./scheduler.mjs";
 import { LOOP_V1 } from "../workflows/builtin.mjs";
+import { resolveRole } from "../workflows/roles.mjs";
 import { makeRunId } from "../store.mjs";
 
 // 可调度集（评审 R1-1）：computeReady 只扫 pending，而 advanceRun/applyFailure/reject/recover 产出的是
@@ -31,7 +32,7 @@ export function hasAliveRun(store, key) {
 const stageOf = (run) => run.status === "succeeded" ? "shipped" : run.status === "failed" ? "held" : run.status === "cancelled" ? "gating"
   : run.waitingGate ? "gating" : "building";
 
-export function makeEngine({ store, workspace, executor, template = LOOP_V1, now = () => new Date(), concurrencyOf = () => 2, emit = null }) {
+export function makeEngine({ store, workspace, executor, template = LOOP_V1, now = () => new Date(), concurrencyOf = () => 2, emit = null, listRoles = () => ({}) }) {
   const inflight = new Map();   // "runId:nodeId" → cancel
   const clone = (v) => JSON.parse(JSON.stringify(v));
   const titleOf = (key) => store.getCandidate(key)?.title ?? "";
@@ -98,8 +99,13 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, now
         const key = store.getRun(runId).candidateKey;
         const taskPackage = store.getCandidate(key)?.taskPackage ?? null;
         const upstream = node.type === "agent" ? upstreamOf(run, nodeId) : [];
+        // 角色解析（design-v2 §14.1）：store.roles 优先于 builtin；prompt/executionPolicy/model 三字段
+        const role = resolveRole(node.roleId, listRoles());
+        const rolePrompt = role?.prompt ?? node.prefix ?? "";
+        const execPolicy = role?.executionPolicy ?? node.executionPolicy ?? "ask";
+        const roleModel = role?.model ?? null;
         const job = node.type === "agent"
-          ? executor.runAgentNode({ run, node, cwd: workspace.dirOf(key), taskPackage, upstream, resume, resumeSeq })
+          ? executor.runAgentNode({ run, node, cwd: workspace.dirOf(key), taskPackage, upstream, rolePrompt, executionPolicy: execPolicy, model: roleModel, resume, resumeSeq })
           : executor.runScriptNode({ run, node, cwd: workspace.dirOf(key) });
         inflight.set(runId + ":" + nodeId, job.cancel);
         job.promise.then((result) => { inflight.delete(runId + ":" + nodeId); engine.onNodeDone(runId, nodeId, result); })
