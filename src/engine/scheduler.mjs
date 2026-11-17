@@ -141,5 +141,7 @@ export function summarizeRun(run) {
     .filter(([, s]) => s.status === "failed")
     .map(([id]) => id);   // 产出评审问题 1：重试按钮的目标来源（currentNodeIds 永不含 failed）
   const error = Object.values(run.nodeStates).find((s) => s.status === "failed")?.error ?? null;
-  return { id: run.id, candidateKey: run.candidateKey, status: run.status, waitingGate: run.waitingGate ?? null, currentNodeIds, failedNodeIds, error };
+  // 评审 R2-1①：waitingGate 孰 nodeId，快照节点 gateId 才是 gates.* 键空间的语义键（devflow requirement ≠ "G1" 字面上标）
+  const waitingGateId = run.snapshot?.nodes?.find((n) => n.id === (run.waitingGate ?? null))?.gateId ?? null;
+  return { id: run.id, candidateKey: run.candidateKey, status: run.status, waitingGate: run.waitingGate ?? null, waitingGateId, currentNodeIds, failedNodeIds, error };
 }

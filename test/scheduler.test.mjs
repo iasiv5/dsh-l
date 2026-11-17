@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { computeReady, descendantsOf, gateArrive, applyGateDecision, cancelRun, applyFailure, advanceRun, summarizeRun } from "../src/engine/scheduler.mjs";
-import { LOOP_V1 } from "../src/workflows/builtin.mjs";
+import { LOOP_V1, DEVFLOW_LITE } from "../src/workflows/builtin.mjs";
 
 // a→b（普通支）与 a→c(gate)→d（闸门支）：gate 只闸 d，不闸 b（design-v2 §4 / grill Q9-B）
 const snap = { nodes: [{id:"a"},{id:"b"},{id:"c"},{id:"d"}],
@@ -83,14 +83,28 @@ test("advanceRun ready 化：终态前 run 保持 running（评审 R4 采纳·�
   assert.equal(run.nodeStates.deliver.status, "ready");   // ready 即待执行（M2 执行器接手）
   assert.equal(run.status, "running");                    // deliver 未跑完，run 不终态
   const sum = summarizeRun({ ...run, id: "r1", candidateKey: "k" });
-  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "running", waitingGate: null, currentNodeIds: ["deliver"], failedNodeIds: [], error: null });
+  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "running", waitingGate: null, waitingGateId: null, currentNodeIds: ["deliver"], failedNodeIds: [], error: null });
 });
 test("advanceRun 终态：全 succeeded 才收口（评审 R4 采纳·拆例②）", () => {
   let run = mkRun({ g1: "succeeded", build: "succeeded", verify: "succeeded", g2: "succeeded", deliver: "succeeded" });
   run = advanceRun(run);
   assert.equal(run.status, "succeeded");
   const sum = summarizeRun({ ...run, id: "r1", candidateKey: "k" });
-  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "succeeded", waitingGate: null, currentNodeIds: [], failedNodeIds: [], error: null });
+  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "succeeded", waitingGate: null, waitingGateId: null, currentNodeIds: [], failedNodeIds: [], error: null });
+});
+test("summarizeRun.waitingGateId：快照节点 gateId 语义键（评审 R2-1①）", () => {
+  // devflow-lite requirement waiting：waitingGate 是 nodeId "requirement"，waitingGateId 应为快照 gateId "G1"
+  const devRun = { id: "r2", candidateKey: "k", status: "waiting", waitingGate: "requirement",
+    snapshot: { nodes: DEVFLOW_LITE.nodes, edges: DEVFLOW_LITE.edges },
+    nodeStates: Object.fromEntries(DEVFLOW_LITE.nodes.map((n) => [n.id, { status: n.id === "requirement" ? "waiting" : "pending", attempt: 0, reworkCount: 0, error: null, artifacts: [] }])) };
+  const sum = summarizeRun(devRun);
+  assert.equal(sum.waitingGate, "requirement");
+  assert.equal(sum.waitingGateId, "G1");
+  // loop-v1 G2 waiting：waitingGate "g2" → gateId "G2"
+  const loopRun = { id: "r3", candidateKey: "k", status: "waiting", waitingGate: "g2",
+    snapshot: { nodes: LOOP_V1.nodes, edges: LOOP_V1.edges },
+    nodeStates: Object.fromEntries(LOOP_V1.nodes.map((n) => [n.id, { status: n.id === "g2" ? "waiting" : "succeeded", attempt: 1, reworkCount: 0, error: null, artifacts: [] }])) };
+  assert.equal(summarizeRun(loopRun).waitingGateId, "G2");
 });
 test("summarizeRun.error：首个 failed 节点的 error", () => {
   assert.equal(summarizeRun({ id: "r", candidateKey: "k", status: "failed", waitingGate: null,

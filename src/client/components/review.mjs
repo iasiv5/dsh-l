@@ -37,7 +37,7 @@ export function renderReview(container, { t, candidates, runs, view }) {
   for (const r of out.gateRuns) {
     const c = candidateOf(r.candidateKey);
     const el = card(gatesSec, r.candidateKey + " " + (c?.title ?? ""), r.error);
-    btn(el, t("actions.pass") + "（" + t("gates." + (r.waitingGate ?? "").toUpperCase()) + "）", () => api.runGate(r.id, r.waitingGate, "pass", ""));   // 评审 R1-6/R4：gateId 映射
+    btn(el, t("actions.pass") + "（" + t("gates." + (r.waitingGateId ?? (r.waitingGate ?? "").toUpperCase())) + "）", () => api.runGate(r.id, r.waitingGate, "pass", ""));   // 评审 R1-6/R2-1：快照 gateId 为语义键（waitingGate 是 nodeId）
     btn(el, t("actions.reject"), () => api.runGate(r.id, r.waitingGate, "reject", ""));
     btn(el, t("actions.cancelRun"), () => api.runCancel(r.id, "user"));
   }
