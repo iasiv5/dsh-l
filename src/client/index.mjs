@@ -1,4 +1,5 @@
 import { makeT, createLangSource } from "./i18n.mjs";
+import { badge } from "./badge.mjs";
 import { mountWorkbench } from "./components/workbench.mjs";
 import { installActions } from "./components/actions.mjs";
 
@@ -20,7 +21,10 @@ function PanelIcon(props) {
 
 export function apply(ctx) {
   const lang = createLangSource(ctx);
-  const label = () => makeT(lang.get())("panelLabel");
+  const label = () => {   // 评审 R2：badge 计数接线（T7 Produces 补落盘）
+    const base = makeT(lang.get())("panelLabel");
+    return badge.count > 0 ? makeT(lang.get())("badge.pending").replace("{n}", String(badge.count)) + " · " + base : base;
+  };
 
   function WorkbenchPanel() {
     const ref = React.useRef(null);

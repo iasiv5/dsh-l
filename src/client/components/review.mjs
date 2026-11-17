@@ -1,4 +1,5 @@
 import { needsReview } from "../logic.mjs";
+import { api } from "../api.mjs";
 
 // 待我确认视图（design-v2 §13.5/Q8-A）：三分区收件箱 + 就地动作——
 // gate 等待卡片（G2 放行/驳回）、G3 发版卡片（确认已发版）、failed run 卡片（重试/取消）。
