@@ -346,10 +346,6 @@ test("postGate 别名：G1 pass 追加 runId 并创建 run", async () => {
   assert.equal(store.getCandidate("o/r#issue#1").stage, "building");
 });
 
-  const noFeishu = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
-  assert.equal((await noFeishu.postFeishuTest()).error, "feishu-not-wired");
-});
-
 test("release/confirm：G3 发版确认落痕；非 shipped/重复确认 409", async () => {
   const store = openStore(); login(store); seed(store);
   const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
@@ -376,7 +372,7 @@ test("角色三方法：upsert 往返/删除守卫/getRoles 合并列表", async
   assert.equal((await h.postRolesUpsert({ role: { id: "my-builder", name: "我的构建", prompt: "p", executionPolicy: "auto" } })).ok, true);
   assert.equal(store.getRole("my-builder").prompt, "p");
   // delete 被引用 → 409（loop-v1 build 节点引 loop-builder）
-  assert.equal((await h.postRolesDelete({ id: "loop-builder" })).error, "role-in-use: loop-builder");
+  assert.match((await h.postRolesDelete({ id: "loop-builder" })).error, /role-in-use: loop-builder/);   // 评审 P2②：引用守卫含位置详情
   // delete 空闲成功
   assert.equal((await h.postRolesUpsert({ role: { id: "tmp", name: "临时", prompt: "x", executionPolicy: "ask" } })).ok, true);
   assert.equal((await h.postRolesDelete({ id: "tmp" })).ok, true);

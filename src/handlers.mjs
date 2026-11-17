@@ -1,6 +1,6 @@
 import { candidateKey } from "./store.mjs";
 import { summarizeRun } from "./engine/scheduler.mjs";
-import { BUILTIN_ROLES } from "../workflows/roles.mjs";
+import { BUILTIN_ROLES } from "./workflows/roles.mjs";
 
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 const ACCOUNT_RE = /^[A-Za-z0-9-]{1,39}$/;
@@ -361,7 +361,7 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       const roles = [];
       for (const r of Object.values(BUILTIN_ROLES)) {
         const override = store.getRole(r.id);
-        roles.push({ ...r, ...(override ? { overridden: true } : {}) });
+        roles.push({ ...r, overridden: Boolean(override) });   // 评审 P9③：显式 false/true，不省略
       }
       for (const r of store.listRoles()) {
         if (!BUILTIN_ROLES[r.id]) roles.push({ ...r, builtin: false });
