@@ -86,6 +86,9 @@ test("devflow-lite golden：形状锁（评审 D2/D3 + M6 三件套）", () => {
   assert.equal(byId["mr-open"].maxReworks, 2);
   assert.equal(byId["mr-push-check"].maxReworks, 2);
   assert.equal(byId["mr-open-check"].maxReworks, 2);
+  // M7 产出评审 P2 补锁（计划「两 golden 各增」——devflow-lite 侧独立字面量需独立锁）
+  assert.equal(byId["mr-push-check"].script, "[ -z \"$(git status --porcelain)\" ] || { echo \"存在未提交改动\"; exit 1; }; [ \"$(git rev-list --count HEAD --not --remotes)\" = \"0\" ] || { echo \"存在未推送提交\"; exit 1; }; branch=$(git branch --show-current); [ -n \"$branch\" ] || { echo \"分离 HEAD，不在工作分支\"; exit 1; }; def=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||'); [ \"${def:-main}\" != \"$branch\" ] || { echo \"当前在默认分支 $branch，不在本轮工作分支\"; exit 1; }");
+  assert.equal(byId["mr-open-check"].script, "url=$(gh pr view --json url -q .url 2>/dev/null) && state=$(gh pr view --json state -q .state) && [ \"$state\" = \"OPEN\" ] && head=$(gh pr view --json headRefOid -q .headRefOid) && [ \"$head\" = \"$(git rev-parse HEAD)\" ] && echo \"$url\"");
   assert.equal(byId.deliver.script, 'gh pr view --json url,title,state --jq \'"\\(.url) \\(.title) [\\(.state)]"\'');
   assert.equal(DEVFLOW_LITE.deliverEvidence, "deliver");
   assert.deepEqual(DEVFLOW_LITE.edges.filter((e) => e.kind === "rework").map((e) => [e.source, e.target]),
