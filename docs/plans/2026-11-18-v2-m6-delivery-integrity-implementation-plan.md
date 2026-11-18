@@ -73,7 +73,7 @@
 - [ ] Step 2: 实现 builtin.mjs。三段 script（**runtime 值**；JS 字面量中 \ 双写）：
   - mr-push-check：`[ -z "$(git status --porcelain)" ] || { echo "存在未提交改动"; exit 1; }; [ "$(git rev-list --count HEAD --not --remotes)" = "0" ] || { echo "存在未推送提交"; exit 1; }; branch=$(git branch --show-current); [ -n "$branch" ] || { echo "分离 HEAD，不在工作分支"; exit 1; }; def=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||'); [ "${def:-main}" != "$branch" ] || { echo "当前在默认分支 $branch，不在本轮工作分支"; exit 1; }`（评审 R5 第三查）
   - mr-open-check：`url=$(gh pr view --json url -q .url 2>/dev/null) && state=$(gh pr view --json state -q .state) && [ "$state" = "OPEN" ] && head=$(gh pr view --json headRefOid -q .headRefOid) && [ "$head" = "$(git rev-parse HEAD)" ] && echo "$url"`（评审 R6 head=tip）
-  - deliver：`gh pr view --json url,title,state --jq '\(.url) \(.title) \[\(.state)\]'`——runtime 值单反斜杠；golden deepEqual 锁值。
+  - deliver（评审 R11 修正——jq 插值必须发生在 jq 字符串内，顶层 \( 非法、\[ 非法转义）：runtime 值 = `gh pr view --json url,title,state --jq '"\(.url) \(.title) [\(.state)]"'`（shell 单引号内含 jq 双引号；方括号在 jq 字符串内无特殊义不转义）；golden deepEqual 锁值；**实现后须以 node -e 打印 script 值 + jq 实跑探针双证**（评审教的方法，防转义层再翻车）。
 - [ ] Step 3: Run: 全绿（engine 全链测试会因新节点红——engine.test 夹具在 T3 扩步进；本步允许 engine 段红，T3 后统一验绿）。
 - [ ] Step 4: checkpoint commit（**于 T1–T3 共享验绿点达成后执行**——评审 R9）。
 
@@ -102,12 +102,12 @@
 - 接口契约：
   - Consumes: makeWorkspace 构造参 execFile（已注入）；engine.startRun 的 rid
   - Produces:
-    ① **工作分支（评审 R7，引擎侧方案——与评审建议的 role 侧偏离，理由附后）**：`ensure({key, repo, branch})` clone 成功后追加 `git -C <dir> checkout -b <branch>`（execFile 注入；目录已存在的复用路径不重跑 checkout——分支已在）；engine.startRun 调用改 `workspace.ensure({ key, repo, branch: "dsh-l/" + rid })`——分支名确定性（同 run 重入幂等复用），「工作区永不落默认分支」由引擎保证而非角色自觉；mr-opener 角色无需建分支逻辑（推送当前分支即可），mr-push-check 第三查（T2）与本策略闭合；
+    ① **工作分支（评审 R7，引擎侧方案——与评审建议的 role 侧偏离，理由附后）**：`ensure({key, repo, branch})` 两条路径都落分支（评审 R12 方案 i）——clone 成功后 `git -C <dir> checkout -b <branch>`；**目录复用路径**执行 `git -C <dir> checkout <branch> || git -C <dir> checkout -b <branch>`（跨 run 复用目录时新 rid 从当前 HEAD 起枝，runId↔分支溯源不断裂；同分支已存在则纯 checkout 幂等）；engine.startRun 调用改 `workspace.ensure({ key, repo, branch: "dsh-l/" + rid })`——分支名确定性，「工作区永不落默认分支」由引擎保证而非角色自觉；mr-opener 角色无需建分支逻辑（推送当前分支即可），mr-push-check 第三查（T2）与本策略闭合；
     ② sweep：`async sweep({activeKeys, retentionDays, now})` → `{removed, skipped}`；逐目录：`git -C <dir> status --porcelain`（stdout 非空→跳）+ `git -C <dir> rev-list --count HEAD --not --remotes`（stdout.trim() !== "0"→跳）；任一 execFile reject → 跳过（fail-closed）；host :152 改 `runtime.workspace.sweep({...}).catch((e)=>…)`（try/catch 保留同步面）
   - 偏离说明（供评审复核）：评审建议 mr-opener 角色侧建分支（若在默认分支则 dsh-l/<runId>）——但 build/implement **先于** mr-open 提交，role 侧建分支时提交已落在默认分支上；引擎侧 ensure 后置 checkout 使首个 commit 即落工作分支，不变式由构造保证。若评审坚持 role 侧，此分歧列「待主人决策」。
 - 验证范围：`npm test`（workspace 段）
 
-- [ ] Step 1: 失败测试：ensure 传 branch → clone 后收到 checkout -b 调用（execFile 桩断言参数）；目录已存在 → 不 checkout；sweep 三态（净→removed；脏→skipped；命令失败→skipped）+ 既有用例改 await。
+- [ ] Step 1: 失败测试：ensure 传 branch → clone 后收到 checkout -b 调用（execFile 桩断言参数）；**目录已存在（复用路径，评审 R12-i）→ 收到 checkout <branch>（已存在分支）或 checkout -b <branch>（新 rid 起枝）**；sweep 三态（净→removed；脏→skipped；命令失败→skipped）+ 既有用例改 await。
 - Run: 红。
 - [ ] Step 2: 实现 ensure 分支 + sweep async 化 + host .catch + engine 调用点。
 - [ ] Step 3: Run: 全绿 → checkpoint commit。
