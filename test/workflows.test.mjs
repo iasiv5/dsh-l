@@ -52,6 +52,9 @@ test("loop-v1 golden：形状锁", () => {
   assert.equal(byId["mr-open"].maxAttempts, 2);
   assert.equal(byId["mr-open"].maxReworks, 2);   // R2：缺此首败即 run failed
   assert.equal(byId["mr-push-check"].maxReworks, 2);
+  // M7 T3/§16-12：字节锁（评审 O2 升格——同 deliver 范式；两模板字节相同）
+  assert.equal(byId["mr-push-check"].script, "[ -z \"$(git status --porcelain)\" ] || { echo \"存在未提交改动\"; exit 1; }; [ \"$(git rev-list --count HEAD --not --remotes)\" = \"0\" ] || { echo \"存在未推送提交\"; exit 1; }; branch=$(git branch --show-current); [ -n \"$branch\" ] || { echo \"分离 HEAD，不在工作分支\"; exit 1; }; def=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||'); [ \"${def:-main}\" != \"$branch\" ] || { echo \"当前在默认分支 $branch，不在本轮工作分支\"; exit 1; }");   // M7 T3/§16-12 字节锁（JSON 字面量=合法 JS 双引号形）
+  assert.equal(byId["mr-open-check"].script, "url=$(gh pr view --json url -q .url 2>/dev/null) && state=$(gh pr view --json state -q .state) && [ \"$state\" = \"OPEN\" ] && head=$(gh pr view --json headRefOid -q .headRefOid) && [ \"$head\" = \"$(git rev-parse HEAD)\" ] && echo \"$url\"");   // M7 T3/§16-12 字节锁
   assert.ok(byId["mr-push-check"].script.includes("git branch --show-current"));   // R5 第三查
   assert.ok(byId["mr-push-check"].script.includes("--not --remotes"));
   assert.ok(byId["mr-open-check"].script.includes("headRefOid"));   // R6 head=tip
