@@ -295,3 +295,9 @@ test("startRun 未知 templateId → 404 unknown-template（M4 T8）", async () 
   assert.throws(() => engineDev.startRun("o/r#issue#1", { templateId: "nope" }), /unknown-template/);
   assert.equal(store.listRuns().length, 0);   // 未建 run
 });
+test("startRun 显式 runId 参被采用（M4 契约补全，M5 后落账）", async () => {
+  const { store, engine } = setup();
+  const { runId } = engine.startRun("o/r#issue#1", { runId: "run-custom-1" });
+  assert.equal(runId, "run-custom-1");
+  assert.equal(store.getRun("run-custom-1").candidateKey, "o/r#issue#1");
+});

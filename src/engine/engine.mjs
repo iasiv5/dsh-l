@@ -47,41 +47,42 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, tem
     hasAliveRun: (key) => hasAliveRun(store, key),
     // G1 放行即建 run（评审 D3）：g1 预置 succeeded（其余 pending）；工作区 clone 为引擎首步（评审 D2 异步）。
     // 模板选择（评审 D7）：templateId 缺省 template（loop-v1）；可解析 builtin（loop-v1/devflow-lite）或用户模板。
-    startRun(key, { taskPackage = null, templateId = null } = {}) {
+    // runId 可选参（M4 契约补全，M5 后落账）：缺省 makeRunId——供 postRunStart「先定 runId 再生成含 workflow.runId 的任务包 v2」。
+    startRun(key, { taskPackage = null, templateId = null, runId = null } = {}) {
       if (!store.getCandidate(key)) throw Object.assign(new Error("candidate not found"), { status: 404 });
       if (hasAliveRun(store, key)) throw Object.assign(new Error("run-already-active"), { status: 409 });
       const tpl = templateId
         ? (templates[templateId] ?? (() => { throw Object.assign(new Error("unknown-template: " + templateId), { status: 404 }); })())
         : template;
-      const runId = makeRunId(now);
+      const rid = runId ?? makeRunId(now);
       const entryPreset = Array.isArray(tpl.entryPresucceeded) ? tpl.entryPresucceeded : [];   // 评审 P16：模板级显式声明（审批时序语义，非结构位置泛化）
       const nodeStates = {};
       for (const n of tpl.nodes) {
         const isEntry = entryPreset.includes(n.id);
         nodeStates[n.id] = { status: isEntry ? "succeeded" : "pending", attempt: isEntry ? 1 : 0, reworkCount: 0, error: null, artifacts: [] };
       }
-      store.createRun({ id: runId, candidateKey: key, templateId: tpl.id, templateRevision: tpl.revision,
+      store.createRun({ id: rid, candidateKey: key, templateId: tpl.id, templateRevision: tpl.revision,
         snapshot: clone(tpl), nodeStates, status: "running", cancelReason: null,
         createdAt: now().toISOString(), updatedAt: now().toISOString(), history: [] });
-      syncStage(key, store.getRun(runId));   // run 创建 → 候选 building（§8 映射）
+      syncStage(key, store.getRun(rid));   // run 创建 → 候选 building（§8 映射）
       const repo = store.getCandidate(key).repo;
       workspace.ensure({ key, repo }).then(({ dir }) => {
-        const run = store.getRun(runId); if (!run || run.status !== "running") return;
-        store.appendRunHistory(runId, "workspace.cloned", dir + " remote=gh-https");   // 评审 R1-13：实际 remote 落痕
-        engine.dispatch(runId);
+        const run = store.getRun(rid); if (!run || run.status !== "running") return;
+        store.appendRunHistory(rid, "workspace.cloned", dir + " remote=gh-https");   // 评审 R1-13：实际 remote 落痕
+        engine.dispatch(rid);
       }).catch((err) => {
-        const run = store.getRun(runId); if (!run || run.status !== "running") return;
+        const run = store.getRun(rid); if (!run || run.status !== "running") return;
         const msg = "workspace clone: " + String(err?.message ?? err);
         // 评审 P18 泛化：clone 失败标记「首个 pending 非 gate 节点」（LOOP_V1=build / devflow=design），找不到则仅 run failed
         const firstPending = (run.snapshot.nodes ?? []).find((n) => n.type !== "gate" && run.nodeStates[n.id]?.status === "pending");
         if (firstPending) run.nodeStates[firstPending.id] = { ...run.nodeStates[firstPending.id], status: "failed", error: msg };
         run.status = "failed";                       // 评审 R1-3①/D2：clone 失败 → run failed
         store.saveRun(run);
-        store.appendRunHistory(runId, "workspace.clone-failed", msg);   // 评审 R1-14
-        try { emit?.({ type: "failed", key, runId, error: msg, title: titleOf(key) }); } catch {}
+        store.appendRunHistory(rid, "workspace.clone-failed", msg);   // 评审 R1-14
+        try { emit?.({ type: "failed", key, runId: rid, error: msg, title: titleOf(key) }); } catch {}
         store.setStage(key, "held", "workspace-clone-failed");
       });
-      return { runId };
+      return { runId: rid };
     },
     // 可调度集 = computeReady ∪ ready（去在途）（评审 R1-1）；resume 重派不烧 attempt + sessionId :resume<seq> 防撞（评审 R1-11）。
     dispatch(runId, opts = {}) {

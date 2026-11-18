@@ -1,6 +1,7 @@
-import { candidateKey } from "./store.mjs";
+import { candidateKey, makeRunId } from "./store.mjs";
 import { summarizeRun } from "./engine/scheduler.mjs";
-import { BUILTIN_ROLES } from "./workflows/roles.mjs";
+import { BUILTIN_ROLES, resolveRole } from "./workflows/roles.mjs";
+import { LOOP_V1 } from "./workflows/builtin.mjs";
 
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 const ACCOUNT_RE = /^[A-Za-z0-9-]{1,39}$/;
@@ -51,6 +52,17 @@ export function buildTaskPackage(candidate, repoInfo = null, now = () => new Dat
 
 export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null, workflowCatalog = { templates: [], warnings: [] }, engine = null, feishu = null, templates = {} }) {
   const token = () => provider.resolveToken({ credentials, tokenRef, execFile, ghPath: ghBin });
+  // 任务包 v2 生产接线（M4 契约补全，M5 后落账）：makeRunId 先行 + 首个 agent 节点角色 + workflow 块；
+  // postRunStart 与 postGate 别名两路由共用（防双轨不一致）。
+  const resolveStartTpl = (templateId) => (templateId ? (templates[templateId] ?? null) : LOOP_V1);
+  const buildV2Ctx = (tpl, runId) => {
+    const firstAgent = (tpl?.nodes ?? []).find((n) => n.type === "agent");
+    const role = firstAgent ? resolveRole(firstAgent.roleId, Object.fromEntries(store.listRoles().map((r) => [r.id, r]))) : null;
+    return {
+      role: role ? { roleId: role.id, name: role.name, executionPolicy: role.executionPolicy } : null,
+      workflow: { runId, nodeId: firstAgent?.id ?? null, templateId: tpl.id, templateRevision: tpl.revision ?? null },
+    };
+  };
   // 收活闸门：未绑定 GitHub 账号前，仓库勾选与摄取一律拒绝（design.md §4）。
   const requireAuth = () => (store.getAuth()?.account ? null : fail("auth-required", 401));
   // 登录状态机（进程内存，不落 store）：gh 后台安装与设备流授权的进行时状态。
@@ -244,13 +256,14 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       if (!c) return fail("not found", 404);
       if (c.stage !== "gating") return fail("gate-requires-gating", 409);
       if (decision === "pass") {
-        const pkg = buildTaskPackage(c, store.getRepoFacts(c.repo), now);
+        const runId = makeRunId(now);   // v2 接线（M4 契约补全）：与 postRunStart 同款 runId 先行
+        const pkg = buildTaskPackage(c, store.getRepoFacts(c.repo), now, buildV2Ctx(LOOP_V1, runId));
         store.setGate(key, "G1", "pass", note ?? "", pkg, "workbench-ui");
         store.setStage(key, "building", "G1 pass");
         // M2 别名（design-v2 §12.3）：G1 放行即建 run；pkg 已由上方 setGate 落库（评审 R1-16）。
         if (engine) {
           try {
-            const { runId } = engine.startRun(key, { taskPackage: pkg });
+            engine.startRun(key, { taskPackage: pkg, runId });
             return { ok: true, taskPackage: pkg, runId };
           } catch (e) { return fail(String(e?.message ?? e), e?.status ?? 400); }
         }
@@ -269,11 +282,15 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       if (!c) return fail("not found", 404);
       if (engine.hasAliveRun(key)) return fail("run-already-active", 409);   // 评审 R1-5：先于闸门校验
       if (c.stage !== "gating") return fail("gate-requires-gating", 409);
-      const pkg = buildTaskPackage(c, store.getRepoFacts(c.repo), now);
+      const templateId = body?.templateId ?? null;
+      const tpl = resolveStartTpl(templateId);
+      if (!tpl) return fail("unknown-template: " + templateId, 404);   // 早守卫：不动候选即拒
+      const runId = makeRunId(now);   // runId 先行（M4 契约）：包内 workflow.runId 与 run 落库一致
+      const pkg = buildTaskPackage(c, store.getRepoFacts(c.repo), now, buildV2Ctx(tpl, runId));
       store.setGate(key, "G1", "pass", body?.note ?? "", pkg, "workbench-ui");
       store.setStage(key, "building", "G1 pass");
       try {
-        const { runId } = engine.startRun(key, { taskPackage: pkg });
+        engine.startRun(key, { taskPackage: pkg, templateId, runId });
         return { ok: true, taskPackage: pkg, runId, workspace: "cloning" };
       } catch (e) { return fail(String(e?.message ?? e), e?.status ?? 400); }
     },

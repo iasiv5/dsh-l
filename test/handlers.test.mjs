@@ -304,6 +304,44 @@ const fakeRunExecutor = () => {
 };
 const drainRun = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
 
+test("任务包 v2 生产接线（M4 残留落账）：postRunStart 产 v2 包 + runId 先行 + unknown-template 早守卫", async () => {
+  const store = openStore(); login(store); seed(store);
+  const { makeEngine } = await import("../src/engine/engine.mjs");
+  const engine = makeEngine({ store, workspace: fakeRunWorkspace(), executor: fakeRunExecutor(), concurrencyOf: () => 2 });
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine });
+  await h.postStage({ key: "o/r#issue#1", stage: "gating" });
+  // unknown-template：404 且不动候选（setGate/setStage 未发生）
+  const bad = await h.postRunStart({ key: "o/r#issue#1", templateId: "nope" });
+  assert.match(bad.error, /unknown-template/);
+  assert.equal(store.getCandidate("o/r#issue#1").stage, "gating");
+  assert.equal(store.listRuns().length, 0);
+  // 正常启动：v2 包 + runId 先行（workflow.runId === 返回 runId）
+  const r = await h.postRunStart({ key: "o/r#issue#1" });
+  assert.equal(r.taskPackage.version, 2);
+  assert.equal(r.taskPackage.role.roleId, "loop-builder");
+  assert.equal(r.taskPackage.role.name, "Loop 构建者");
+  assert.equal(r.taskPackage.role.executionPolicy, "auto");
+  assert.equal(r.taskPackage.workflow.runId, r.runId);
+  assert.equal(r.taskPackage.workflow.templateId, "loop-v1");
+  assert.equal(r.taskPackage.workflow.nodeId, "build");
+  assert.ok(r.taskPackage.workflow.templateRevision);
+  // run 落库与包一致；落库包同为 v2
+  assert.equal(store.getRun(r.runId).candidateKey, "o/r#issue#1");
+  assert.equal(store.getCandidate("o/r#issue#1").taskPackage.version, 2);
+});
+test("任务包 v2 生产接线：postGate 别名路由同款 v2（双路由一致，防双轨）", async () => {
+  const store = openStore(); login(store); seed(store);
+  const { makeEngine } = await import("../src/engine/engine.mjs");
+  const engine = makeEngine({ store, workspace: fakeRunWorkspace(), executor: fakeRunExecutor(), concurrencyOf: () => 2 });
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine });
+  await h.postStage({ key: "o/r#issue#1", stage: "gating" });
+  const r = await h.postGate({ key: "o/r#issue#1", gate: "G1", decision: "pass" });
+  assert.equal(r.taskPackage.version, 2);
+  assert.equal(r.taskPackage.role.roleId, "loop-builder");
+  assert.equal(r.taskPackage.workflow.runId, r.runId);
+  assert.equal(r.taskPackage.workflow.templateId, "loop-v1");
+});
+
 test("run 路由：start 链/409/gate/cancel/retry/engine 缺省 503", async () => {
   const store = openStore(); login(store); seed(store);
   store.setRepoFacts("o/r", { defaultBranch: "trunk", cloneUrl: "git@github.com:o/r.git" });
