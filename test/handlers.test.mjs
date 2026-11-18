@@ -441,11 +441,17 @@ test("feishu 路由：webhook 写入 credentials、测试发送走注入通知�
   const notifier = { sendNotice: async (t) => ({ sent: true, text: t }), testSend: async () => ({ sent: true }) };
   const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, credentials,
     feishu: { notifier, setWebhook: async (url) => { await credentials.set("DSH_L_FEISHU_WEBHOOK_URL", url); } } });
+  const PREFIX = "https://open.feishu.cn/open-apis/bot/v2/hook/";
   assert.equal((await h.putFeishuWebhook({ url: "http://evil" })).error, "invalid webhook");
-  assert.equal((await h.putFeishuWebhook({ url: "https://open.feishu.cn/open-apis/bot/v2/hook/" })).error, "invalid webhook");   // M5 T3：空 token
-  assert.equal((await h.putFeishuWebhook({ url: "https://open.feishu.cn/open-apis/bot/v2/hook/   " })).error, "invalid webhook");   // M5 T3：空白 token（评审 R-10）
-  assert.equal((await h.putFeishuWebhook({ url: "https://open.feishu.cn/open-apis/bot/v2/hook/abc" })).ok, true);
-  assert.deepEqual(saved, [["DSH_L_FEISHU_WEBHOOK_URL", "https://open.feishu.cn/open-apis/bot/v2/hook/abc"]]);
+  assert.equal((await h.putFeishuWebhook({ url: PREFIX })).error, "invalid webhook");   // M5 T3：空 token
+  assert.equal((await h.putFeishuWebhook({ url: PREFIX + "   " })).error, "invalid webhook");   // M5 T3：空白 token（评审 R-10）
+  // M7 T2/§16-3（评审建议11 粒度）：合法 token trim 入库 + 纯空白仍拒回归
+  assert.equal((await h.putFeishuWebhook({ url: PREFIX + "tok  " })).ok, true);
+  assert.equal(saved.at(-1)[1], PREFIX + "tok");   // trim 后入库
+  assert.equal((await h.putFeishuWebhook({ url: PREFIX + "   " })).error, "invalid webhook");
+  assert.equal((await h.putFeishuWebhook({ url: PREFIX + "abc" })).ok, true);
+  assert.equal(saved.at(-1)[1], PREFIX + "abc");
+  assert.equal(saved.length, 2);   // 拒单不落库
   const r = await h.postFeishuTest();
   assert.equal(r.sent, true);
   const noFeishu = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });

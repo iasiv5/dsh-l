@@ -339,7 +339,7 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       const url = String(body?.url ?? "");
       const PREFIX = "https://open.feishu.cn/open-apis/bot/v2/hook/";
       if (!url.startsWith(PREFIX) || !url.slice(PREFIX.length).trim()) return fail("invalid webhook");   // M5 T3：空/空白 token 一并挡（评审 R-10）
-      await feishu.setWebhook(url);
+      await feishu.setWebhook(PREFIX + url.slice(PREFIX.length).trim());   // M7 T2/§16-3：合法 token trim 入库
       return { ok: true };
     },
     // 角色三方法（design-v2 §14/M4 T6）：引用守卫在 handler 侧（templates 全量定义 + 存活 run 快照）。
