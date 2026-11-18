@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildRuntime } from "../src/host.mjs";
@@ -33,7 +33,7 @@ test("host 冒烟①：buildRuntime 不抛 + 路由表关键键在位（M4/M2 �
   const restore = setupEnv();
   try {
     const rt = buildRuntime(stubCtx(), {});
-    for (const key of ["/dsh-l/roles", "/dsh-l/run/start", "/dsh-l/release/confirm", "/dsh-l/feishu/test", "/dsh-l/roles/delete"]) {
+    for (const key of ["/dsh-l/roles", "/dsh-l/run/start", "/dsh-l/release/confirm", "/dsh-l/feishu/test", "/dsh-l/roles/delete", "/dsh-l/models", "/dsh-l/triage", "/dsh-l/settings", "/dsh-l/watch"]) {   // M7 §16-4：断言扩集
       assert.ok(rt.table[key], "路由表缺 " + key);
     }
     assert.ok(rt.table["/dsh-l/roles"].GET && rt.table["/dsh-l/roles"].POST, "/dsh-l/roles 需 GET+POST");
@@ -57,5 +57,69 @@ test("host 冒烟③：角色解析源探针（store.upsertRole→store.listRole
     const rt = buildRuntime(stubCtx(), {});
     rt.store.upsertRole({ id: "smoke-role", name: "冒烟角色", prompt: "p", executionPolicy: "ask" });
     assert.equal(rt.store.listRoles().find((r) => r.id === "smoke-role").name, "冒烟角色");
+  } finally { restore(); }
+});
+
+// M7 T1：捕获型 stub（prompt 走 handle.agent.send 通道——评审问题2 实文修正）
+const stubCtxCapture = () => {
+  const captured = { create: [], send: [] };
+  const ctx = {
+    credentials: { set: async () => {}, resolve: async () => null },
+    workingDirectory: { set: async () => {} },
+    approval: { setPolicy: async () => {} },
+    on: () => () => {},
+    agentDefaultModel: null,
+    agents: { create: async (sessionId, opts) => {
+      captured.create.push({ sessionId, opts });
+      return { agent: { send: (msg) => captured.send.push({ sessionId, msg }) } };
+    } },
+    llm: {}, timer: {}, webServer: {},
+  };
+  return { ctx, captured };
+};
+const FAKE_GH = `#!/usr/bin/env bash
+# 评审问题4 豁免口径：tmp 内自建假 gh（clone=本地 git init+seed；其余输出 JSON），无网络无远端
+if [ "$1" = "repo" ] && [ "$2" = "clone" ]; then
+  mkdir -p "$4" && cd "$4" || exit 1
+  git init -q
+  git -c user.email=a@b -c user.name=t commit --allow-empty -q -m seed
+  exit 0
+fi
+echo '{"url":"https://x/pr/1","title":"T","state":"OPEN","headRefOid":"x"}'
+exit 0`;
+const waitFor = async (fn, timeout = 5000) => { const t0 = Date.now(); while (!fn()) { if (Date.now() - t0 > timeout) throw new Error("waitFor timeout"); await new Promise((r) => setTimeout(r, 10)); } };
+
+test("host 冒烟③升格（M7 T1/评审 R-问题2/3）：rolePrompt 端到端锚——listRoles 闭包 → resolveRole → world.send", async () => {
+  const restore = setupEnv();
+  try {
+    const { ctx, captured } = stubCtxCapture();
+    const rt = buildRuntime(ctx, {});
+    // 假 gh 脚本（spawn 豁免口径见计划 T1）
+    const binDir = join(rt.dir, "bin");
+    mkdirSync(binDir, { recursive: true });
+    writeFileSync(join(binDir, "gh"), FAKE_GH);
+    chmodSync(join(binDir, "gh"), 0o755);
+    seed(rt.store);
+    rt.store.upsertRole({ id: "devflow-architect", name: "覆盖架构师", prompt: "USER-OVERRIDE-MARKER-7f3 覆盖提示词", executionPolicy: "ask" });
+    const t0 = Date.now(); const log = (m) => console.log("T1", Math.round((Date.now() - t0) / 100) / 10 + "s", m);
+    const { runId } = rt.engine.startRun("o/r#issue#1", { templateId: "devflow-lite" });
+    log("started");
+    // 三层轮候（评审问题3 探针节拍）：①waiting（ensure 收敛）②G1 pass ③send 被调
+    await waitFor(() => rt.store.getRun(runId).status === "waiting");
+    log("waiting reached, hist=" + JSON.stringify(rt.store.getRun(runId).history.map(h => h.event)));
+    rt.engine.applyGateDecision(runId, "requirement", "pass");
+    log("g1 passed");
+    await waitFor(() => captured.send.length > 0);
+    log("send captured");
+    const texts = captured.send.map((s) => s.msg.content?.[0]?.text ?? "");
+    assert.ok(texts.some((x) => x.includes("USER-OVERRIDE-MARKER-7f3")), "覆盖角色 prompt 未达 world.send——listRoles 注入断链");
+    // agentOptions 空形态（评审建议5 零成本侧）
+    // ctx.agents.create 收单对象 {sessionId, meta, agentOptions, setup}（host.mjs:51）——agentOptions 在 sessionId 字段内
+    const ao = captured.create[0].sessionId.agentOptions;
+    assert.equal(ao.provider, "");
+    assert.equal(ao.model, "");   // 空形态（评审建议5；reasoningEffort:undefined 键不入断言——deepStrictEqual 键集敏感）
+    // 收尾：cancelRun 清 runAgentNode 的 30min 超时 timer（fake world 永不 turn/end——否则事件循环被挂起 timer 拖住，文件级 ~60s 强制中断）
+    rt.engine.cancelRun(runId, "smoke-end");
+    await new Promise((r) => setTimeout(r, 20));
   } finally { restore(); }
 });
