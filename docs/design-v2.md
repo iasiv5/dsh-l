@@ -229,3 +229,10 @@ coordinator adapter（会话协调者，role→派发缝）、sub-SOP / preview-
 6. **脱密守护（上游吸收项折叠）**：executor script env 白名单测试——断言注入 env 键集不含 `_TOKEN/_KEY/_SECRET/_PASSWORD` 后缀键（固化现状卫生，防上游 docker exec 泄密同型）。
 7. **发版（Q7-A）**：M6 产出评审通过后 `npm publish 0.1.0`（版本已 bump 未发，无需再 bump）；publish 后走 §16-11 后置事项。
 8. **不变式**：G1/G2/G3 全部人工放行不动；MR 环节全部位于 G2 之后（交付物成型）、G3 确认（发版拍板）之前；三闸门语义零变化。
+
+9. **落地补钉（M6 计划评审 R2/R3/R5–R7 修订，2026-11-18）**：
+   - **工作分支引擎侧落地（R7）**：ensure 后置 `git checkout -b dsh-l/<runId>`（engine 传 branch 参）——「工作区永不落默认分支」由构造保证；mr-push-check 第三查=当前分支非空且 ≠ 默认分支（symbolic-ref 解参照值，退化 main）。
+   - **rework 后代失效（R3）**：applyFailure rework 分支对齐驳回语义——target → ready + descendantsOf(target) 非 pending → skipped（error 字段保留）；advanceRun 既有 skipped 重激活令其逐个重走。**语义明示：g2 随 rework 重过人工放行**——重建后的代码是新交付物，须重新拍板（上游 onExhausted:human 的等价保真）。
+   - **反馈通道保真（R3 连带）**：upstreamOf 改 error 优先、状态无关——skipped 化检查节点的失败文本仍进重臂 agent 的 prompt。
+   - **mr-open maxReworks:2（R2）**：凡带 rework 出边的节点必带 maxReworks（applyFailure exhausted 语义）。
+   - **mr-open-check head=本地 HEAD（R6）**：headRefOid vs git rev-parse HEAD——防旧 MR/旧 head 假绿。
