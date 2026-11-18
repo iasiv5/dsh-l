@@ -294,9 +294,9 @@ test("postAuthLogout：只清绑定，watch/设置保留；refresh 重新 401", 
 // ---- Task 9：run 四路由 + postGate 别名（engine 真 makeEngine + fake workspace/executor）----
 const fakeRunWorkspace = () => ({ ensure: async () => ({ dir: "/ws", cloned: false }), dirOf: () => "/ws", sweep: async () => ({ removed: [] }) });
 const fakeRunExecutor = () => {
-  const inflight = new Map();
-  const exe = { inflight,
-    runAgentNode(args) { const { run, node } = args; const key = run.id + ":" + node.id; const entry = {}; inflight.set(key, entry);
+  const inflight = new Map(); const sent = [];
+  const exe = { inflight, sent,
+    runAgentNode(args) { const { run, node } = args; const key = run.id + ":" + node.id; const entry = {}; inflight.set(key, entry); sent.push({ sessionId: key, msg: { text: (args.prompt ?? '') + JSON.stringify(args.upstream ?? []).slice(0, 200) } });
       const promise = new Promise((resolve) => { entry.resolve = (r) => { inflight.delete(key); resolve(r); }; });
       return { promise, cancel: () => entry.resolve({ ok: false, error: "cancelled" }) }; },
     runScriptNode(args) { return exe.runAgentNode(args); } };

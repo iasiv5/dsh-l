@@ -15,12 +15,12 @@ const fakeWorkspace = (fail = false) => ({
 });
 // fake executor：agent/script 可手工放行；cancel 记账；lastArgs 供 upstream 断言（评审 R1-10）
 const fakeExecutor = () => {
-  const inflight = new Map();
+  const inflight = new Map(); const sent = [];   // M6 钉例(d)：prompt/upstream 记录
   const exe = {
-    inflight, lastArgs: null,
+    inflight, lastArgs: null, sent,
     runAgentNode(args) {
       const { run, node } = args; const key = run.id + ":" + node.id; const entry = {}; inflight.set(key, entry);
-      exe.lastArgs = args;
+      exe.lastArgs = args; sent.push({ sessionId: key, msg: { text: (args.prompt ?? "") + (args.upstream?.length ? " UP[" + args.upstream.map((u) => u.node + ":" + u.text).join("|") + "]" : "") } });
       const promise = new Promise((resolve) => { entry.resolve = (r) => { inflight.delete(key); resolve(r); }; });
       return { promise, cancel: () => { entry.cancelled = true; entry.resolve({ ok: false, error: "cancelled" }); } };
     },
@@ -42,7 +42,7 @@ const setupDevflow = () => {
   return { ...s, engineDev };
 };
 const nodeState = (store, runId, id) => store.getRun(runId).nodeStates[id].status;
-const drain = async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); };
+const drain = async () => { for (let i = 0; i < 16; i++) await Promise.resolve(); };   // M6：rework 后代失效链多一拍
 
 test("startRun：g1 预置 succeeded、候选 building、存活 run 二次 start 409", async () => {
   const { store, engine } = setup();
@@ -69,6 +69,9 @@ test("全链：build(agent)→verify(script)→G2 挂起→pass→deliver→run 
   assert.equal(store.getCandidate(key).stage, "gating");
   engine.applyGateDecision(runId, "g2", "pass");
   await drain();
+  executor.inflight.get(runId + ":mr-open").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":mr-push-check").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":mr-open-check").resolve({ ok: true, error: null, artifacts: [] }); await drain();
   assert.equal(nodeState(store, runId, "deliver"), "running");
   executor.inflight.get(runId + ":deliver").resolve({ ok: true, error: null, artifacts: [] });
   await drain();
@@ -147,6 +150,9 @@ test("钉例②retry：failed run → retryNode → attempt+1 → ready 且 run.
   executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drain();
   executor.inflight.get(runId + ":verify").resolve({ ok: true, error: null, artifacts: [] }); await drain();
   engine.applyGateDecision(runId, "g2", "pass"); await drain();
+  executor.inflight.get(runId + ":mr-open").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":mr-push-check").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":mr-open-check").resolve({ ok: true, error: null, artifacts: [] }); await drain();
   executor.inflight.get(runId + ":deliver").resolve({ ok: false, error: "push rejected", artifacts: [] }); await drain();
   assert.equal(store.getRun(runId).status, "failed");
   engine.retryNode(runId, "deliver");   // deliver maxAttempts:2，attempt 1→2 ≤ 2
@@ -182,6 +188,9 @@ test("钉例⑤failed run 上重试 succeeded 节点 → 节点级守卫 409（�
   executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drain();
   executor.inflight.get(runId + ":verify").resolve({ ok: true, error: null, artifacts: [] }); await drain();
   engine.applyGateDecision(runId, "g2", "pass"); await drain();
+  executor.inflight.get(runId + ":mr-open").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":mr-push-check").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":mr-open-check").resolve({ ok: true, error: null, artifacts: [] }); await drain();
   executor.inflight.get(runId + ":deliver").resolve({ ok: false, error: "push rejected", artifacts: [] }); await drain();
   assert.equal(store.getRun(runId).status, "failed");
   assert.equal(nodeState(store, runId, "verify"), "succeeded");
@@ -214,6 +223,9 @@ test("recover：run.status=running 但无 running 节点的窄窗状态也被拾
   executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drain();
   executor.inflight.get(runId + ":verify").resolve({ ok: true, error: null, artifacts: [] }); await drain();
   engine.applyGateDecision(runId, "g2", "pass"); await drain();
+  executor.inflight.get(runId + ":mr-open").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":mr-push-check").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":mr-open-check").resolve({ ok: true, error: null, artifacts: [] }); await drain();
   assert.equal(nodeState(store, runId, "deliver"), "running");
   // 模拟「进程死在 dispatch 内 saveRun 与 inflight 登记之间」：deliver 回 ready、run 仍 running、无在途
   engine.simulateRestart();
@@ -244,6 +256,9 @@ test("emit：G2 挂起与 run failed 各一条；成功路径零通知", async (
   assert.equal(gateEvt.nodeId, "g2");   // 评审 P3②：nodeId=闸节点 id，与 waitingGate/api.runGate 同域
   engine.applyGateDecision(runId, "g2", "pass");
   await drain();
+  executor.inflight.get(runId + ":mr-open").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":mr-push-check").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":mr-open-check").resolve({ ok: true, error: null, artifacts: [] }); await drain();
   executor.inflight.get(runId + ":deliver").resolve({ ok: false, error: "push rejected", artifacts: [] }); await drain();
   const failedEvt = events.find((e) => e.type === "failed");
   assert.equal(failedEvt.error, "push rejected");
@@ -284,6 +299,9 @@ test("devflow-lite 全链钉例（M4 T8）：requirement(gate)→design→implem
   assert.equal(nodeState(store, runId, "g2"), "waiting");
   engineDev.applyGateDecision(runId, "g2", "pass");
   await drain();
+  executor.inflight.get(runId + ":mr-open").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":mr-push-check").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":mr-open-check").resolve({ ok: true, error: null, artifacts: [] }); await drain();
   assert.equal(nodeState(store, runId, "deliver"), "running");
   executor.inflight.get(runId + ":deliver").resolve({ ok: true, error: null, artifacts: [] }); await drain();
   assert.equal(store.getRun(runId).status, "succeeded");
@@ -300,4 +318,70 @@ test("startRun 显式 runId 参被采用（M4 契约补全，M5 后落账）", a
   const { runId } = engine.startRun("o/r#issue#1", { runId: "run-custom-1" });
   assert.equal(runId, "run-custom-1");
   assert.equal(store.getRun("run-custom-1").candidateKey, "o/r#issue#1");
+});
+test("M6 钉例(a)：mr-push-check 失败 → build 重臂 + 后代 skipped（评审 R3 后代失效）", async () => {
+  const { store, engine, executor } = setup();
+  const { runId } = engine.startRun("o/r#issue#1", {});
+  await drain();
+  executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":verify").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  engine.applyGateDecision(runId, "g2", "pass"); await drain();
+  executor.inflight.get(runId + ":mr-open").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":mr-push-check").resolve({ ok: false, error: "存在未提交改动: x.ts", artifacts: [] }); await drain();
+  const run = store.getRun(runId);
+  assert.equal(run.status, "running");   // 未 failed（rework 预算内）
+  assert.equal(run.nodeStates.build.status, "running");   // 重臂且已派发
+  assert.equal(run.nodeStates.verify.status, "skipped");   // 后代失效（R3）
+  assert.equal(run.nodeStates.g2.status, "skipped");
+  assert.equal(run.nodeStates["mr-open"].status, "skipped");
+  assert.equal(run.nodeStates["mr-push-check"].status, "skipped");   // 失败源亦 skipped（error 保留供 upstream）
+});
+test("M6 钉例(b)：全链恢复——build 重跑 → skipped 重激活 → g2 重过人工闸 → succeeded + deliver.mr 落痕", async () => {
+  const { store, engine, executor } = setup();
+  const { runId } = engine.startRun("o/r#issue#1", {});
+  await drain();
+  executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":verify").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  engine.applyGateDecision(runId, "g2", "pass"); await drain();
+  executor.inflight.get(runId + ":mr-open").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":mr-push-check").resolve({ ok: false, error: "存在未提交改动", artifacts: [] }); await drain();
+  // build 重跑（带反馈）→ verify 重走 → g2 重过（人工）→ 三件 → deliver
+  executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  assert.equal(nodeState(store, runId, "verify"), "running");   // skipped 重激活
+  executor.inflight.get(runId + ":verify").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  assert.equal(nodeState(store, runId, "g2"), "waiting");   // 人工重放行（§17.9 语义明示）
+  engine.applyGateDecision(runId, "g2", "pass"); await drain();
+  executor.inflight.get(runId + ":mr-open").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":mr-push-check").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":mr-open-check").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":deliver").resolve({ ok: true, error: null, artifacts: ["https://github.com/o/r/pull/9 标题 [OPEN]"] }); await drain();
+  assert.equal(store.getRun(runId).status, "succeeded");
+  assert.equal(store.getCandidate("o/r#issue#1").stage, "shipped");
+  const evt = store.getRun(runId).history.find((h) => h.event === "deliver.mr");
+  assert.ok(evt && evt.detail.includes("https://github.com/o/r/pull/9"));   // D4 落痕
+});
+test("M6 钉例(c)：mr-open 失败（maxReworks:2，评审 R2）→ rework 回 build 非 run failed", async () => {
+  const { store, engine, executor } = setup();
+  const { runId } = engine.startRun("o/r#issue#1", {});
+  await drain();
+  executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":verify").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  engine.applyGateDecision(runId, "g2", "pass"); await drain();
+  executor.inflight.get(runId + ":mr-open").resolve({ ok: false, error: "gh: 凭据无效", artifacts: [] }); await drain();
+  assert.equal(store.getRun(runId).status, "running");   // 首败在预算内（R2 修复前此处即 failed）
+  assert.equal(nodeState(store, runId, "build"), "running");
+});
+test("M6 钉例(d)：rework 反馈文本进 build prompt（upstreamOf error 优先，评审 R3 连带）", async () => {
+  const { store, engine, executor } = setup();
+  const { runId } = engine.startRun("o/r#issue#1", {});
+  await drain();
+  executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":verify").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  engine.applyGateDecision(runId, "g2", "pass"); await drain();
+  executor.inflight.get(runId + ":mr-open").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":mr-push-check").resolve({ ok: false, error: "存在未提交改动: a.ts", artifacts: [] }); await drain();
+  // build 重派的 prompt 应含 check 的失败文本（fakeExecutor 记录 sent prompt）
+  const buildSents = executor.sent.filter((s) => s.sessionId.endsWith(":build"));   // fake key 形如 run-xxx:build（无 attempt 段）
+  assert.ok(buildSents.length >= 2, "build 应被重派（含反馈轮）");
+  assert.ok(buildSents.at(-1).msg.text.includes("存在未提交改动: a.ts"), "反馈文本未进 build prompt");
 });

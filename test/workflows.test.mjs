@@ -37,8 +37,8 @@ test("revision 稳定且内容敏感", () => {
 test("loop-v1 golden：形状锁", () => {
   assert.equal(LOOP_V1.id, "loop-v1");
   assert.equal(LOOP_V1.builtin, true);
-  assert.deepEqual(LOOP_V1.nodes.map((n) => n.id), ["g1", "build", "verify", "g2", "deliver"]);
-  assert.deepEqual(LOOP_V1.nodes.map((n) => n.type), ["gate", "agent", "script", "gate", "script"]);
+  assert.deepEqual(LOOP_V1.nodes.map((n) => n.id), ["g1", "build", "verify", "g2", "mr-open", "mr-push-check", "mr-open-check", "deliver"]);
+  assert.deepEqual(LOOP_V1.nodes.map((n) => n.type), ["gate", "agent", "script", "gate", "agent", "script", "script", "script"]);
   const byId = Object.fromEntries(LOOP_V1.nodes.map((n) => [n.id, n]));
   assert.equal(byId.g1.gateId, "G1");
   assert.equal(byId.build.executionPolicy, "auto");
@@ -46,15 +46,30 @@ test("loop-v1 golden：形状锁", () => {
   assert.equal(byId.verify.maxReworks, 3);
   assert.equal(byId.g2.gateId, "G2");
   assert.equal(byId.g2.rejectTarget, "build");
+  // M6 三件套（评审 R2/R5/R6/D3）
+  assert.equal(byId["mr-open"].roleId, "mr-opener");
+  assert.equal(byId["mr-open"].executionPolicy, "auto");
+  assert.equal(byId["mr-open"].maxAttempts, 2);
+  assert.equal(byId["mr-open"].maxReworks, 2);   // R2：缺此首败即 run failed
+  assert.equal(byId["mr-push-check"].maxReworks, 2);
+  assert.ok(byId["mr-push-check"].script.includes("git branch --show-current"));   // R5 第三查
+  assert.ok(byId["mr-push-check"].script.includes("--not --remotes"));
+  assert.ok(byId["mr-open-check"].script.includes("headRefOid"));   // R6 head=tip
+  assert.equal(byId["mr-open-check"].maxReworks, 2);
+  // R4/R11：deliver script 值字节级锁（jq 双引号插值形）
+  assert.equal(byId.deliver.script, 'gh pr view --json url,title,state --jq \'"\\(.url) \\(.title) [\\(.state)]"\'');
+  assert.equal(LOOP_V1.deliverEvidence, "deliver");   // D4 落痕字段
   assert.deepEqual(LOOP_V1.edges.map((e) => [e.source, e.target, e.kind]),
-    [["g1","build","success"],["build","verify","success"],["verify","build","rework"],["verify","g2","success"],["g2","deliver","success"]]);
+    [["g1","build","success"],["build","verify","success"],["verify","build","rework"],["verify","g2","success"],
+     ["g2","mr-open","success"],["mr-open","mr-push-check","success"],["mr-push-check","mr-open-check","success"],["mr-open-check","deliver","success"],
+     ["mr-open","build","rework"],["mr-push-check","build","rework"],["mr-open-check","build","rework"]]);
   assert.equal(validateTemplate(LOOP_V1).ok, true);
   assert.match(LOOP_V1.revision, /^[0-9a-f]{40}$/);
 });
-test("devflow-lite golden：形状锁（评审 D2/D3）", () => {
+test("devflow-lite golden：形状锁（评审 D2/D3 + M6 三件套）", () => {
   assert.equal(DEVFLOW_LITE.id, "devflow-lite");
   assert.equal(DEVFLOW_LITE.builtin, true);
-  assert.deepEqual(DEVFLOW_LITE.nodes.map((n) => n.id), ["requirement", "design", "implement", "review", "test", "g2", "deliver"]);
+  assert.deepEqual(DEVFLOW_LITE.nodes.map((n) => n.id), ["requirement", "design", "implement", "review", "test", "g2", "mr-open", "mr-push-check", "mr-open-check", "deliver"]);
   const byId = Object.fromEntries(DEVFLOW_LITE.nodes.map((n) => [n.id, n]));
   assert.equal(byId.requirement.gateId, "G1");
   assert.equal(byId.design.roleId, "devflow-architect");
@@ -64,6 +79,14 @@ test("devflow-lite golden：形状锁（评审 D2/D3）", () => {
   assert.equal(byId.review.maxReworks, 2);
   assert.equal(byId.g2.gateId, "G2");
   assert.equal(byId.g2.rejectTarget, "implement");
+  assert.equal(byId["mr-open"].roleId, "mr-opener");
+  assert.equal(byId["mr-open"].maxReworks, 2);
+  assert.equal(byId["mr-push-check"].maxReworks, 2);
+  assert.equal(byId["mr-open-check"].maxReworks, 2);
+  assert.equal(byId.deliver.script, 'gh pr view --json url,title,state --jq \'"\\(.url) \\(.title) [\\(.state)]"\'');
+  assert.equal(DEVFLOW_LITE.deliverEvidence, "deliver");
+  assert.deepEqual(DEVFLOW_LITE.edges.filter((e) => e.kind === "rework").map((e) => [e.source, e.target]),
+    [["review","implement"], ["mr-open","implement"], ["mr-push-check","implement"], ["mr-open-check","implement"]]);
   assert.equal(validateTemplate(DEVFLOW_LITE).ok, true);
   assert.match(DEVFLOW_LITE.revision, /^[0-9a-f]{40}$/);
 });

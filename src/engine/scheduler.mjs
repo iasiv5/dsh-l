@@ -94,7 +94,14 @@ export function applyFailure(run, nodeId, error) {
     status = "failed";
     hold = node.onFailure === "hold";
   } else {
-    for (const e of reworkEdges) nodeStates[e.target] = { ...nodeStates[e.target], status: "ready" };
+    // 评审 R3/M6：rework 对齐驳回语义——target→ready 且其后代非 pending→skipped（error 经 spread 保留，
+    // upstreamOf error 优先读取保反馈；advanceRun 既有 skipped 重激活令其在 target 重跑后逐个重走）。
+    for (const e of reworkEdges) {
+      nodeStates[e.target] = { ...nodeStates[e.target], status: "ready" };
+      for (const d of descendantsOf(run.snapshot, e.target)) {
+        if (nodeStates[d].status !== "pending") nodeStates[d] = { ...nodeStates[d], status: "skipped" };
+      }
+    }
   }
   return { ...run, nodeStates, status, hold };
 }

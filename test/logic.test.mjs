@@ -51,7 +51,7 @@ test("stripCells：前环计数 + 环内模板节点全灰", () => {
   assert.equal(out.pre[0].count, 2);   // stageCounts.ingest = all.length（logic.mjs:38，评审 R5 采纳）
   assert.equal(out.pre[1].count, 1);   // backlog = stage==="inbox" 计数（logic.mjs:39）
   assert.equal(out.fallback, false);
-  assert.deepEqual(out.loop.map((n) => n.id), ["g1", "build", "verify", "g2", "deliver"]);
+  assert.deepEqual(out.loop.map((n) => n.id), ["g1", "build", "verify", "g2", "mr-open", "mr-push-check", "mr-open-check", "deliver"]);   // M6 三件套
   assert.ok(out.loop.every((n) => n.dim === true));   // M1 无执行器，环内恒灰
 });
 test("stripCells：无 workflow meta 回退旧 7 段", () => {

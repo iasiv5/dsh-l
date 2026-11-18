@@ -78,7 +78,7 @@ test("verify 失败回炉 build，第 4 次超限 run failed", () => {
   assert.match(run.nodeStates.verify.error, /again/);
 });
 test("advanceRun ready 化：终态前 run 保持 running（评审 R4 采纳·拆例①）", () => {
-  let run = mkRun({ g1: "succeeded", build: "succeeded", verify: "succeeded", g2: "succeeded" });
+  let run = mkRun({ g1: "succeeded", build: "succeeded", verify: "succeeded", g2: "succeeded", "mr-open": "succeeded", "mr-push-check": "succeeded", "mr-open-check": "succeeded" });   // M6 三件套补态
   run = advanceRun(run);
   assert.equal(run.nodeStates.deliver.status, "ready");   // ready 即待执行（M2 执行器接手）
   assert.equal(run.status, "running");                    // deliver 未跑完，run 不终态
@@ -86,7 +86,7 @@ test("advanceRun ready 化：终态前 run 保持 running（评审 R4 采纳·�
   assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "running", waitingGate: null, waitingGateId: null, currentNodeIds: ["deliver"], failedNodeIds: [], error: null });
 });
 test("advanceRun 终态：全 succeeded 才收口（评审 R4 采纳·拆例②）", () => {
-  let run = mkRun({ g1: "succeeded", build: "succeeded", verify: "succeeded", g2: "succeeded", deliver: "succeeded" });
+  let run = mkRun({ g1: "succeeded", build: "succeeded", verify: "succeeded", g2: "succeeded", "mr-open": "succeeded", "mr-push-check": "succeeded", "mr-open-check": "succeeded", deliver: "succeeded" });   // M6 三件套补态
   run = advanceRun(run);
   assert.equal(run.status, "succeeded");
   const sum = summarizeRun({ ...run, id: "r1", candidateKey: "k" });

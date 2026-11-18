@@ -17,7 +17,7 @@ const upstreamOf = (run, nodeId) => {
   const inIds = [...new Set((run.snapshot.edges ?? []).filter((e) => e.target === nodeId).map((e) => e.source))];
   return inIds.map((id) => {
     const s = run.nodeStates[id] ?? {};
-    const text = s.status === "failed" ? (s.error ?? "") : (s.artifacts?.[0] ?? "");
+    const text = s.error ?? s.artifacts?.[0] ?? "";   // 评审 R3 连带/M6：error 优先、状态无关——skipped 化检查节点反馈不丢
     return { node: id, text: String(text).slice(0, 500) };
   }).filter((u) => u.text);
 };
@@ -127,6 +127,10 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, tem
       let run = result.ok
         ? { ...run0, nodeStates: { ...run0.nodeStates, [nodeId]: { ...run0.nodeStates[nodeId], status: "succeeded", artifacts: result.artifacts ?? [] } } }
         : applyFailure(run0, nodeId, result.error);
+      // M6 D4：deliverEvidence 命中节点成功 → 落 deliver.mr 事件（G3 证据源；stdout 末行）
+      if (result.ok && run0.snapshot?.deliverEvidence === nodeId) {
+        store.appendRunHistory(runId, "deliver.mr", String(result.artifacts?.[0] ?? "").trim().split("\n").pop());
+      }
       store.saveRun(run);
       syncStage(run.candidateKey, run);
       if (run.status === "failed") fire({ type: "failed", key: run.candidateKey, runId, nodeId, error: run.nodeStates[nodeId]?.error ?? result.error ?? "", title: titleOf(run.candidateKey) });
@@ -140,7 +144,9 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, tem
     simulateRestart() { inflight.clear(); },   // 测试钩子（评审 R1-17）：模拟宿主重启丢内存态，无生产调用方
     applyGateDecision(runId, nodeId, decision, overrideTarget = null) {
       const run = store.getRun(runId); if (!run) throw Object.assign(new Error("run not found"), { status: 404 });
-      const next = applyGateDecision(run, nodeId, decision, overrideTarget);
+      // M6/R3 连带：pass 后过 advanceRun——skipped 后代（rework 失效扫掠产生）的重激活在此，dispatch 前必须推进
+      let next = applyGateDecision(run, nodeId, decision, overrideTarget);
+      next = advanceRun(next);
       store.saveRun(next); syncStage(next.candidateKey, next); engine.dispatch(runId);
       return next;
     },
