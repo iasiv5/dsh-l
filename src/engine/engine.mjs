@@ -66,7 +66,7 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, tem
         createdAt: now().toISOString(), updatedAt: now().toISOString(), history: [] });
       syncStage(key, store.getRun(rid));   // run 创建 → 候选 building（§8 映射）
       const repo = store.getCandidate(key).repo;
-      workspace.ensure({ key, repo }).then(({ dir }) => {
+      workspace.ensure({ key, repo, branch: "dsh-l/" + rid }).then(({ dir }) => {   // M6 R7/R12-i：本轮工作分支
         const run = store.getRun(rid); if (!run || run.status !== "running") return;
         store.appendRunHistory(rid, "workspace.cloned", dir + " remote=gh-https");   // 评审 R1-13：实际 remote 落痕
         engine.dispatch(rid);

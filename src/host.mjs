@@ -149,7 +149,7 @@ export function apply(ctx, config = {}) {
     sweeper = ctx.interval(() => {
       try {
         const active = runtime.store.listRuns().filter((r) => ["running", "waiting"].includes(r.status)).map((r) => r.candidateKey);
-        runtime.workspace.sweep({ activeKeys: active, retentionDays: runtime.store.getSettings().workspaceRetentionDays });
+        Promise.resolve(runtime.workspace.sweep({ activeKeys: active, retentionDays: runtime.store.getSettings().workspaceRetentionDays })).catch((e2) => { (ctx.logger ?? console).warn?.('[dsh-l] workspace sweep async:', e2); });   // M6 D5：async 化补 .catch
       } catch (e) { (ctx.logger ?? console).warn?.("[dsh-l] workspace sweep:", e); }
     }, 24 * 60 * 60000);
     poll = armInterval({

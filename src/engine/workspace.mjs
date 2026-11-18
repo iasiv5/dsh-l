@@ -27,32 +27,52 @@ export function makeWorkspace({ dataDir, ghBin = null, execFile, fs: io = {} } =
   const dirOf = (key) => join(workspacesDir, sanitizeKey(key));
   return {
     dirOf,
-    async ensure({ key, repo, onLog = () => {} }) {
+    async ensure({ key, repo, branch = null, onLog = () => {} }) {
       const dir = dirOf(key);
       let dirExists = false;   // 勿名 exists——会遮蔽外层 io.existsSync ?? existsSync（评审发现的真实事故）
       try { dirExists = Boolean(exists(dir)); } catch { dirExists = false; }
-      if (dirExists) { onLog("workspace.reuse", dir); return { dir, cloned: false }; }
-      mk(workspacesDir, { recursive: true });
       const ghCmd = ghBin ?? "gh";
+      if (dirExists) {
+        // M6 评审 R12-i：复用路径也落分支——新 rid 起枝（溯源不断裂），同分支纯 checkout 幂等。
+        if (branch) {
+          try { await execFile("git", ["-C", dir, "checkout", branch], { env: ghEnv(ghBin) }); onLog("workspace.branch-reuse", branch); }
+          catch { await execFile("git", ["-C", dir, "checkout", "-b", branch], { env: ghEnv(ghBin) }); onLog("workspace.branch-create", branch); }
+        }
+        onLog("workspace.reuse", dir);
+        return { dir, cloned: false };
+      }
+      mk(workspacesDir, { recursive: true });
       await execFile(ghCmd, ["repo", "clone", repo, dir], { env: ghEnv(ghBin) });
+      // M6 评审 R7：「工作区永不落默认分支」由构造保证——clone 后即起本轮工作分支。
+      if (branch) { await execFile("git", ["-C", dir, "checkout", "-b", branch], { env: ghEnv(ghBin) }); onLog("workspace.branch-create", branch); }
       onLog("workspace.cloned", dir);
       return { dir, cloned: true };
     },
-    sweep({ activeKeys, retentionDays, now = () => new Date() }) {
+    async sweep({ activeKeys, retentionDays, now = () => new Date() }) {
       const removed = [];
+      const skipped = [];   // M6 评审 R6-A/D5：脏检查跳过目录（防丢工作——未提交/未推送/命令失败 fail-closed）
+      const isDirty = async (dir) => {
+        try {
+          const porcelain = await execFile("git", ["-C", dir, "status", "--porcelain"], { env: ghEnv(ghBin) });
+          if (String(porcelain.stdout ?? "").trim()) return true;
+          const ahead = await execFile("git", ["-C", dir, "rev-list", "--count", "HEAD", "--not", "--remotes"], { env: ghEnv(ghBin) });
+          return String(ahead.stdout ?? "").trim() !== "0";
+        } catch { return true; }   // fail-closed：git 不可用即视为脏，保守跳过
+      };
       // now 兼容函数与 Date 实例两种传入（计划夹具传 Date 实例）
       const nowMs = typeof now === "function" ? now().getTime() : new Date(now ?? Date.now()).getTime();
       const cutoff = nowMs - retentionDays * 86400000;
       const active = new Set((activeKeys ?? []).map(sanitizeKey));
       let entries;
-      try { entries = ls(workspacesDir); } catch { return { removed }; }
+      try { entries = ls(workspacesDir); } catch { return { removed, skipped }; }
       for (const name of entries) {
         if (active.has(name)) continue;
         const full = join(workspacesDir, name);
         try { if (st(full).mtimeMs >= cutoff) continue; } catch { continue; }
+        if (await isDirty(full)) { skipped.push(full); continue; }
         try { rm(full, { recursive: true, force: true }); removed.push(full); } catch {}
       }
-      return { removed };
+      return { removed, skipped };
     },
   };
 }
