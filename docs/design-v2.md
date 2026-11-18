@@ -214,6 +214,17 @@ coordinator adapter（会话协调者，role→派发缝）、sub-SOP / preview-
 12. **check-script 字节锁 + revision 常量锁**（M6 产出评审 O2）：mr-push-check/mr-open-check script 仅 includes 片段断言——多行 shell 字节锁维护成本高，M7 裁决是否升格 deepEqual + revision 常量值锁。
 13. **M6 产出评审 backlog 候选**：host sweeper 记录 skipped 计数（1 行）；onNodeDone 成功路径清 error 防 stale 挤占 prompt；装机冒烟（publish 前补做）。
 
+## 18. M7 补钉（2026-11-18 grill 定稿，Q1–Q6 全按推荐——主题「清账 + 可观测性」）
+
+1. **范围（Q1-A）**：守护收紧四小项（§16-1 注入表达式锚 / §16-3 feishu trim / §16-4 路由断言扩集 / §16-12 check-script 字节锁）+ 观测面板组（§16-7 cancelled 重试入口 / §16-8 多模板渲染 / §16-9 resume 痕迹 / §16-13 stale error 清理 + sweeper 计数）。**除维持不做项（§16-5 面板深化、§16-6 DOM 冒烟、§16-10 npm-claim 仓外）外 backlog 全清**；publish 维持挂起（Q6-A，auth 阻塞不变，M7 不含 publish 任务）。
+2. **stale error 清理（Q2-A）**：onNodeDone 成功分支置 `error: null`——error 语义=「节点最新一次失败」，成功即清；**skipped 态 error 保留**（R3 反馈通道不动）。
+3. **cancelled 重试入口（Q3-A）**：summarizeRun 增 `cancelledNodeIds`（failedNodeIds 同款）；行内重试按钮数据源扩 failed∪cancelled（retryNode 已支持 cancelled run——M2 R1-9 既有能力，纯数据源扩展）。
+4. **resume 痕迹（Q4-A）**：dispatch resume 分支 `appendRunHistory("node.resumed", nodeId + " seq=" + resumeSeq)`（1 行）；UI 零改动（history 通道既有）。
+5. **sweeper 计数（Q5-A）**：host sweeper 补一行 logger（`sweep done: removed=N skipped=M`）。
+6. **多模板渲染（Q3 关联/§16-8 最小形）**：stripCells 按「候选 currentRun 的 templateId」匹配模板渲染管线（现固定 templates[0]=loop-v1，devflow-lite run 的管线渲染错模板）；无匹配回退 templates[0]；**模板名徽标不做**（面积控制，M8+ 再议）。
+7. **守护收紧形态**：§16-1 = host-smoke ③ 升格 engine 侧锚（stub ctx.agents.create 捕获 initMessage，断言含用户覆盖角色 prompt——listRoles 闭包端到端）；§16-3 = upsert 前 token slice trim 入库；§16-4 = 路由断言增 models/triage/settings/watch；§16-12 = 两 check script **deepEqual 字节锁**（同 deliver 范式）；**revision 常量值锁不做**（computeRevision 内容哈希已被 script 字节锁传递锁定，另行锁值属冗余）。
+8. **发版（Q6-A）**：维持挂起——auth 阻塞不变；M7 验收后仍等主人 `npm login`。
+
 ## 17. M6 补钉（2026-11-18 grill 定稿：Q1-A/Q2-A/**Q3-B 主人选 B**/Q4-A/Q5-A/Q6-A/Q7-A——主题「交付完整性」）
 
 上游依据：LoopForge v0.4.0 MR 节点设计（#967/#717，upstream 吸收分析钢人结论 2026-11-18）。
