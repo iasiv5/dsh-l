@@ -225,6 +225,15 @@ coordinator adapter（会话协调者，role→派发缝）、sub-SOP / preview-
 7. **守护收紧形态**：§16-1 = host-smoke ③ 升格 engine 侧锚（stub ctx.agents.create 捕获 initMessage，断言含用户覆盖角色 prompt——listRoles 闭包端到端）；§16-3 = upsert 前 token slice trim 入库；§16-4 = 路由断言增 models/triage/settings/watch；§16-12 = 两 check script **deepEqual 字节锁**（同 deliver 范式）；**revision 常量值锁不做**（computeRevision 内容哈希已被 script 字节锁传递锁定，另行锁值属冗余）。
 8. **发版（Q6-A）**：维持挂起——auth 阻塞不变；M7 验收后仍等主人 `npm login`。
 
+## 19. M8 补钉（2026-11-19 grill 定稿，Q1–Q5 全按推荐——主题「可观测面板」）
+
+1. **范围（Q1-A）**：设置面板深化（§16-5）+ 模型观测（上游 v0.4.0 吸收分析 #3 的 dsh-l 等价）+ T6 多 ready 补钉例（M7 产出评审）+ D9 口径模板改写（流程项折叠）。publish 维持挂起（Q5-A——auth 阻塞不变，M8 不含 publish/装机冒烟任务）。
+2. **设置面板深化（Q2-A/§16-5）**：①engineConcurrency 数字输入（settings 写路径已有 putSettings 校验，UI 增 input）；②agentDefaultModel **只读展示**（宿主接口 currentSelection() 无写路径——host.mjs:142 已有读取先例，面板展示当前选择；state 需经 handlers 暴露——新增只读字段或沿 settings GET 携带，实现时按实文最小面）。
+3. **模型观测（Q3-A 最小记录形）**：dispatch agent 分支 nodeStates[nodeId].model = roleModel ?? null（本轮解析的实际模型——role.model 优先，兜底 null；经 saveRun 持久）；runBlock 展示「model: x」（有值时，字面量不译——零 i18n 新键）；**不做** CLI 实跑追踪（上游从 stream 首行读，dsh-l world 无此信息；agentOptions 即配置真值）。
+4. **流程项折叠（Q4-A）**：①T6 多 ready 补钉例（resume 多节点各落一条的场景钉例）；②D9 口径模板改写进本计划全局约束：「新增测试覆盖口径 = 块级或断言级择一声明」；③§16 终态核对（docs 收尾：1/3/4/7/8/9/12/13 已清、5/6/10/11 维持）。
+5. **不动面**：闸门语义、模板两内置、handlers v2 接线、mr 三件套 scripts、零依赖约束。**发版（publish 0.1.0）仍为验收后动作且等 auth**。
+
+
 ## 17. M6 补钉（2026-11-18 grill 定稿：Q1-A/Q2-A/**Q3-B 主人选 B**/Q4-A/Q5-A/Q6-A/Q7-A——主题「交付完整性」）
 
 上游依据：LoopForge v0.4.0 MR 节点设计（#967/#717，upstream 吸收分析钢人结论 2026-11-18）。
