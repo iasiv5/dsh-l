@@ -222,7 +222,8 @@ test("recover：running→ready 不烧 attempt + 留痕 + 全量存活 run 统�
   assert.ok(resumed.includes(runId));
   // ready 中间态不可观测：recover 返回前 resume 派发已同步执行（评审 R3-1），故不断言 ready、直接断言 running 后状态
   assert.equal(store.getRun(runId).nodeStates.build.attempt, before);      // 评审 R1-11：恢复重派不烧 attempt
-  assert.equal(store.getRun(runId).history.at(-1).event, "resume.interrupted");
+  assert.ok(store.getRun(runId).history.some((h) => h.event === "resume.interrupted"));   // M7 T6：node.resumed 落痕后 at(-1) 变位——改判 find
+  assert.ok(store.getRun(runId).history.some((h) => h.event === "node.resumed" && h.detail.includes("build seq=")));   // M7/D4 痕迹
   await drain();
   assert.equal(store.getRun(runId).nodeStates.build.status, "running");    // 重新派发（resume 路径）
   assert.equal(store.getRun(runId).nodeStates.build.attempt, before);      // 仍不烧

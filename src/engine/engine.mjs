@@ -105,6 +105,7 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, tem
           ? { ...run.nodeStates[nodeId], status: "running" }   // 恢复重派保持 attempt（评审 R1-11）
           : { ...run.nodeStates[nodeId], status: "running", attempt: (run.nodeStates[nodeId]?.attempt ?? 0) + 1 } };
         run = { ...run, nodeStates: ns }; store.saveRun(run);
+        if (resume) store.appendRunHistory(runId, "node.resumed", `${nodeId} seq=${resumeSeq}`);   // M7/§18.4（评审建议10：循环内每 ready 节点各一条）
         const key = store.getRun(runId).candidateKey;
         const taskPackage = store.getCandidate(key)?.taskPackage ?? null;
         const upstream = node.type === "agent" ? upstreamOf(run, nodeId) : [];
