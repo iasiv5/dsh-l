@@ -15,7 +15,7 @@ export const LOOP_V1 = {
   nodes: [
     { id: "g1", name: "G1", type: "gate", gateId: "G1", rejectTarget: null },
     { id: "build", name: "build", type: "agent", executionPolicy: "auto", maxAttempts: 2, roleId: "loop-builder",
-      prefix: "你是实现工程师：只在当前工作区内修改代码，遵循任务包的 constraints 与 DoD；完成后确保测试通过。" },
+      prefix: "你是实现工程师：只在当前工作区内修改代码，遵循任务包的 constraints 与 DoD；完成后确保测试通过，并把本轮改动 commit 到当前分支（不推送、不碰主分支）。" },
     { id: "verify", name: "verify", type: "script", scriptLanguage: "shell", script: "npm test",
       maxReworks: 3, maxAttempts: 3 },
     { id: "g2", name: "G2", type: "gate", gateId: "G2", rejectTarget: "build" },

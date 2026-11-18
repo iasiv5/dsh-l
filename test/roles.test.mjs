@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { BUILTIN_ROLES, resolveRole } from "../src/workflows/roles.mjs";
 import { LOOP_V1 } from "../src/workflows/builtin.mjs";
 
-test("内置 4 角色齐全且字段完整（M4 T2 golden）", () => {
+test("内置 5 角色齐全且字段完整（M4 T2 + M6 T1 golden）", () => {
   const ids = Object.keys(BUILTIN_ROLES);
-  assert.deepEqual(ids.sort(), ["devflow-architect", "devflow-code-reviewer", "devflow-developer", "loop-builder"].sort());
+  assert.deepEqual(ids.sort(), ["devflow-architect", "devflow-code-reviewer", "devflow-developer", "loop-builder", "mr-opener"].sort());
   for (const r of Object.values(BUILTIN_ROLES)) {
     assert.ok(r.name && r.prompt && ["ask", "auto"].includes(r.executionPolicy));
     assert.equal(r.builtin, true);
@@ -16,6 +16,19 @@ test("内置 4 角色齐全且字段完整（M4 T2 golden）", () => {
   assert.equal(BUILTIN_ROLES["devflow-architect"].executionPolicy, "ask");
   assert.equal(BUILTIN_ROLES["devflow-developer"].executionPolicy, "ask");
   assert.equal(BUILTIN_ROLES["devflow-code-reviewer"].executionPolicy, "ask");
+  // M6 T1/Q2-A：commit 约束入 prompt（commit 是工程责任归角色）
+  assert.ok(BUILTIN_ROLES["loop-builder"].prompt.includes("commit 到当前分支"));
+  assert.ok(BUILTIN_ROLES["devflow-developer"].prompt.includes("commit 到当前分支"));
+});
+
+test("mr-opener 角色 golden（M6 T1/D3）：幂等 MR/禁合并禁主分支/失败明报", () => {
+  const r = BUILTIN_ROLES["mr-opener"];
+  assert.equal(r.executionPolicy, "auto");
+  assert.ok(r.prompt.includes("gh pr"));
+  assert.ok(r.prompt.includes("不得合并"));
+  assert.ok(r.prompt.includes("主分支"));
+  assert.ok(r.prompt.includes("mr-body.md"));
+  assert.ok(r.prompt.includes("复用"));
 });
 
 test("resolveRole：用户角色优先于内置（store.roles 优先）", () => {
