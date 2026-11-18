@@ -183,7 +183,7 @@ export function installActions({ getLang }) {
         }
         if (run.error) { const err = document.createElement("span"); err.className = "chip"; err.style.color = "crimson"; err.textContent = run.error; runRow.append(err); }
         runRow.append(
-          btn(t("actions.retryRun"), () => go(() => api.runRetry(run.id, (run.failedNodeIds ?? [])[0] ?? "")), !(run.status === "failed" && (run.failedNodeIds ?? []).length > 0)),   // 产出评审问题 1：目标取 failedNodeIds（currentNodeIds 永不含 failed）
+          btn(t("actions.retryRun"), () => go(() => api.runRetry(run.id, [...(run.failedNodeIds ?? []), ...(run.cancelledNodeIds ?? [])][0] ?? "")), !((run.status === "failed" || run.status === "cancelled") && [...(run.failedNodeIds ?? []), ...(run.cancelledNodeIds ?? [])].length > 0)),   // M7/§18.3：数据源扩 cancelled（retryNode 已支持——M2 R1-9）；failedNodeIds 沿 M2 产出评审问题 1
           btn(t("actions.cancelRun"), () => go(() => api.runCancel(run.id, "user")), !(run.status === "running" || run.status === "waiting")),
         );
         detail.append(runRow);
