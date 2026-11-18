@@ -211,6 +211,8 @@ coordinator adapter（会话协调者，role→派发缝）、sub-SOP / preview-
 9. **resume 旗标观测**（M2 备注）：run history 的 resume 痕迹在 UI 的呈现。
 10. **npm-claim 盘点自动化**（M5 计划评审建议）：属 dsh-workspace 侧 runbook，不在本仓。
 11. **发版后置事项**（待 publish 时）：know-how 018 两阶段上架监视；dshm 上架轮询与 catalog 缓存翻转核对。
+12. **check-script 字节锁 + revision 常量锁**（M6 产出评审 O2）：mr-push-check/mr-open-check script 仅 includes 片段断言——多行 shell 字节锁维护成本高，M7 裁决是否升格 deepEqual + revision 常量值锁。
+13. **M6 产出评审 backlog 候选**：host sweeper 记录 skipped 计数（1 行）；onNodeDone 成功路径清 error 防 stale 挤占 prompt；装机冒烟（publish 前补做）。
 
 ## 17. M6 补钉（2026-11-18 grill 定稿：Q1-A/Q2-A/**Q3-B 主人选 B**/Q4-A/Q5-A/Q6-A/Q7-A——主题「交付完整性」）
 
@@ -236,3 +238,4 @@ coordinator adapter（会话协调者，role→派发缝）、sub-SOP / preview-
    - **反馈通道保真（R3 连带）**：upstreamOf 改 error 优先、状态无关——skipped 化检查节点的失败文本仍进重臂 agent 的 prompt。
    - **mr-open maxReworks:2（R2）**：凡带 rework 出边的节点必带 maxReworks（applyFailure exhausted 语义）。
    - **mr-open-check head=本地 HEAD（R6）**：headRefOid vs git rev-parse HEAD——防旧 MR/旧 head 假绿。
+   - **失败源 skipped 化窗口期（M6 产出评审 O1，设计语义采纳）**：rework 扫掠会把刚失败的检查节点自身置 skipped（它是 target 的 success 后代）→ 窗口期 summarizeRun.error=null；反馈文本经 upstreamOf error 优先进重派 prompt（钉例 d 锁定），耗尽路径仍完整可见（exhausted → run failed + 通知）。有意设计非疏忽。
