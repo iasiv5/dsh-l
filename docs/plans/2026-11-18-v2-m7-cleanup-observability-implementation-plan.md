@@ -56,10 +56,10 @@
 - 涉及文件：Modify `test/host-smoke.test.mjs`
 - 接口契约（评审问题2 修正——prompt 不经 create 参数，走 handle.agent.send 通道）：
   - Consumes: buildRuntime 返回 {dir, store, handlers, table, workspace, engine}；makeExecWorld(ctx, dir)（host.mjs:48）——world.createAgent(sessionId, {model}) 调 **ctx.agents.create({sessionId, meta:{cwd}, agentOptions, setup})**（无 prompt 字段），返回 handle 后 executor 经 **handle.agent.send(world.userMessage(prompt), ...)** 送 prompt（executor.mjs:53）；stub ctx.agents.create 须返回假 handle `{ agent: { send: (msg) => { captured.push(msg); } } }` 形态（否则 executor send 处 TypeError）
-  - Produces: ①table 断言增 `/dsh-l/models`、`/dsh-l/triage`、`/dsh-l/settings`、`/dsh-l/watch`；③新增探针：stub ctx.agents.create 捕获调用 + 返回假 handle → seed 候选 → upsertRole 覆盖 devflow-architect → startRun(devflow-lite) → 轮候 handle.agent.send 被调（**时序前置条件：workspace.ensure 须成功**——失败走 catch 置 run failed 不 dispatch；姿势=tmp dataDir 下 bin/gh 假脚本使 clone「成功」（workspace 测试 env 注入 ghBin 先例），agent 调用即达）→ 断言 send 首参 message 的 text 含用户覆盖角色 prompt（store 优先端到端）；顺带断言 create 的 agentOptions 含模型解析（create 参数里真实存在的通道）
+  - Produces: ①table 断言增 `/dsh-l/models`、`/dsh-l/triage`、`/dsh-l/settings`、`/dsh-l/watch`；③新增探针：stub ctx.agents.create 捕获调用 + 返回假 handle → seed 候选 → upsertRole 覆盖 devflow-architect → startRun(devflow-lite) → **三层轮候（评审问题3 探针实证）**：①轮候 run.status==="waiting"（ensure 收敛；失败态=clone 挂）→ ②applyGateDecision(runId, "requirement", "pass")（devflow-lite 无 entryPresucceeded——requirement(G1) 首个 pending gate 卡 waiting 等人工，不过闸 agent 调用永不达）→ ③轮候 handle.agent.send 被调 → 断言 send 首参 message 的 text 含用户覆盖角色 prompt 标记（store 优先端到端——评审探针 B2 已实证 USER-OVERRIDE-MARKER 全链可达）；顺带断言 create 的 agentOptions 为**空串形态**（{provider:"",model:""}——stubCtx 无 agentDefaultModel，resolveTriageSelection 兜底；评审建议5 二选一取零成本侧，model 通道正向解析不属本锚目标）
 - 验证范围：`npm test`（host-smoke 段）
 
-- [ ] Step 1: 读实文（host.mjs makeExecWorld + executor runAgentNode 的 world 调用序）→ 失败测试（覆盖角色 prompt 断言）。
+- [ ] Step 1: 读实文（host.mjs makeExecWorld + executor runAgentNode 的 world 调用序）→ 失败测试（覆盖角色 prompt 断言）。**spawn 豁免口径（评审问题4）**：③探针 spawn 边界 = tmp dataDir 内自建假 gh 脚本与本地 git 目录操作（clone/checkout），无网络出网、无远端 clone——属 world 桩形态的扩展而非破桩纪律（buildRuntime 的 execFile 无注入口，host.mjs:19 promisify 全局；现有 20 测试文件零真 spawn，③为首个，豁免显式声明于此）。
 - [ ] Step 2: 实现探针（stub 捕获 + 轮候姿势）。
 - [ ] Step 3: Run: 全绿 → **变异红证**（host.mjs 断开 listRoles 注入 → ③红 → 还原）。
 - [ ] Step 4: checkpoint commit。
