@@ -114,8 +114,8 @@
 ### Task 6: 最终验证与收口
 
 - [ ] Step 1: Run: `set -o pipefail; npm run build && npm test 2>&1 | tail -6 && git log --oneline -8`
-  Expected: 双包成功（新指纹——src 有变更）；全量绿（175 存量 + 新增 ≥7；测试文件 20 不变）；提交序列 T1–T5。
-- [ ] Step 2: lib 重建产物入库（独立 build commit）。
+  Expected: 双包成功；**新指纹 ≠ a7a9beac4fb7**（评审 R1 修正：基线重建实测值——0442c1d 改 src 未重建 lib，原稿「≠ d6eeeb5e45ac」在基线即满足属永真判据）；全量绿（175 存量 + 新增 ≥7；测试文件 20 不变）；提交序列 T1–T5。
+- [ ] Step 2: lib 重建产物入库（独立 build commit）——**顺带补齐 0442c1d 的 lib 滞后**（评审 R1 计划外发现：v2 接线改 src 未重建 lib，已提交产物落后一个 commit；本步重建后产物同步恢复）。
 - [ ] Step 3: 停下交产出评审（章程同 M1–M5）。评审通过后按 §17.7 执行 publish 0.1.0（验收后动作）。
 
 ## 执行纪律
@@ -129,7 +129,7 @@
 ## 最终验证
 
 - Run: `set -o pipefail; npm run build && npm test 2>&1 | tail -6 && git log --oneline -8`
-- Expected: 新指纹（≠ d6eeeb5e45ac——src 变更）；175 存量 + 新增 ≥7 全绿；测试文件 20；version 0.1.0 不变；工作树干净。
+- Expected: 新指纹 ≠ a7a9beac4fb7（R1 修正基线值；src 变更必动指纹——buildId 只哈希 src/ 树）；175 存量 + 新增 ≥7 全绿；测试文件 20；version 0.1.0 不变；工作树干净。
 - 生效探针：构建指纹变化；全链钉例含三件套步进与 deliver.mr 落痕；sweep skipped 三态（装机可选）。
 
 ## 审阅 Checkpoint
