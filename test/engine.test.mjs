@@ -142,6 +142,19 @@ test("钉例①取消：agent 在途时 engine.cancelRun → executor cancel 被
   assert.equal(store.getRun(runId).status, "cancelled");
   assert.equal(store.getCandidate(key).stage, "gating");
 });
+test("M7 T4 断言①：回炉成功后 error=null（评审建议9——成功清 stale error）", async () => {
+  const { store, engine, executor } = setup();
+  const key = "o/r#issue#1";
+  const { runId } = engine.startRun(key, {});
+  await drain();
+  executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":verify").resolve({ ok: false, error: "red v1", artifacts: [] }); await drain();
+  assert.equal(store.getRun(runId).nodeStates.verify.error, "red v1");   // 失败态 error 在位
+  executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":verify").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  assert.equal(nodeState(store, runId, "verify"), "succeeded");
+  assert.equal(store.getRun(runId).nodeStates.verify.error, null);   // M7 断言①：成功清 stale error（现状残留 "red v1" → 红）
+});
 test("钉例②retry：failed run → retryNode → attempt+1 → ready 且 run.status 回 running", async () => {
   const { store, engine, executor } = setup();
   const key = "o/r#issue#1";
@@ -335,6 +348,7 @@ test("M6 钉例(a)：mr-push-check 失败 → build 重臂 + 后代 skipped（�
   assert.equal(run.nodeStates.g2.status, "skipped");
   assert.equal(run.nodeStates["mr-open"].status, "skipped");
   assert.equal(run.nodeStates["mr-push-check"].status, "skipped");   // 失败源亦 skipped（error 保留供 upstream）
+  assert.ok(run.nodeStates["mr-push-check"].error, "skipped 态 error 字段级保留（M7 T4/评审建议9）");   // M7 T4 断言②
 });
 test("M6 钉例(b)：全链恢复——build 重跑 → skipped 重激活 → g2 重过人工闸 → succeeded + deliver.mr 落痕", async () => {
   const { store, engine, executor } = setup();

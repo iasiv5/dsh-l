@@ -125,7 +125,7 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, tem
       const run0 = store.getRun(runId);
       if (!run0 || ["succeeded", "failed", "cancelled"].includes(run0.status)) return;   // 迟到结果忽略
       let run = result.ok
-        ? { ...run0, nodeStates: { ...run0.nodeStates, [nodeId]: { ...run0.nodeStates[nodeId], status: "succeeded", artifacts: result.artifacts ?? [] } } }
+        ? { ...run0, nodeStates: { ...run0.nodeStates, [nodeId]: { ...run0.nodeStates[nodeId], status: "succeeded", error: null, artifacts: result.artifacts ?? [] } } }   // M7/§18.2：成功清 stale error（语义=节点最新一次失败；skipped 态 error 保留）
         : applyFailure(run0, nodeId, result.error);
       // M6 D4：deliverEvidence 命中节点成功 → 落 deliver.mr 事件（G3 证据源；stdout 末行）
       if (result.ok && run0.snapshot?.deliverEvidence === nodeId) {
