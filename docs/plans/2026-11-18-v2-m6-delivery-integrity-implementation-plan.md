@@ -40,7 +40,8 @@
 - Modify: `src/engine/workspace.mjs` — sweep async 化 + 脏检查（execFile 注入）+ skipped[] 返回
 - Modify: `src/host.mjs` — sweeper 调用补 async .catch
 - Test: roles.test（mr-opener golden + 逐字锁迁移）/ workflows.test（两模板 golden 重锁 + loader defs 含新节点）/ engine.test（deliver.mr 落痕 + 全链钉例扩三节点 + rework 反馈）/ workspace.test（sweep 脏检查三态：净/脏/命令失败）/ executor.test（脱密守护）
-- 不动：handlers.mjs（v2 接线不受影响——firstAgent 仍 build/design）、scheduler.mjs、client/*（i18n 无新键——节点名走模板数据非词典）。
+- Modify: `src/engine/scheduler.mjs` — applyFailure rework 分支增后代失效（评审 R3）
+- 不动：handlers.mjs（v2 接线不受影响——firstAgent 仍 build/design）、client/*（i18n 无新键——节点名走模板数据非词典）。
 
 任务依赖：T1（角色）→ T2（模板 golden）→ T3（落痕）→ T4（sweep）→ T5（脱密）→ T6（终验）。按编号执行。
 
@@ -58,54 +59,64 @@
 - Run: 红。
 - [ ] Step 2: 实现 roles.mjs + builtin.mjs prefix 同步。
 - [ ] Step 3: Run: `set -o pipefail; npm test 2>&1 | tail -3` — 全绿（workflows golden 因 revision/prefix 变化会红——T2 一并处理，本步允许 workflows 段红、其余全绿，或 T1/T2 合并执行后统一验绿）。
-- [ ] Step 4: checkpoint commit。
+- [ ] Step 4: checkpoint commit（**于 T1–T3 共享验绿点达成后执行**——评审 R9：与「先红后绿再 commit」硬纪律对齐）。
 
 ### Task 2: 内置模板三件套 golden
 
 - 目标：LOOP_V1 / DEVFLOW_LITE 插入 mr-open/mr-push-check/mr-open-check + rework 边 + deliverEvidence + deliver 收窄。
 - 涉及文件：Modify `src/workflows/builtin.mjs`；Test `test/workflows.test.mjs`
 - 接口契约：
-  - Produces: 两模板节点序列（loop-v1：g1,build,verify,g2,**mr-open,mr-push-check,mr-open-check**,deliver；devflow：…,test,g2,**三件**,deliver）；mr-open={type:agent,roleId:"mr-opener",executionPolicy:"auto",maxAttempts:2}；mr-push-check={type:script,maxReworks:2,script:三查 shell}；mr-open-check={type:script,maxReworks:2,script:gh pr view 校验}；deliver.script 收窄为 `gh pr view --json url,title,state --jq '"\\(.url) \\(.title) [\\(.state)]"'`；edges 增 g2→mr-open→mr-push-check→mr-open-check→deliver（success）+ 三 rework 边（mr-open/mr-push-check/mr-open-check → build|implement, kind:"rework"）；`deliverEvidence: "deliver"` 字段；revision 重算
+  - Produces: 两模板节点序列（loop-v1：g1,build,verify,g2,**mr-open,mr-push-check,mr-open-check**,deliver；devflow：…,test,g2,**三件**,deliver）；mr-open={type:agent,roleId:"mr-opener",executionPolicy:"auto",maxAttempts:2,**maxReworks:2（评审 R2：applyFailure exhausted=无出边||reworkCount>(maxReworks??0)——缺此字段首败即 run failed，rework 边死）**}；mr-push-check={type:script,maxReworks:2,script:**三查** shell（评审 R5：第三查=当前分支非空且 ≠ 默认分支，参照值由 T4 工作分支策略供给）}；mr-open-check={type:script,maxReworks:2,script:gh pr view 校验（评审 R6：增第四验 head=本地 HEAD——headRefOid 与 git rev-parse HEAD 比对，防旧 MR/旧 head 假绿）}；deliver.script 收窄——**契约锁 runtime 字符串值（评审 R4：golden 断言锁值，源码转义是实现细节但须自证）**： `gh pr view --json url,title,state --jq '"\\(.url) \\(.title) [\\(.state)]"'`；edges 增 g2→mr-open→mr-push-check→mr-open-check→deliver（success）+ 三 rework 边（mr-open/mr-push-check/mr-open-check → build|implement, kind:"rework"）；`deliverEvidence: "deliver"` 字段；revision 重算。deliver script 的 runtime 值（单反斜杠）＝ `gh pr view --json url,title,state --jq '<jq 程序>'`，其中 jq 程序 runtime 值为：双引号内 `\(` 插值形——**builtin.mjs 的 JS 字符串字面量中每个 \ 须双写为 \\**（评审 R4 探针 P3：源码四反斜杠→jq 收字面不插值；源码正确形即双反斜杠）；T2 golden 直接 deepEqual 断言 script 字符串值，字节级锁死
 - 验证范围：`npm test`（workflows golden + validate 通过——F3 success 链无环、rework 不参与环检测）
 
 - [ ] Step 1: 失败测试：workflows.test 两 golden 用例改锁新形状（节点 id 序列/边三元组/mr-open roleId/检查节点 maxReworks/deliverEvidence 字段）。
-- [ ] Step 2: 实现 builtin.mjs（三查 shell：`[ -z "$(git status --porcelain)" ] || { echo "存在未提交改动"; exit 1; }; [ "$(git rev-list --count HEAD --not --remotes)" = "0" ] || { echo "存在未推送提交"; exit 1; }`；mr-open-check：`url=$(gh pr view --json url -q .url 2>/dev/null) && state=$(gh pr view --json state -q .state) && [ "$state" = "OPEN" ] && echo "$url"`）。
+- [ ] Step 2: 实现 builtin.mjs。三段 script（**runtime 值**；JS 字面量中 \ 双写）：
+  - mr-push-check：`[ -z "$(git status --porcelain)" ] || { echo "存在未提交改动"; exit 1; }; [ "$(git rev-list --count HEAD --not --remotes)" = "0" ] || { echo "存在未推送提交"; exit 1; }; branch=$(git branch --show-current); [ -n "$branch" ] || { echo "分离 HEAD，不在工作分支"; exit 1; }; def=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||'); [ "${def:-main}" != "$branch" ] || { echo "当前在默认分支 $branch，不在本轮工作分支"; exit 1; }`（评审 R5 第三查）
+  - mr-open-check：`url=$(gh pr view --json url -q .url 2>/dev/null) && state=$(gh pr view --json state -q .state) && [ "$state" = "OPEN" ] && head=$(gh pr view --json headRefOid -q .headRefOid) && [ "$head" = "$(git rev-parse HEAD)" ] && echo "$url"`（评审 R6 head=tip）
+  - deliver：`gh pr view --json url,title,state --jq '\(.url) \(.title) \[\(.state)\]'`——runtime 值单反斜杠；golden deepEqual 锁值。
 - [ ] Step 3: Run: 全绿（engine 全链测试会因新节点红——engine.test 夹具在 T3 扩步进；本步允许 engine 段红，T3 后统一验绿）。
-- [ ] Step 4: checkpoint commit（与 T1 若分段则顺序提交）。
+- [ ] Step 4: checkpoint commit（**于 T1–T3 共享验绿点达成后执行**——评审 R9）。
 
-### Task 3: 引擎 deliver.mr 落痕 + 全链钉例扩步
+### Task 3: 引擎落痕 + rework 后代失效 + 全链恢复钉例
 
-- 目标：onNodeDone 对 deliverEvidence 命中节点成功落 run history；engine 全链钉例扩三节点步进；rework 反馈钉例。
-- 涉及文件：Modify `src/engine/engine.mjs`；Test `test/engine.test.mjs`
+- 目标：deliver.mr 落痕；**applyFailure rework 分支增后代失效（评审 R3）**；upstreamOf 反馈通道保真；全链恢复钉例。
+- 涉及文件：Modify `src/engine/engine.mjs`、**`src/engine/scheduler.mjs`（评审 R3：文件清单自「不动」移入）**；Test `test/engine.test.mjs`、`test/scheduler.test.mjs`
 - 接口契约：
-  - Consumes: executor runScriptNode 成功 result.artifacts[0]=tail(stdout)
-  - Produces: onNodeDone 成功分支：`if (run.snapshot?.deliverEvidence === nodeId && result.ok) store.appendRunHistory(runId, "deliver.mr", String(result.artifacts?.[0] ?? "").trim().split("\\n").pop() ?? "")`；全链钉例步进序列增 mr-open(resolve ok)/mr-push-check(ok)/mr-open-check(ok)→deliver；新钉例：mr-push-check 失败一次（error 文本）→ build 重臂 running（upstream 反馈可见）
-- 验证范围：`npm test`（engine 段全绿——T1/T2/T3 合并验绿点）
+  - Consumes: executor 成功 result.artifacts[0]=tail(stdout)；scheduler 已导出 descendantsOf；驳回路径先例（applyGateDecision：target ready + 后代非 pending → skipped 待重跑）
+  - Produces:
+    ① 落痕：onNodeDone 成功分支——`if (run.snapshot?.deliverEvidence === nodeId && result.ok) store.appendRunHistory(runId, "deliver.mr", String(result.artifacts?.[0] ?? "").trim().split("\n").pop())`（评审 R4/R10：`\n` 为 JS 源码单反斜杠形=切真换行；pop() 无 `?? ""` 死代码）；
+    ② scheduler（评审 R3）：applyFailure 的 rework 分支（未耗尽时）对齐驳回语义——对每条 rework 边：target → ready，且 descendantsOf(target) 中非 pending 者 → skipped（error 字段经 spread 保留；advanceRun 既有 skipped 重激活机制令其在 target 重跑成功后逐个重走）。向后兼容：loop-v1 verify→build 与 devflow review→implement 场景下中间节点本就 pending/未达，行为不变；
+    ③ engine（评审 R3 连带）：upstreamOf 改 error 优先、状态无关——`const text = s.error ?? s.artifacts?.[0] ?? ""`（原实现仅 failed 态读 error；skipped 化的检查节点反馈文本会静默丢失，断裂「带反馈重试」语义）；
+    ④ 钉例四枚：(a) mr-push-check 失败 → run 未 failed + build=running + verify/g2/mr-open（及下游）=skipped；(b) 全链恢复——build 重跑成功 → skipped 依次重激活 → verify 重走 → **g2=waiting（人工重放行——新交付物重新拍板，语义明示）** → mr-open 重推 → checks 过 → deliver → run succeeded + deliver.mr 落痕；(c) mr-open 失败（R2 钉例）→ rework 回 build 非 run failed；(d) rework 反馈文本进 build prompt（dispatch 时 executor 收到含 check error 的 upstream）。
+- 验证范围：`npm test`（engine+scheduler 段全绿——T1/T2/T3 合并验绿点；既有 scheduler 用例若断言旧 stale 语义须同步改判并注明依据）
 
-- [ ] Step 1: 失败测试：deliver.mr 落痕断言（全链跑完后 run.history 含 deliver.mr 且 value 含 url）+ rework 反馈钉例。
-- [ ] Step 2: 实现引擎落痕一行 + 夹具扩步。
+- [ ] Step 1: 失败测试：钉例 (a)–(d) + 落痕断言。
+- [ ] Step 2: 实现 ①②③ + 夹具扩步。
 - [ ] Step 3: Run: `set -o pipefail; npm test 2>&1 | tail -3` — **全绿（T1+T2+T3 统一验绿点）**。
-- [ ] Step 4: checkpoint commit。
+- [ ] Step 4: checkpoint commit（共享验绿点达成后）。
 
-### Task 4: sweep 脏检查（async 化）
+### Task 4: workspace 工作分支 + sweep 脏检查（async 化）
 
-- 目标：rmSync 前本地双查；fail-closed 跳过；skipped[] 返回；host 补 .catch。
-- 涉及文件：Modify `src/engine/workspace.mjs`、`src/host.mjs`；Test `test/workspace.test.mjs`
+- 目标：**工作分支落地（评审 R7——「工作分支」全仓无定义，三处语义悬空）**：ensure 后置 checkout；rmSync 前双查；skipped[]；host 补 .catch。
+- 涉及文件：Modify `src/engine/workspace.mjs`、`src/host.mjs`、`src/engine/engine.mjs`（ensure 调用点传 branch）；Test `test/workspace.test.mjs`
 - 接口契约：
-  - Consumes: makeWorkspace 构造参 execFile（已注入）
-  - Produces: `async sweep({activeKeys, retentionDays, now})` → `{removed, skipped}`；逐目录：`git -C <dir> status --porcelain`（stdout 非空→跳）+ `git -C <dir> rev-list --count HEAD --not --remotes`（stdout.trim() !== "0"→跳）；任一 execFile reject → 跳过（fail-closed）；host :152 改 `runtime.workspace.sweep({...}).catch((e)=>…)`（try/catch 保留同步面）
+  - Consumes: makeWorkspace 构造参 execFile（已注入）；engine.startRun 的 rid
+  - Produces:
+    ① **工作分支（评审 R7，引擎侧方案——与评审建议的 role 侧偏离，理由附后）**：`ensure({key, repo, branch})` clone 成功后追加 `git -C <dir> checkout -b <branch>`（execFile 注入；目录已存在的复用路径不重跑 checkout——分支已在）；engine.startRun 调用改 `workspace.ensure({ key, repo, branch: "dsh-l/" + rid })`——分支名确定性（同 run 重入幂等复用），「工作区永不落默认分支」由引擎保证而非角色自觉；mr-opener 角色无需建分支逻辑（推送当前分支即可），mr-push-check 第三查（T2）与本策略闭合；
+    ② sweep：`async sweep({activeKeys, retentionDays, now})` → `{removed, skipped}`；逐目录：`git -C <dir> status --porcelain`（stdout 非空→跳）+ `git -C <dir> rev-list --count HEAD --not --remotes`（stdout.trim() !== "0"→跳）；任一 execFile reject → 跳过（fail-closed）；host :152 改 `runtime.workspace.sweep({...}).catch((e)=>…)`（try/catch 保留同步面）
+  - 偏离说明（供评审复核）：评审建议 mr-opener 角色侧建分支（若在默认分支则 dsh-l/<runId>）——但 build/implement **先于** mr-open 提交，role 侧建分支时提交已落在默认分支上；引擎侧 ensure 后置 checkout 使首个 commit 即落工作分支，不变式由构造保证。若评审坚持 role 侧，此分歧列「待主人决策」。
 - 验证范围：`npm test`（workspace 段）
 
-- [ ] Step 1: 失败测试（三态+计数）：净目录（两查干净）→ 删除入 removed；脏目录（porcelain 非空）→ skipped；命令失败（execFile reject）→ skipped；既有「非活跃超期清除/活跃保留」用例改 await。
+- [ ] Step 1: 失败测试：ensure 传 branch → clone 后收到 checkout -b 调用（execFile 桩断言参数）；目录已存在 → 不 checkout；sweep 三态（净→removed；脏→skipped；命令失败→skipped）+ 既有用例改 await。
 - Run: 红。
-- [ ] Step 2: 实现 sweep async 化 + host .catch。
+- [ ] Step 2: 实现 ensure 分支 + sweep async 化 + host .catch + engine 调用点。
 - [ ] Step 3: Run: 全绿 → checkpoint commit。
 
 ### Task 5: 脱密守护（executor env 白名单）
 
 - 目标：固化 script env 卫生——注入 env 键集不含敏感后缀键（上游 v0.4.0 泄密同型防线）。
 - 涉及文件：Test `test/executor.test.mjs`
-- 接口契约：makeExecutor({spawn: 捕获 env 的 fake}) → runScriptNode 成功 → 断言捕获 env 的键集 ∩ /(_TOKEN|_KEY|_SECRET|_PASSWORD)$/ 后缀键 = 空。
+- 接口契约（评审 R8 修正断言②——钉 executor 注入面而非机器巧合）：makeExecutor({spawn: 捕获 env 的 fake}) → runScriptNode → 断言 **捕获 env 键集 − 测试启动前 process.env 键集 ⊆ {PATH, GIT_TERMINAL_PROMPT}**，且该差集无 /(_TOKEN|_KEY|_SECRET|_PASSWORD)$/ 后缀键——executor 只新增两键的注入面契约（原稿断言 {...process.env} 全集，在带 GH_TOKEN 的机器/CI 上必红且无源码可修）。
 - 验证范围：`npm test`（executor 段）
 
 - [ ] Step 1: 失败测试（绿基线：现状应绿；红证=一次性变异——fake env 加 _TOKEN 键→红→还原）。
