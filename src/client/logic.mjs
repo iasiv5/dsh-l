@@ -61,8 +61,13 @@ export function stripCells({ candidates, workflow, runs = [] } = {}) {
   const counts = stageCounts(candidates);
   const pre = [["ingest", counts.ingest], ["backlog", counts.backlog], ["triage", counts.triage], ["feedback", counts.feedback]]
     .map(([key, count]) => ({ key, count }));
-  const template = workflow?.templates?.[0];
-  const inFlight = (nodeId) => (runs ?? []).filter((r) => (r.currentNodeIds ?? []).includes(nodeId)).length;
+  // M7/§18.6 最小形：按「当前活跃 run 的 templateId」匹配管线（无活跃 run 回退 templates[0]；
+  // 多模板并发降级首活跃 run——演进注记见 §16-8）；在途计数限同模板 run（跨模板 nodeId 撞名不串）。
+  const runsArr = runs ?? [];
+  const active = runsArr.find((r) => ["running", "waiting"].includes(r.status));
+  const templates = workflow?.templates ?? [];
+  const template = templates.find((tpl) => tpl.id === active?.templateId) ?? templates[0];
+  const inFlight = (nodeId) => runsArr.filter((r) => (r.templateId ?? templates[0]?.id) === template?.id && (r.currentNodeIds ?? []).includes(nodeId)).length;
   const loop = (template?.nodes ?? []).map((n) => {
     const count = inFlight(n.id);
     return { id: n.id, name: n.name, type: n.type, count, dim: count === 0 };

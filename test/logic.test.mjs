@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { groupCandidates, filterCandidates, pickTriageBatch, gateState, stageCounts, settingsPatch } from "../src/client/logic.mjs";
 import { stripCells, runBlock, needsReview, kanbanColumns, badgeLabel, roleRows } from "../src/client/logic.mjs";
-import { LOOP_V1 } from "../src/workflows/builtin.mjs";
+import { LOOP_V1, DEVFLOW_LITE } from "../src/workflows/builtin.mjs";
 
 const t = (k) => k;
 let seq = 0;
@@ -53,6 +53,17 @@ test("stripCells：前环计数 + 环内模板节点全灰", () => {
   assert.equal(out.fallback, false);
   assert.deepEqual(out.loop.map((n) => n.id), ["g1", "build", "verify", "g2", "mr-open", "mr-push-check", "mr-open-check", "deliver"]);   // M6 三件套
   assert.ok(out.loop.every((n) => n.dim === true));   // M1 无执行器，环内恒灰
+});
+test("stripCells 多模板（M7 T7/§18.6 最小形）：按活跃 run templateId 匹配管线", () => {
+  const meta = (tpl) => ({ id: tpl.id, nodes: tpl.nodes.map(({ id, name, type }) => ({ id, name, type })) });
+  const workflow = { templates: [meta(LOOP_V1), meta(DEVFLOW_LITE)] };
+  const runs = [{ id: "r1", templateId: "devflow-lite", status: "running", currentNodeIds: ["design"] }];
+  const out = stripCells({ candidates: [], workflow, runs });
+  assert.deepEqual(out.loop.map((n) => n.id), ["requirement", "design", "implement", "review", "test", "g2", "mr-open", "mr-push-check", "mr-open-check", "deliver"]);
+  assert.equal(out.loop.find((n) => n.id === "design").count, 1);   // 在途计数随匹配模板
+  // 无活跃 run → 回退 templates[0]
+  const out0 = stripCells({ candidates: [], workflow, runs: [] });
+  assert.deepEqual(out0.loop.map((n) => n.id), ["g1", "build", "verify", "g2", "mr-open", "mr-push-check", "mr-open-check", "deliver"]);
 });
 test("stripCells：无 workflow meta 回退旧 7 段", () => {
   const out = stripCells({ candidates: [], workflow: null });

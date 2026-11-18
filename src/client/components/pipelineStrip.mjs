@@ -5,8 +5,8 @@ const STAGES = [["ingest", false], ["backlog", false], ["triage", false], ["feed
 
 // 工作流条（design-v2 §8）：模板驱动只读渲染——前环计数 chip（沿用 stages.* i18n 键）+ 分隔符 +
 // 环内节点 chip（node.name 字面量，M1 无执行器恒灰）；fallback 时渲染旧 7 段。
-export function renderStrip(container, { t, candidates, workflow }) {
-  const cells = stripCells({ candidates, workflow });
+export function renderStrip(container, { t, candidates, workflow, runs = [] }) {
+  const cells = stripCells({ candidates, workflow, runs });   // M7 评审问题7：转发 runs——环内在途着色生效（M2 残留修复）+ 多模板匹配
   const wrap = document.createElement("div");
   wrap.style.cssText = "display:flex;gap:4px;padding:8px 16px 0;flex-wrap:wrap;align-items:center";
   if (cells.fallback) {
@@ -32,7 +32,7 @@ export function renderStrip(container, { t, candidates, workflow }) {
     for (const n of cells.loop) {
       const cell = document.createElement("span");
       cell.className = "chip";
-      cell.style.opacity = ".45";           // M1 无执行器，环内恒灰；M2 接 run 节点状态
+      cell.style.opacity = n.count > 0 ? "1" : ".45";   // M7：在途着色生效（M2 残留修复——renderStrip 转发 runs 后计数真实）
       cell.title = n.name;
       cell.textContent = n.name;
       wrap.append(cell);
