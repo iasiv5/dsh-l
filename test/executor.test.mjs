@@ -140,3 +140,20 @@ test("composeAgentPrompt：rolePrompt 空则 throw；非空拼接上游", () => 
   assert.ok(p.includes("x"));
   assert.ok(p.includes("review"));
 });
+test("脱密守护（M6 T5/评审 R8-②）：script env 注入面 = 基线 env + {PATH, GIT_TERMINAL_PROMPT}，无敏感后缀键", async () => {
+  const before = new Set(Object.keys(process.env));
+  let capturedEnv = null;
+  const ex = makeExecutor({ spawn: (script, opts) => {
+    capturedEnv = opts.env;
+    const child = { stdout: { on: () => {} }, stderr: { on: () => {} }, on: (ev, cb) => { if (ev === "close") setImmediate(() => cb(0)); } };
+    return child;
+  } });
+  const r = await ex.runScriptNode({ node: { id: "verify", script: "true" }, cwd: "/ws" }).promise;
+  assert.equal(r.ok, true);
+  assert.ok(capturedEnv, "env 未捕获");
+  const injected = Object.keys(capturedEnv).filter((k) => !before.has(k));
+  // 注入面契约（D6/R8-②）：新增键 ⊆ {PATH, GIT_TERMINAL_PROMPT}（PATH 经 process.env spread 继承，通常不在差集）
+  assert.ok(injected.every((k) => ["PATH", "GIT_TERMINAL_PROMPT"].includes(k)), "注入面外键: " + injected.join(","));
+  // 差集与敏感后缀双断言：基线 env 中的敏感键不因 executor 扩散（若有也在 captured 内原样——断言差集即可）
+  assert.ok(injected.every((k) => !/(_TOKEN|_KEY|_SECRET|_PASSWORD)$/.test(k)));
+});
