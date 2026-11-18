@@ -211,3 +211,21 @@ coordinator adapter（会话协调者，role→派发缝）、sub-SOP / preview-
 9. **resume 旗标观测**（M2 备注）：run history 的 resume 痕迹在 UI 的呈现。
 10. **npm-claim 盘点自动化**（M5 计划评审建议）：属 dsh-workspace 侧 runbook，不在本仓。
 11. **发版后置事项**（待 publish 时）：know-how 018 两阶段上架监视；dshm 上架轮询与 catalog 缓存翻转核对。
+
+## 17. M6 补钉（2026-11-18 grill 定稿：Q1-A/Q2-A/**Q3-B 主人选 B**/Q4-A/Q5-A/Q6-A/Q7-A——主题「交付完整性」）
+
+上游依据：LoopForge v0.4.0 MR 节点设计（#967/#717，upstream 吸收分析钢人结论 2026-11-18）。
+
+1. **范围（Q1-A）**：MR 闭环三件套（内置模板 + 引擎落痕）+ workspace 回收脏检查 + 脱密守护测试折叠（上游 v0.4.0 吸收分析低优先项——原未入 §16 编号，M6 直接吸收）。M6 = 交付完整性。
+2. **commit 责任（Q2-A）**：build/implement 的角色 prompt 增「完成后把本轮改动 commit 到当前分支（不推送、不碰主分支）」——commit 是工程责任归角色；**roles golden 逐字锁要求 builtin.mjs build.prefix 与 roles.mjs loop-builder prompt 原子同步改**。
+3. **MR 三件套（Q3-B 照搬上游结构，dsh-l 节点类型表达）**：两内置模板在 g2 与 deliver 之间插入三节点——
+   - `mr-open`（agent，新内置角色 **mr-opener**，executionPolicy auto）：推送当前工作分支、`gh pr create/view` **幂等**（已存在指向目标分支的 MR 则复用不重复建）、把 MR 链接/分支/提交 SHA 写 mr-body.md、**不得合并/不得推主分支/不得强推**；失败（凭据/权限/网络）明确报告不谎报成功；
+   - `mr-push-check`（script）：本地三查——`git status --porcelain` 非空（未提交）/ `git rev-list --count HEAD --not --remotes` 非零（未推送）/ 不在工作分支 → exit 1 附原因（上游 command gate 等价物）；
+   - `mr-open-check`（script）：`gh pr view --json state,headRefOid,url` 校验 MR 存在且 state=OPEN 且 head=本地 HEAD（上游 mr gate 的 gh 单平台等价物——引擎侧确定性验证，agent 无法谎报）；
+   - `deliver` 改交付汇总：输出 MR 行（url/title/state，stdout 末行），不再 push/建 PR（上游 交付汇总 同款收窄）。
+   - **rework 边（Q4-A）**：mr-open/mr-push-check/mr-open-check 失败 → rework 回 build（loop-v1）/ implement（devflow-lite）——错误文本经 upstream 反馈回 agent（上游「带反馈重试一次再等人」等价物），检查节点 maxReworks:2 封顶，耗尽 → run failed → held → 人。
+4. **MR 落痕（Q5-A）**：模板级字段 `deliverEvidence`（= "deliver"）；引擎 onNodeDone 对该节点成功时 `appendRunHistory("deliver.mr", stdout 末行)`——G3 确认的证据源（只落痕不代跑发版不动）。
+5. **sweep 脏检查（Q6-A）**：rmSync 前注入式本地双查（`git status --porcelain` + `git rev-list --count HEAD --not --remotes`，**不出网**）；任一非空或 git 命令失败（fail-closed）→ 跳过并计入返回 `skipped[]`；sweep 改 async，host sweeper 补 .catch。假阳性=多留几天（保留期本 best-effort）。
+6. **脱密守护（上游吸收项折叠）**：executor script env 白名单测试——断言注入 env 键集不含 `_TOKEN/_KEY/_SECRET/_PASSWORD` 后缀键（固化现状卫生，防上游 docker exec 泄密同型）。
+7. **发版（Q7-A）**：M6 产出评审通过后 `npm publish 0.1.0`（版本已 bump 未发，无需再 bump）；publish 后走 §16-11 后置事项。
+8. **不变式**：G1/G2/G3 全部人工放行不动；MR 环节全部位于 G2 之后（交付物成型）、G3 确认（发版拍板）之前；三闸门语义零变化。
