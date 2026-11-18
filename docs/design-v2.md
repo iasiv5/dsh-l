@@ -185,7 +185,7 @@ coordinator adapter（会话协调者，role→派发缝）、sub-SOP / preview-
 4. **角色管理 UI（Q4 主人升级 + Q6-A/Q7-A/Q8-A）**：主栏第四 tab「角色」——信息架构参照 LoopForge `agents.js`（**仅借鉴信息架构与交互模式，vanilla DOM 全自写**，MIT 致谢注明）：搜索框 + 行卡（名称/职责/executionPolicy/被引用计数「N 个节点」/更多菜单）+ 「新增角色」+ 编辑对话框（name/description/prompt textarea/executionPolicy select；roleId 创建时定不可改）+ **删除保护**（被任何工作流节点引用 → 禁删并提示，`agentDeleteBlockReason` 同款语义）；内置角色可改 prompt 但可恢复默认。
 5. **i18n 消费键守护（Q5-A）**：轻量测试折叠进 M4（扫描源码 `t("…")` 字面量 ⊆ 双字典键集，堵 M3 R3 类「消费键/词典键脱节」）；DOM 冒烟不折叠（jsdom 重依赖违反零依赖，留 M5+）。
 6. **store schema（Q9-A）**：store.json v2 doc 增 `roles: {}` 键（additive、无版本 bump、旧档 `??=` 回填空）；角色引用计数守卫面（评审 P14 定口径）：扫 **templates 全量定义** agent 节点 roleId + **存活 run 快照** snapshot 节点 roleId（非存活旧失败 run 重派时 resolveRole null → prefix 兜底/空则 throw 快速失败——降级可接受；D6「全部快照」字面以本实现口径备注取代）。
-7. **startRun 模板参数化**：`startRun(key, {taskPackage, templateId})`——templateId 缺省 loop-v1，可解析 builtin（loop-v1/devflow-lite）或 store 用户模板，未知 templateId 404 unknown-template；**startRun 返回 { runId }**（引擎 makeRunId 生成），run/start 路由响应含 runId（出处：M4 计划评审自检修正——评审 R-5 回写实文语义）。M2 遗留 backlog 折叠：R4 gate 文案映射（多 gate 模板前置需要，待我确认/行内按钮文案改按 gateId 映射——M4 已落地 waitingGateId 快照语义键）。
+7. **startRun 模板参数化**：`startRun(key, {taskPackage, templateId, runId})`——templateId 缺省 loop-v1，可解析 builtin（loop-v1/devflow-lite）或 store 用户模板，未知 templateId 404 unknown-template；**runId 可选参**（缺省 makeRunId 生成）+ **返回 { runId }**；run/start 路由响应含 runId（出处：M4 计划评审自检修正，runId 入参随 M5 后落账补全——commit 0442c1d）。**任务包 v2 生产接线（M5 后落账，commit 0442c1d）**：postRunStart 与 postGate 别名两路由统一「makeRunId 先行 → buildTaskPackage(首 agent 节点角色 + workflow 块) → startRun(runId)」，生产包 version:2；postRunStart 增 templateId 透传与 unknown-template 早守卫（不动候选即拒）。M2 遗留 backlog 折叠：R4 gate 文案映射（多 gate 模板前置需要，待我确认/行内按钮文案改按 gateId 映射——M4 已落地 waitingGateId 快照语义键）。
 8. **发版时机（Q10-B）**：M4 后**不发版**，攒 M5 再发；M5 候选清单——设置面板深化、putFeishuWebhook 空 token 后缀校验、「保存并测试」复合动作、kanban 迁移「相邻 vs 全白名单」口径、R4 文案映射收尾、DOM 冒烟（jsdom 评估）。
 
 ## 15. M5 补钉（2026-11-18 grill 定稿，Q1–Q5 全按推荐）
@@ -195,3 +195,19 @@ coordinator adapter（会话协调者，role→派发缝）、sub-SOP / preview-
 3. **kanban 迁移口径（Q3-A）**：保持全白名单自由迁移，不设相邻限制——单人工具灵活优先，误迁可再迁回；口径落 GLOSSARY/设计文档注记，代码零改动。
 4. **feishu 交互形态（Q5-C）**：独立「保存 Webhook」按钮 + 「发送测试消息」按钮（**测试前自动保存**输入框当前值）——消掉「改了没存就测」坑，两键语义清晰。
 5. **发版（Q4-A）**：M5 验收后发 **0.1.0**——发版准备（version bump / README 终审 / 装机冒烟 / npm 占名核查）入 M5 计划任务；`npm publish` 在产出评审通过后执行。全局约束相应放宽：不动面清单中 package.json 的 version 字段在发版任务内可改。
+
+## 16. Backlog（M6+ 候选池，2026-11-18 落账）
+
+主人裁决：M4 残留（任务包 v2 生产接线）已落账（§14.7/commit 0442c1d）；发版挂起待主人令（版本 0.1.0 就绪未 publish）。以下为各里程碑评审沉淀的未实施项，M6 grill 时逐项裁决：
+
+1. **host.mjs listRoles/注入表达式锚**（M5 产出评审 S-3）：host 冒烟③仅锚 store 层——注入表达式断链会静默漏过全部测试；可加 engine 侧角色解析探针（dispatch 后 executor 收到的 rolePrompt 断言）。
+2. **buildRuntime workspace/executor 注入缝**（M5 计划评审建议）：冒烟断言延伸到执行链需扩缝，本里程碑不做。
+3. **putFeishuWebhook 合法 token 尾随空白 trim 入库**（M5 产出评审建议）：现校验挡空/纯空白，但合法 token 带尾空白原样入库。
+4. **路由键断言扩集**（M5 产出评审建议）：host 冒烟①断言超计划最小集方向（更严）。
+5. **设置面板深化**（M2 起 candidate）：feishu 段之外的设置面扩展（模型选择/引擎并发可视化等）。
+6. **DOM 冒烟**（M5 Q2-A 否决维持）：零依赖纪律优先；如 jsdom/linkedom 代价可接受再议。
+7. **executor cancelled-run UI 重试入口**（M2 设计备注）：行内重试按钮对 cancelled run 的节点可见性。
+8. **stripCells 多模板演进**（M2 注释）：devflow-lite 全链跑通后清单行的多模板徽标/视图。
+9. **resume 旗标观测**（M2 备注）：run history 的 resume 痕迹在 UI 的呈现。
+10. **npm-claim 盘点自动化**（M5 计划评审建议）：属 dsh-workspace 侧 runbook，不在本仓。
+11. **发版后置事项**（待 publish 时）：know-how 018 两阶段上架监视；dshm 上架轮询与 catalog 缓存翻转核对。
