@@ -71,7 +71,7 @@
 - 接口契约：合法 URL（PREFIX + token 带尾空白）→ 入库值为 trim 后形态；空/纯空白仍拒（M5 T3 语义不变）。
 - 验证范围：`npm test`（handlers 段）
 
-- [ ] Step 1: 失败测试：`putFeishuWebhook({url: PREFIX + "tok  "})` → store 凭据值为 PREFIX + "tok"（trim 后）。
+- [ ] Step 1: 失败测试两例（评审建议11 粒度）：①trim 正例 `putFeishuWebhook({url: PREFIX + "tok  "})` → store 凭据值为 PREFIX + "tok"；②纯空白仍拒回归 `{url: PREFIX + "   "}` → invalid webhook（M5 T3 语义锁定）。
 - [ ] Step 2: 实现（入库前 trim slice 段）。
 - [ ] Step 3: Run: 全绿 → checkpoint commit。
 
@@ -91,19 +91,19 @@
 - 接口契约：成功分支 nodeStates[nodeId] 增 `error: null`；钉例：verify 回炉成功后 error=null（现状残留旧 error）；skipped 态 error 保留由钉例(a) 既有断言覆盖（mr-push-check skipped 后 error 字段仍在——**确认现有断言或补一条**）。
 - 验证范围：`npm test`（engine 段）
 
-- [ ] Step 1: 失败测试（回炉成功后 error=null 断言——现状为旧 error 残留）。
+- [ ] Step 1: 失败测试两断言（评审建议9：钉例(a) 现仅断 status 无 error 字段——补字段级回归锚）：①回炉成功后 error=null（现状旧 error 残留）；②skipped 态 mr-push-check 的 error 不为 null（M6 R3 反馈通道字段级锁定）。
 - [ ] Step 2: 实现成功分支 error: null。
 - [ ] Step 3: Run: 全绿 → checkpoint commit。
 
 ### Task 5: cancelledNodeIds + 重试入口（§18.3/§16-7）
 
-- 目标：summarizeRun 增 cancelledNodeIds；行内重试按钮数据源扩 failed∪cancelled。
+- 目标：summarizeRun 增 cancelledNodeIds **与 templateId 一键（评审问题6：runs 投影断裂——T7 多模板渲染的数据源）**；行内重试按钮数据源扩 failed∪cancelled。
 - 涉及文件：Modify `src/engine/scheduler.mjs`、`test/scheduler.test.mjs`、`src/client/components/actions.mjs`
 - 接口契约：
-  - Produces: summarizeRun 增 `cancelledNodeIds`（与 failedNodeIds 同构）；既有 deepEqual 断言同步补字段；actions.mjs 重试按钮 nodeId 数据源 `[...failedNodeIds, ...cancelledNodeIds][0]` + 按钮启用条件含 cancelled run（retryNode 已支持——M2 R1-9）
+  - Produces: summarizeRun 增 `cancelledNodeIds`（与 failedNodeIds 同构）**与 `templateId`**（run 快照既有字段；client 唯一 runs 来源=handlers summarizeRun 投影，缺此键则 T7 拿不到数据）；既有 deepEqual 断言同步补两字段（scheduler.test :86/:93 全形状恰两处）；actions.mjs 重试按钮 nodeId 数据源 `[...failedNodeIds, ...cancelledNodeIds][0]` + 按钮启用条件含 cancelled run（retryNode 已支持 cancelled run——M2 R1-9）
 - 验证范围：`npm test`（scheduler 段）+ build（client 变更）
 
-- [ ] Step 1: 失败测试：scheduler.test 增 cancelled 场景（cancelRun 后 cancelledNodeIds 非空）+ 既有 summarizeRun deepEqual 补 `cancelledNodeIds: []`。
+- [ ] Step 1: 失败测试：scheduler.test 增 cancelled 场景（cancelRun 后 cancelledNodeIds 非空）+ 既有 summarizeRun deepEqual 补 `cancelledNodeIds: []` 与 `templateId`。
 - [ ] Step 2: 实现 summarizeRun 字段 + actions.mjs 数据源。
 - [ ] Step 3: Run: 全绿 + build → checkpoint commit。
 
@@ -111,20 +111,20 @@
 
 - 目标：dispatch resume 分支落 history。
 - 涉及文件：Modify `src/engine/engine.mjs`；Test `test/engine.test.mjs`
-- 接口契约：dispatch({resume:true, resumeSeq}) 分支 `store.appendRunHistory(runId, "node.resumed", `${nodeId} seq=${resumeSeq}`)`；钉例：M2 R1-11 resume 用例断言 history 含 node.resumed。
+- 接口契约：dispatch({resume:true, resumeSeq}) **循环内每 ready 节点各落一条**（评审建议10 钉死：与 detail 带 nodeId 自洽）`store.appendRunHistory(runId, "node.resumed", `${nodeId} seq=${resumeSeq}`)`；**连带点名**：engine.test :212 既有断言 history.at(-1).event === "resume.interrupted" 落 node.resumed 后变位必红——同步改判（find 替代 at(-1)）；窄窗用例口径同核。钉例：M2 R1-11 resume 用例断言 history 含 node.resumed。
 
-- [ ] Step 1: 失败测试（既有 resume 钉例补 history 断言）。
+- [ ] Step 1: 失败测试（既有 resume 钉例补 node.resumed 断言 + resume.interrupted 断言改判）。
 - [ ] Step 2: 实现 1 行。
 - [ ] Step 3: Run: 全绿 → checkpoint commit。
 
 ### Task 7: 多模板渲染（§18.6 最小形）
 
 - 目标：stripCells 按候选 currentRun templateId 匹配管线渲染。
-- 涉及文件：Modify `src/client/logic.mjs`；Test `test/logic.test.mjs`
+- 涉及文件：Modify `src/client/logic.mjs`、**`src/client/components/pipelineStrip.mjs`（评审问题7：renderStrip 签名未接 runs、stripCells({candidates, workflow}) 丢弃——不补则多模板渲染 UI 不可达，且 M2 时代「环内 chip 在途着色」陈年残留一并修复；此步是硬前提不属 D6 形状分叉）**；Test `test/logic.test.mjs`
 - 接口契约：
-  - Consumes: runs 摘要含 templateId（run 快照已有）；workflow.templates meta 数组
+  - Consumes: runs 摘要含 templateId（T5 补键后可达）；workflow.templates meta 数组
   - Produces: `stripCells({candidates, workflow, runs})` — loop 段改多组：按「在途候选 currentRun 的 templateId」取模板渲染（`templates.find(t => t.id === run.templateId) ?? templates[0]`）；输出形状 **保持 `{pre, loop, fallback}` 但 loop 改为数组套数组?** ——**实现前先读渲染调用侧（workbench.mjs/actions.mjs 的 strip 绘制）再定形状**：最小形=loop 仍单组但取「当前活跃 run 的模板」（单活跃 run 场景下正确；多模板并发场景降级 templates[0] 并在注释标明 M8+ 演进）——**若调用侧单组渲染硬编码，取最小形；若易扩，取多组形**。此分叉由执行者按实文裁决并在 commit message 声明。
-- 验证范围：`npm test`（logic 段）
+- 验证范围：`npm test`（logic 段）+ build。**覆盖度声明（评审问题7 附带）**：pipelineStrip 渲染层无单测（沿 M5/M6/T8 先例）——纯函数由 logic.test 钉、渲染面由 build 指纹兜底。
 
 - [ ] Step 1: 读实文定形状 → 失败测试（devflow run 在途 → loop 渲染 devflow 节点序列）。
 - [ ] Step 2: 实现。
