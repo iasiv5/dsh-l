@@ -54,9 +54,9 @@
 
 - 目标：③升格 engine 侧 rolePrompt 端到端锚；①路由断言增 models/triage/settings/watch。
 - 涉及文件：Modify `test/host-smoke.test.mjs`
-- 接口契约：
-  - Consumes: buildRuntime 返回 {dir, store, handlers, table, workspace, engine}；stub ctx.agents.create（M5 stub 是 throw——升格为捕获形态）；makeExecWorld(ctx, dir) 用 ctx.agents 组装 world
-  - Produces: ①table 断言增 `/dsh-l/models`、`/dsh-l/triage`、`/dsh-l/settings`、`/dsh-l/watch`；③新增探针：stub ctx.agents.create 捕获 (sessionId, opts) → seed 候选 → startRun(devflow-lite) → 轮候 agents.create 被调（**实现时读实文定等待姿势**：design→implement 首个 agent 调用发生在 ensure 失败前后的时序以实文为准；若 ensure 失败阻断 agent 调用，改用 loop-v1 的 build 节点 + fake 时序同探）→ 断言捕获的 prompt 含用户覆盖角色 prompt（store.upsertRole 覆盖 devflow-architect → store 优先端到端）
+- 接口契约（评审问题2 修正——prompt 不经 create 参数，走 handle.agent.send 通道）：
+  - Consumes: buildRuntime 返回 {dir, store, handlers, table, workspace, engine}；makeExecWorld(ctx, dir)（host.mjs:48）——world.createAgent(sessionId, {model}) 调 **ctx.agents.create({sessionId, meta:{cwd}, agentOptions, setup})**（无 prompt 字段），返回 handle 后 executor 经 **handle.agent.send(world.userMessage(prompt), ...)** 送 prompt（executor.mjs:53）；stub ctx.agents.create 须返回假 handle `{ agent: { send: (msg) => { captured.push(msg); } } }` 形态（否则 executor send 处 TypeError）
+  - Produces: ①table 断言增 `/dsh-l/models`、`/dsh-l/triage`、`/dsh-l/settings`、`/dsh-l/watch`；③新增探针：stub ctx.agents.create 捕获调用 + 返回假 handle → seed 候选 → upsertRole 覆盖 devflow-architect → startRun(devflow-lite) → 轮候 handle.agent.send 被调（**时序前置条件：workspace.ensure 须成功**——失败走 catch 置 run failed 不 dispatch；姿势=tmp dataDir 下 bin/gh 假脚本使 clone「成功」（workspace 测试 env 注入 ghBin 先例），agent 调用即达）→ 断言 send 首参 message 的 text 含用户覆盖角色 prompt（store 优先端到端）；顺带断言 create 的 agentOptions 含模型解析（create 参数里真实存在的通道）
 - 验证范围：`npm test`（host-smoke 段）
 
 - [ ] Step 1: 读实文（host.mjs makeExecWorld + executor runAgentNode 的 world 调用序）→ 失败测试（覆盖角色 prompt 断言）。
@@ -142,8 +142,8 @@
 ### Task 9: 最终验证与收口
 
 - [ ] Step 1: Run: `set -o pipefail; npm run build && npm test 2>&1 | tail -6 && git log --oneline -12`
-  Expected: 双包成功（新指纹 ≠ 6b4871fc64dc）；全量绿（183 存量 + 新增 ≥6；测试文件 20 不变）；提交序列 T1–T8；version 0.1.0 不变；工作树干净。
-- [ ] Step 2: lib 重建产物入库（独立 build commit）。
+  Expected: 双包成功（新指纹 ≠ 6b4871fc64dc）；全量绿（183 存量 + 新增 ≥6；测试文件 20 不变）；提交序列 T1–T8；version 0.1.0 不变；**lib/* 出现工作树变更属预期（评审问题1 修正：本步不判干净——lib 是 git 跟踪文件，build 必然重写）**。
+- [ ] Step 2: lib 重建产物入库（独立 build commit）→ 复跑 `git status --short` 判**工作树干净**。
 - [ ] Step 3: 停下交产出评审（章程同 M1–M6）。publish 维持挂起（auth 阻塞，§18.8）。
 
 ## 执行纪律
