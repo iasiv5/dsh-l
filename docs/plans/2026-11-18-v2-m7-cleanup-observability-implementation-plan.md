@@ -6,7 +6,7 @@
 - 可观测性四小项：onNodeDone 成功清 stale error、cancelledNodeIds + 行内重试入口、resume 痕迹落 history、sweeper skipped 计数 logger。
 - 多模板渲染（§16-8 最小形）：管线 strip 按候选 currentRun 的 templateId 匹配模板。
 - **backlog 大扫除**：§16-1/3/4/7/8/9/12/13 全清（维持不做项 5/6/10 与 publish 相关 11 留档）。
-- 不含：publish（Q6-A 维持挂起）、设置面板深化（§16-5 留档）、模板名徽标（§18.6 明示不做）、新 i18n 键（可观测组走 history/既有通道）。
+- 不含：publish（Q6-A 维持挂起）、设置面板深化（§16-5 留档）、模板名徽标（§18.6 明示不做）、新 i18n 键（可观测组走 history/既有通道）、新节点类型（评审 S1 顺手补词——T3 字节锁兜底）。
 
 ## 架构快照
 
