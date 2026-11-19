@@ -83,19 +83,25 @@ test("advanceRun ready 化：终态前 run 保持 running（评审 R4 采纳·�
   assert.equal(run.nodeStates.deliver.status, "ready");   // ready 即待执行（M2 执行器接手）
   assert.equal(run.status, "running");                    // deliver 未跑完，run 不终态
   const sum = summarizeRun({ ...run, id: "r1", candidateKey: "k" });
-  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "running", waitingGate: null, waitingGateId: null, currentNodeIds: ["deliver"], failedNodeIds: [], cancelledNodeIds: [], templateId: null, error: null });
+  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "running", waitingGate: null, waitingGateId: null, currentNodeIds: ["deliver"], failedNodeIds: [], cancelledNodeIds: [], models: {}, templateId: null, error: null });
 });
 test("advanceRun 终态：全 succeeded 才收口（评审 R4 采纳·拆例②）", () => {
   let run = mkRun({ g1: "succeeded", build: "succeeded", verify: "succeeded", g2: "succeeded", "mr-open": "succeeded", "mr-push-check": "succeeded", "mr-open-check": "succeeded", deliver: "succeeded" });   // M6 三件套补态
   run = advanceRun(run);
   assert.equal(run.status, "succeeded");
   const sum = summarizeRun({ ...run, id: "r1", candidateKey: "k" });
-  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "succeeded", waitingGate: null, waitingGateId: null, currentNodeIds: [], failedNodeIds: [], cancelledNodeIds: [], templateId: null, error: null });
+  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "succeeded", waitingGate: null, waitingGateId: null, currentNodeIds: [], failedNodeIds: [], cancelledNodeIds: [], models: {}, templateId: null, error: null });
 });
 test("summarizeRun.cancelledNodeIds + templateId（M7 T5/评审 D3/D6）", () => {
   const run = mkRun({ g1: "succeeded", build: "cancelled", verify: "cancelled" }, { id: "r9", candidateKey: "k", status: "cancelled", waitingGate: null, templateId: "loop-v1" });
   const sum = summarizeRun(run);
   assert.deepEqual(sum.cancelledNodeIds.sort(), ["build", "verify"]);
+  // M8 T2/D3：models 映射（在途 agent 非空 model；snapshot 缺席安全退化 {}——评审附注 a/b）
+  const mRun = { id: "r10", candidateKey: "k", status: "running", waitingGate: null,
+    snapshot: { nodes: [{ id: "design", type: "agent" }, { id: "x", type: "script" }] },
+    nodeStates: { design: { status: "running", model: "glm-x" }, x: { status: "running", model: null } } };
+  assert.deepEqual(summarizeRun(mRun).models, { design: "glm-x" });
+  assert.deepEqual(summarizeRun({ id: "r", candidateKey: "k", status: "running", nodeStates: {} }).models, {});
   assert.equal(sum.failedNodeIds.length, 0);
   assert.equal(sum.templateId, "loop-v1");
 });

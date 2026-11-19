@@ -101,19 +101,21 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, tem
           fire({ type: "gate", key: run.candidateKey, runId, nodeId, title: titleOf(run.candidateKey) });
           continue;
         }
-        const ns = { ...run.nodeStates, [nodeId]: resume
-          ? { ...run.nodeStates[nodeId], status: "running" }   // 恢复重派保持 attempt（评审 R1-11）
-          : { ...run.nodeStates[nodeId], status: "running", attempt: (run.nodeStates[nodeId]?.attempt ?? 0) + 1 } };
-        run = { ...run, nodeStates: ns }; store.saveRun(run);
-        if (resume) store.appendRunHistory(runId, "node.resumed", `${nodeId} seq=${resumeSeq}`);   // M7/§18.4（评审建议10：循环内每 ready 节点各一条）
         const key = store.getRun(runId).candidateKey;
         const taskPackage = store.getCandidate(key)?.taskPackage ?? null;
         const upstream = node.type === "agent" ? upstreamOf(run, nodeId) : [];
         // 角色解析（design-v2 §14.1）：store.roles 优先于 builtin；prompt/executionPolicy/model 三字段
+        // （M8 评审建议4：解析块上提至 ns 写入前——nodeStates.model 需要本轮解析值）
         const role = resolveRole(node.roleId, listRoles());
         const rolePrompt = role?.prompt ?? node.prefix ?? "";
         const execPolicy = role?.executionPolicy ?? node.executionPolicy ?? "ask";
         const roleModel = role?.model ?? null;
+        const ns = { ...run.nodeStates, [nodeId]: resume
+          ? { ...run.nodeStates[nodeId], status: "running" }   // 恢复重派保持 attempt（评审 R1-11）
+          : { ...run.nodeStates[nodeId], status: "running", attempt: (run.nodeStates[nodeId]?.attempt ?? 0) + 1 } };
+        if (node.type === "agent") ns[nodeId] = { ...ns[nodeId], model: roleModel ?? null };   // M8/D3：模型观测最小记录形（脚本节点不落）
+        run = { ...run, nodeStates: ns }; store.saveRun(run);
+        if (resume) store.appendRunHistory(runId, "node.resumed", `${nodeId} seq=${resumeSeq}`);   // M7/§18.4（评审建议10：循环内每 ready 节点各一条）
         const job = node.type === "agent"
           ? executor.runAgentNode({ run, node, cwd: workspace.dirOf(key), taskPackage, upstream, rolePrompt, executionPolicy: execPolicy, model: roleModel, resume, resumeSeq })
           : executor.runScriptNode({ run, node, cwd: workspace.dirOf(key) });

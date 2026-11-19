@@ -142,6 +142,14 @@ test("钉例①取消：agent 在途时 engine.cancelRun → executor cancel 被
   assert.equal(store.getRun(runId).status, "cancelled");
   assert.equal(store.getCandidate(key).stage, "gating");
 });
+test("M8 T2：nodeStates.model 记录（评审 D3 最小记录形）", async () => {
+  const { store, engine, executor } = setup();
+  const key = "o/r#issue#1";
+  const { runId } = engine.startRun(key, {});
+  await drain();
+  executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  assert.equal(store.getRun(runId).nodeStates.build.model, null);   // loop-builder 无 model 字段 → null
+});
 test("M7 T4 断言①：回炉成功后 error=null（评审建议9——成功清 stale error）", async () => {
   const { store, engine, executor } = setup();
   const key = "o/r#issue#1";

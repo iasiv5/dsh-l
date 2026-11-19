@@ -151,5 +151,13 @@ export function summarizeRun(run) {
   // 评审 R2-1①：waitingGate 孰 nodeId，快照节点 gateId 才是 gates.* 键空间的语义键（devflow requirement ≠ "G1" 字面上标）
   const waitingGateId = run.snapshot?.nodes?.find((n) => n.id === (run.waitingGate ?? null))?.gateId ?? null;
   const cancelledNodeIds = Object.entries(run.nodeStates).filter(([, s]) => s.status === "cancelled").map(([id]) => id);   // M7/D3：cancelled 重试入口数据源
-  return { id: run.id, candidateKey: run.candidateKey, status: run.status, waitingGate: run.waitingGate ?? null, waitingGateId, currentNodeIds, failedNodeIds, cancelledNodeIds, templateId: run.templateId ?? null, error };
+  // M8/D3：models 映射（在途 agent 非空 model；评审附注——agent 识别查 snapshot.nodes，nodeStates 无 type；缺席安全退化 {};
+  // 口径注：含 ready 与现「在途」定义不同，未派发 ready 无 model，经非空过滤输出等价）
+  const models = {};
+  for (const n of run.snapshot?.nodes ?? []) {
+    if (n.type !== "agent") continue;
+    const s = run.nodeStates[n.id];
+    if (s && ["running", "waiting", "ready"].includes(s.status) && s.model) models[n.id] = s.model;
+  }
+  return { id: run.id, candidateKey: run.candidateKey, status: run.status, waitingGate: run.waitingGate ?? null, waitingGateId, currentNodeIds, failedNodeIds, cancelledNodeIds, models, templateId: run.templateId ?? null, error };
 }
