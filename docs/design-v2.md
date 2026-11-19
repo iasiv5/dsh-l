@@ -232,6 +232,7 @@ coordinator adapter（会话协调者，role→派发缝）、sub-SOP / preview-
 3. **模型观测（Q3-A 最小记录形）**：dispatch agent 分支 nodeStates[nodeId].model = roleModel ?? null（本轮解析的实际模型——role.model 优先，兜底 null；经 saveRun 持久）；runBlock 展示「model: x」（有值时，字面量不译——零 i18n 新键）；**不做** CLI 实跑追踪（上游从 stream 首行读，dsh-l world 无此信息；agentOptions 即配置真值）。
 4. **流程项折叠（Q4-A）**：①T6 多 ready 补钉例（resume 多节点各落一条的场景钉例）；②D9 口径模板改写进本计划全局约束：「新增测试覆盖口径 = 块级或断言级择一声明」；③§16 终态核对（docs 收尾：1/3/4/7/8/9/12/13 已清、5/6/10/11 维持）。
 5. **不动面**：闸门语义、模板两内置、handlers v2 接线、mr 三件套 scripts、零依赖约束。**发版（publish 0.1.0）仍为验收后动作且等 auth**。
+6. **§16 终态核对（T3 尾注，M8 后）**：已清 1/3/4/7/8/9/12/13（M7）+ 2 实质清账（M6 T1 假 gh）；5/6/10/11 维持；13c 装机冒烟随 publish。M8 新增：D9 口径已入 M8 计划全局约束（块级或断言级择一——后续计划沿用）。
 
 
 ## 17. M6 补钉（2026-11-18 grill 定稿：Q1-A/Q2-A/**Q3-B 主人选 B**/Q4-A/Q5-A/Q6-A/Q7-A——主题「交付完整性」）

@@ -142,6 +142,30 @@ test("钉例①取消：agent 在途时 engine.cancelRun → executor cancel 被
   assert.equal(store.getRun(runId).status, "cancelled");
   assert.equal(store.getCandidate(key).stage, "gating");
 });
+test("M7 T6 多 ready 补钉（M8 T3/评审建议）：resume 多 ready 节点各落一条 node.resumed", async () => {
+  const { store, engine } = setup();
+  const key = "o/r#issue#1";
+  const { runId } = engine.startRun(key, {});
+  await drain();
+  // 构造多 ready：build/verify 同轮回 ready，下游 skipped（驳回快照同款形态——M6 钉例(a) 结构）
+  const ns = store.getRun(runId).nodeStates;
+  store.saveRun({ ...store.getRun(runId), nodeStates: {
+    ...ns,
+    build: { ...ns.build, status: "ready" },
+    verify: { ...ns.verify, status: "ready" },
+    g2: { ...ns.g2, status: "skipped" },
+    "mr-open": { ...ns["mr-open"], status: "skipped" },
+    "mr-push-check": { ...ns["mr-push-check"], status: "skipped" },
+    "mr-open-check": { ...ns["mr-open-check"], status: "skipped" },
+    deliver: { ...ns.deliver, status: "pending" },
+  } });
+  engine.simulateRestart();
+  engine.recover();
+  await drain();
+  const resumedEvents = store.getRun(runId).history.filter((h) => h.event === "node.resumed");
+  assert.deepEqual(resumedEvents.map((h) => h.detail).sort(), ["build seq=1", "verify seq=1"]);   // 每 ready 节点各一条（评审建议10 循环内语义）
+});
+
 test("M8 T2：nodeStates.model 记录（评审 D3 最小记录形）", async () => {
   const { store, engine, executor } = setup();
   const key = "o/r#issue#1";
