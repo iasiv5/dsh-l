@@ -175,6 +175,14 @@ export function installActions({ getLang }) {
       const gates = row();
       const g = gateState(c);
       const run = runBlock(c, lastRuns);
+      // M8 T2/D3：模型观测展示（entries join " · "——runRow chip join 先例；字面量不译）
+      const modelEntries = Object.entries(run?.models ?? {});
+      if (modelEntries.length > 0) {
+        const modelChip = document.createElement("span");
+        modelChip.className = "chip";
+        modelChip.textContent = "model: " + modelEntries.map(([nid, m]) => nid + " " + m).join(" · ");
+        gates.append(modelChip);
+      }
       const g2Ready = run?.waitingGate === "g2";   // 评审 D6/R1-19：G2 从字面量禁用改为挂起激活；G3 仍禁用（M3 发版分区）
       gates.append(
         btn("G1 " + t("gates.G1") + " · " + t("actions.pass"), () => go(async () => { const r = await api.gate(c.key, "G1", "pass", ""); if (r.taskPackage) await copy(r.taskPackage); }), !g.G1),
