@@ -56,12 +56,13 @@
 - 目标：dispatch 记录 nodeStates.model + summarizeRun 增 models 映射 + runBlock 展示。
 - 涉及文件：Modify `src/engine/engine.mjs`、`src/engine/scheduler.mjs`、`src/client/components/actions.mjs`；Test `test/engine.test.mjs`、`test/scheduler.test.mjs`
 - 接口契约：
-  - Produces: ①dispatch agent 分支**角色解析块上提至 ns 写入前**（评审建议4：现文 ns 写入 :104-107 先于 roleModel 解析 :116——原位硬塞取不到值）+ ns 增 `model: roleModel ?? null`（脚本节点不落）；②summarizeRun 增 `models`: 在途（running/waiting）agent 节点中 model 非空者的 {nodeId: model} 映射（空对象时仍输出 {}）；③runBlock 消费：行内 run 区块有 models 时展示「model: <值>」（字面量不译）；既有 deepEqual（scheduler.test 两处）与 M7 钉例按需同步
+  - Produces: ①dispatch agent 分支**角色解析块上提至 ns 写入前**（评审建议4：现文 ns 写入 :104-107 先于 roleModel 解析 :116——原位硬塞取不到值）+ ns 增 `model: roleModel ?? null`（脚本节点不落）；②summarizeRun 增 `models`: 在途（running/waiting）agent 节点中 model 非空者的 {nodeId: model} 映射（空对象时仍输出 {}）——**附注（评审批次2）：(a) agent 识别查 run.snapshot.nodes（nodeStates 条目无 type；snapshot 缺席时安全退化为 {}，探针断言⑥）；(b) 口径注：summarizeRun 现有「在途」含 ready（:145），未派发 ready 无 model，经非空过滤两者输出等价**
+  - Produces: ③runBlock 消费：行内 run 区块有 models 时展示 **model: <entries 按 " · " join，多在途 agent 节点异模型时逐对并列（runRow chip join 先例 actions.mjs:178）；单 entry 时即「model: x」原样**（字面量不译）；既有 deepEqual（scheduler.test 两处）与 M7 钉例按需同步
 - 验证范围：`npm test`（engine/scheduler 段）
 
 - [ ] Step 1: 失败测试：engine 钉例（design 派发后 nodeStates.design.model 含覆盖角色标记或 null——按 store.upsertRole 有无 model）+ scheduler models 映射断言。
 - [ ] Step 2: 实现（engine 一行 + summarizeRun 数行 + runBlock 展示）。
-- [ ] Step 3: Run: 全绿 → checkpoint commit。
+- [ ] Step 3: Run: 全绿 + build → checkpoint commit（lib 随本任务 commit——建1 时点政策）。
 
 ### Task 3: 流程项（T6 多 ready 钉例 + D9 口径 + §16 终态核对）
 
@@ -79,7 +80,7 @@
 
 - [ ] Step 1: Run: `set -o pipefail; npm run build && npm test 2>&1 | tail -6 && git log --oneline -8`
   Expected: 双包成功（新指纹 ≠ a03576a126c2）；全量绿（187 存量 + **断言级 ≥12 / 块级 3–4**（D9 择一口径=断言级）；测试文件 20 不变）；version 0.1.0 不变。
-- [ ] Step 2: lib 重建产物入库——**时点钉死（评审建议1）：每任务 build 先行、lib 随该任务 commit**（检查点自洽，指纹判据每步可观测）。
+- [ ] Step 2: lib 重建产物入库（时点政策已上移「执行纪律」节全局声明——评审批次3 建议）。
 - [ ] Step 3: 停下交产出评审（章程同 M1–M7）。publish 维持挂起（§19.1）。
 
 ## 执行纪律
@@ -87,12 +88,13 @@
 - 开始实现前批判性复查整份计划；缺项/矛盾先修计划。
 - 按编号执行；每任务红绿（或绿基线+变异红证）。
 - 测试桩全注入；禁 jsdom；回应前 grep 实文验证；遇阻即停。
+- **lib 时点政策（评审建议1 钉死）**：每任务 build 先行、lib 随该任务 commit——检查点自洽，指纹判据每步可观测。
 - 全部完成后最终验证并输出修改摘要，停下交评审。
 
 ## 最终验证
 
 - Run: `set -o pipefail; npm run build && npm test 2>&1 | tail -6 && git log --oneline -8`
-- Expected: 新指纹 ≠ a03576a126c2；187 存量 + 断言级 ≥12 全绿；测试文件 20；version 0.1.0；工作树干净（lib 随最后任务原子入库后）。；**断言级判据（评审建议2）：`git diff <基线>..HEAD -- test/ src/ | grep -c '^+.*assert\.'` 汇总 ≥12，最终摘要列新增用例×assert 数清单**
+- Expected: 新指纹 ≠ a03576a126c2；187 存量 + 断言级 ≥12 全绿；测试文件 20；version 0.1.0；工作树干净（lib 随最后任务原子入库后）。**断言级判据（评审建议2）：`git diff <基线>..HEAD -- test/ src/ | grep -c '^+.*assert\.'` 汇总 ≥12，最终摘要列新增用例×assert 数清单**
 - 生效探针：构建指纹变化；nodeStates.model 落库钉例；settingsPatch 透传钉例（通道 (b)——默认模型行数据经 api.models()）
 
 ## 审阅 Checkpoint
