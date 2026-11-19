@@ -23,7 +23,7 @@ host   (src/host.mjs) inject 不变（webServer, credentials, agents, agentDefau
 
 ## 2. store v2 schema（doc.version: 2）
 
-v1 全部块（watch/candidates/snapshots/repos/ingestLog/settings/auth）形状不变；增量如下：
+v1 全部块（watch/candidates/snapshots/repos/ingestLog/settings/auth/credential）形状不变；credential 块为登录门禁改造（2026-11-19）新增，增量如下：
 
 ```js
 {
@@ -131,7 +131,7 @@ v1 `POST /dsh-l/candidate/gate` G1 分支在 v2 改为 run/start 的别名（行
 - 主栏（已绑定态）顶部 tab：**清单**（v1 分组列表升级：行内展开执行状态/在途节点名/人工动作）｜**看板**（按 stage 分列，点击迁移、无拖拽）。执行详情从清单行/看板卡点入：工作流条 + 节点状态列表 + artifacts + pass/reject/retry/cancel 按钮。
 - **工作流条**（pipelineStrip 泛化）：模板驱动只读节点渲染（节点名+状态色+计数），替换 v1 硬编码 7 段 STAGES；v1 stageCounts 语义保留为兜底（无 run 候选）。
 - **待我确认**：页头常驻入口（badge 计数），两分区——gate 等待（run waiting）+ G3 发版（shipped 且 release.confirmedAt 为空）；放行/驳回/确认动作即在此完成。
-- 登录闸/收活板块不变；i18n 双字典同步新增键（locale-parity 测试守护）。
+- 登录闸 → 登录门禁全面板（Task 9，2026-11-19：三关门禁 + loopforge 式凭据卡 + 双方法并列）；收活板块增紧凑连接卡与连接受损横幅（Task 10）；i18n 双字典同步新增 cred.* 键（locale-parity 测试守护）。
 
 ## 9. 安全（v2 增量）
 

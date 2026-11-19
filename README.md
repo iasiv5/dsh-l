@@ -52,7 +52,7 @@ sudo systemctl restart deepseek-harness.service
 
 ## 配置
 
-GitHub token 按以下顺序解析：插件配置的凭据引用 → 本机 `gh auth token` 登录态 → 匿名（仅公开仓，限速 60 次/时）。要固定用某个 token，在所属 profile 的 `cordis.patch.yml` 给 dsh-l 行加 config（引用名是环境变量形态，token 值由宿主凭据体系解析）：
+GitHub token 按以下顺序解析：插件配置的凭据引用 → 工作台自存凭据（登录门禁授权写入，0600 存储）→ 本机 `gh auth token` 登录态。要固定用某个 token，在所属 profile 的 `cordis.patch.yml` 给 dsh-l 行加 config（引用名是环境变量形态，token 值由宿主凭据体系解析）；`githubClientId` 可覆写设备流使用的 OAuth App（缺省 GitHub CLI 官方公开 App）：
 
 ```yaml
 - insert:
@@ -60,12 +60,18 @@ GitHub token 按以下顺序解析：插件配置的凭据引用 → 本机 `gh 
       name: dsh-l
       config:
         githubTokenRef: GITHUB_TOKEN
+        githubClientId: <你的 OAuth App client_id>
 ```
+
+## 登录门禁与仓库授权
+
+进入工作台前须过三关强制门禁：**gh CLI 已安装**（一键安装仅 Linux，其余平台给手动命令）→ **gh 已登录**（页内设备流授权自动移交，或本机已有的 gh 登录）→ **凭据校验通过**（`/user` 200 + scopes 含 `repo`）。授权方式并列双方法任选：**连接 GitHub**（设备流，免复制令牌）或 **使用访问令牌**（PAT 粘贴，校验通过才落库）。凭据卡提供重新校验（实读 `X-OAuth-Scopes`）、更换访问令牌、删除凭证（可选同时 `gh auth logout`，仅限工作台自建的 gh 登录）。
 
 ## 数据、隐私与安全
 
-- **token 不落盘**：token 只进 GitHub 请求的 Authorization 头，不写入插件存储、不出现在日志；分诊会话的提示词里也没有它。页内设备流授权取得的 token 经 stdin 管道移交给 **gh 自身凭据库**托管（等同手动 `gh auth login` 的产物），插件不另存副本。
+- **凭据存储**：授权取得的 token 存于工作台数据目录 `store.json`（权限 0600 原子写），副本移交 gh 凭据库供执行环克隆/推送；`credentials` 引用覆写仍最优先。除凭据块外任何结构不含凭据材料，token 不打日志。
 - **退出语义**：退出账号只清工作台的 GitHub 绑定（store 的 auth 块），不调用 `gh auth logout`、不撤销本机凭据；监看配置与候选历史全部保留，重连即恢复。
+- **限流纪律**：403 abuse/429 分型为「限流中」（带恢复时刻），不误伤凭据健康；仅 401 标记凭据失效。摄取路径全量 ETag 条件请求（304 不计费）+ 每次刷新 60 请求预算硬上限。
 - **路由保护**：全部路由先过宿主官方信任检查（缺席即 fail-closed 403），写方法再强制同源 + JSON 体积上限。
 - **不可信正文隔离**：issue / PR 正文是别人写的字。分诊 prompt 明确声明它们是数据；插件不豁免工具审批，正文诱导的任何工具调用都会卡在宿主审批上直到超时。
 - **闸门纪律**：当前对仓库没有任何自动写路径；未来的 PR / 发版动作都在闸门之后，且发版闸门（G3）计划永久人工。
