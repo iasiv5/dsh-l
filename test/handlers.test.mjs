@@ -11,7 +11,13 @@ import { makeHandlers, buildTaskPackage } from "../src/handlers.mjs";
 const openStore = () => createStore({ filePath: join(mkdtempSync(join(tmpdir(), "dsh-l-h-")), "s.json") });
 const login = (store, account = "o") => store.setAuth({ account, login: account });
 const PROVIDER = (mode = {}) => ({
-  resolveToken: async () => mode.token ?? null,
+  resolveToken: async (opts = {}) => {
+    // 桩贴合真实三级链：storedToken 优先（有值时），否则回 mode.token（模拟 gh 登录态）
+    if (typeof opts?.storedToken === "function") {
+      try { const t = await opts.storedToken(); if (typeof t === "string" && t !== "") return t; } catch {}
+    }
+    return mode.token ?? null;
+  },
   ghAvailable: async () => mode.gh !== false,
   getViewer: async () => {
     if (!mode.viewerLogin) throw new Error("github api 401 for /user");
@@ -24,7 +30,14 @@ const PROVIDER = (mode = {}) => ({
   },
   listOpenPulls: async () => [],
   getRepo: async ({ repo }) => ({ defaultBranch: "trunk", cloneUrl: "git@github.com:" + repo + ".git" }),
-  discoverRepos: async () => [{ fullName: "o/good" }],
+  listUserRepos: async () => [{ fullName: "o/good" }],
+  // Task 5：凭据校验默认实现（可经 mode.verify 注入失败形态）
+  verifyToken: async () => {
+    if (mode.verify === "invalid") throw new Error("token-invalid");
+    if (mode.verify === "rate") throw new Error("rate-limited:120");
+    if (mode.verify === "net") throw new Error("github api 500 for /user");
+    return { login: mode.vLogin ?? mode.viewerLogin ?? "o", scopes: mode.scopes ?? ["repo", "read:org"], fineGrained: false, verifiedAt: mode.verifiedAt ?? "2026-11-19T00:00:00.000Z" };
+  },
 });
 const noTriage = { runTriage: async () => ({ updated: [], failed: "triage-not-wired" }) };
 const seed = (store, n = 1) => store.upsertCandidates([{ repo: "o/r", type: "issue", number: n, title: "t", author: "a", labels: [], createdAt: "2026-11-01T00:00:00Z", updatedAt: "T", url: "U", meta: {}, pull: null, bodyExcerpt: "" }]);
@@ -221,8 +234,7 @@ test("postAuthBind：身份一致（大小写不敏感）才绑定；state 回�
   assert.equal((await h.getState()).auth.account, "iasiv5");
   const st = await h.getAuth();
   assert.equal(st.account, "iasiv5");
-  assert.equal(st.installed, true);
-  assert.equal(st.tokenAvailable, true);
+  assert.deepEqual(st.gates, { ghInstalled: true, ghLogin: true, credentialOk: true });   // R1-6 明示改锚：installed/tokenAvailable → gates.*
   assert.equal(st.install.phase, "idle");
   assert.equal(st.device.phase, "idle");
   await h.postRefresh();                        // 绑定后摄取不再 401
@@ -239,10 +251,12 @@ test("postAuthBind 免填账号：直接采用 token 身份（登录闸大按钮
   assert.match((await h.postAuthBind({ account: "someone-else" })).error, /^account-mismatch/);
 });
 
-test("postAuthDeviceStart：已有凭据 409；无凭据出 pending 并可回到 idle 形状", async () => {
-  const mk = (mode) => makeHandlers({ store: openStore(), provider: PROVIDER(mode), triage: noTriage });
-  assert.equal((await mk({ token: "tk", viewerLogin: "o" }).postAuthDeviceStart()).status, 409);
-  const h = mk({});
+test("postAuthDeviceStart：就绪态（健康凭据在场）409；非就绪可发起并可回到 idle 形状", async () => {
+  // R1-4（主人签核·收窄版）：守卫 = token 可解析 ∧ credentialOk；夹具随凭据模型现代化，409 断言语义不变（B14）。
+  const ready = openStore();
+  ready.setCredential({ token: "tk", source: "device-flow", scopes: ["repo", "read:org"], verifiedAt: "T0", healthy: true });
+  assert.equal((await makeHandlers({ store: ready, provider: PROVIDER({ token: "tk", viewerLogin: "o" }), triage: noTriage }).postAuthDeviceStart()).status, 409);
+  const h = makeHandlers({ store: openStore(), provider: PROVIDER({}), triage: noTriage });
   const r = await h.postAuthDeviceStart();
   assert.match(r.error, /^device-start-failed: /);
   assert.equal((await h.getAuthDevice()).phase, "idle");
@@ -289,6 +303,164 @@ test("postAuthLogout：只清绑定，watch/设置保留；refresh 重新 401", 
   assert.equal(store.getAuth().account, null);
   assert.deepEqual(store.getWatch().repos, ["o/good"]);
   assert.equal(store.getSettings().intervalMinutes, 0);
+});
+
+// ── Task 5：门禁 getAuth 重塑 + 凭据端点（verify/PUT/DELETE）────────
+const PROVIDER5 = (mode = {}) => ({
+  ...PROVIDER(mode),
+  ghLoginWithToken: async () => { if (mode.ghWrite === false) throw new Error("no gh"); return { ok: true }; },
+  ghLogout: async () => { if (mode.ghLogoutFail) throw new Error("gh auth logout failed (1)"); return { ok: true }; },
+});
+const healthyCred = (store, token = "tk") => store.setCredential({ token, source: "device-flow", scopes: ["repo", "read:org"], verifiedAt: "2026-11-19T00:00:00.000Z", healthy: true, ghWrittenAt: "2026-11-19T00:00:01.000Z" });
+
+test("getAuth 门禁重塑：gates 三关组合与 credential 块形状", async () => {
+  const store = openStore();
+  const h = makeHandlers({ store, provider: PROVIDER5({ token: "tk", viewerLogin: "iasiv5" }), triage: noTriage });
+  let st = await h.getAuth();   // gh 在、gh 登录、凭据未校验 → credentialOk false
+  assert.deepEqual(st.gates, { ghInstalled: true, ghLogin: true, credentialOk: false });
+  assert.equal(st.viewerLogin, "iasiv5");
+  assert.equal(st.credential.configured, false);
+  assert.equal(st.credential.healthy, true);
+  assert.equal(st.credential.ghWrittenByUs, false);
+  assert.equal(st.account, null);
+  healthyCred(store);           // 预置健康凭据 → 全绿
+  st = await h.getAuth();
+  assert.deepEqual(st.gates, { ghInstalled: true, ghLogin: true, credentialOk: true });
+  assert.equal(st.credential.configured, true);
+  assert.deepEqual(st.credential.scopes, ["repo", "read:org"]);
+  assert.equal(st.credential.ghWrittenByUs, true);
+  store.setCredential({ healthy: false });   // 被动失效 → credentialOk false
+  st = await h.getAuth();
+  assert.equal(st.gates.credentialOk, false);
+});
+
+test("postCredentialVerify：成功落库 / missing / token-invalid 置 unhealthy / rate-limited 不改 healthy 且置横幅时刻 / net 映射", async () => {
+  const store = openStore();
+  const h = makeHandlers({ store, provider: PROVIDER5({ token: "tk" }), triage: noTriage });
+  const ok = await h.postCredentialVerify();
+  assert.equal(ok.login, "o");
+  assert.deepEqual(ok.scopes, ["repo", "read:org"]);
+  assert.equal(store.getCredential().verifiedAt, "2026-11-19T00:00:00.000Z");
+  assert.equal(store.getCredential().healthy, true);
+  assert.equal((await makeHandlers({ store: openStore(), provider: PROVIDER5({}), triage: noTriage }).postCredentialVerify()).error, "credential-missing");
+  const badStore = openStore();
+  const bad = makeHandlers({ store: badStore, provider: PROVIDER5({ token: "tk", verify: "invalid" }), triage: noTriage });
+  const r = await bad.postCredentialVerify();
+  assert.equal(r.status, 409);
+  assert.match(r.error, /token-invalid/);
+  assert.equal(badStore.getCredential().healthy, false);
+  const limStore = openStore();
+  const lim = makeHandlers({ store: limStore, provider: PROVIDER5({ token: "tk", verify: "rate" }), triage: noTriage });
+  const lr = await lim.postCredentialVerify();
+  assert.equal(lr.status, 409);
+  assert.match(lr.error, /^rate-limited:120$/);
+  assert.equal(limStore.getCredential().healthy, true);   // 限流不误伤
+  assert.ok((await lim.getAuth()).credential.rateLimitedUntil);   // ISO 时刻已置（B9 横幅数据源）
+  const net = makeHandlers({ store: openStore(), provider: PROVIDER5({ token: "tk", verify: "net" }), triage: noTriage });
+  const nr = await net.postCredentialVerify();
+  assert.equal(nr.status, 409);
+  assert.match(nr.error, /^credential-verify-failed: /);
+});
+
+test("PUT credential：verify-before-save（失败不落库）+ 格式守卫 + 成功落库与移交标记", async () => {
+  const store = openStore();
+  const bad = makeHandlers({ store, provider: PROVIDER5({ verify: "invalid" }), triage: noTriage });
+  const rb = await bad.putCredential({ token: "bad-token" });
+  assert.equal(rb.status, 409);
+  assert.match(rb.error, /^credential-invalid/);
+  assert.equal(store.getCredential().token, null);   // 校验不过不落库
+  assert.equal((await bad.putCredential({ token: "" })).error, "credential-format");
+  assert.equal((await bad.putCredential({ token: "a b" })).error, "credential-format");
+  assert.equal((await bad.putCredential({ token: "x".repeat(4097) })).error, "credential-format");
+  const store2 = openStore();
+  const h2 = makeHandlers({ store: store2, provider: PROVIDER5({ vLogin: "b-account", ghWrite: false }), triage: noTriage });
+  const ok = await h2.putCredential({ token: "ghp_new" });
+  assert.equal(ok.login, "b-account");
+  assert.equal(store2.getCredential().token, "ghp_new");
+  assert.equal(store2.getCredential().source, "manual-pat");
+  assert.equal(store2.getCredential().ghWrittenAt, null);   // gh 不可用 → 不打移交标记
+  const store3 = openStore();
+  const h3 = makeHandlers({ store: store3, provider: PROVIDER5({}), triage: noTriage });
+  await h3.putCredential({ token: "ghp_ok" });
+  assert.ok(store3.getCredential().ghWrittenAt);   // gh 可用 → 移交并打标
+});
+
+test("PUT credential 换账号：viewerCache 失效，viewerLogin 即时刷新（R1-5）", async () => {
+  const store = openStore();
+  const provider = PROVIDER5({ token: "tk", viewerLogin: "old-acct", vLogin: "new-acct" });
+  provider.getViewer = async ({ token }) => ({ login: token === "ghp_new" ? "new-acct" : "old-acct" });   // 按传入 token 回身份
+  const h = makeHandlers({ store, provider, triage: noTriage, storedToken: async () => store.getCredential()?.token ?? null });   // host 同款注入（Task 7 预演）
+  assert.equal((await h.getAuth()).viewerLogin, "old-acct");
+  await h.putCredential({ token: "ghp_new" });
+  assert.equal((await h.getAuth()).viewerLogin, "new-acct");
+});
+
+test("DELETE credential：ours 可带 gh logout；not-ours 409 但清除已执行；不请求 gh 时直接清", async () => {
+  const store = openStore();
+  healthyCred(store);
+  login(store);
+  let logoutCalled = 0;
+  const provider = { ...PROVIDER5({ token: "tk", viewerLogin: "o" }), ghLogout: async () => { logoutCalled++; return { ok: true }; } };
+  const r = await makeHandlers({ store, provider, triage: noTriage }).deleteCredential({ ghLogout: true });
+  assert.deepEqual(r, { cleared: true, ghLogoutDone: true });
+  assert.equal(logoutCalled, 1);
+  assert.equal(store.getCredential().token, null);
+  assert.equal(store.getAuth().account, null);
+  const store2 = openStore();
+  login(store2);
+  const h2 = makeHandlers({ store: store2, provider: { ...PROVIDER5({ token: "tk", viewerLogin: "o" }), ghLogout: async () => { logoutCalled++; return { ok: true }; } }, triage: noTriage });
+  const r2 = await h2.deleteCredential({ ghLogout: true });
+  assert.equal(r2.status, 409);
+  assert.equal(r2.error, "gh-not-ours");
+  assert.equal(r2.cleared, true);
+  assert.equal(store2.getAuth().account, null);
+  assert.equal(logoutCalled, 1);   // gh 登录不是工作台建的，不动
+  const store3 = openStore();
+  healthyCred(store3);
+  login(store3);
+  const r3 = await makeHandlers({ store: store3, provider: PROVIDER5({ token: "tk", viewerLogin: "o" }), triage: noTriage }).deleteCredential({});
+  assert.deepEqual(r3, { cleared: true, ghLogoutDone: false });
+});
+
+test("device 流成功：verifyToken 替换 getViewer，凭据块落 verifiedAt/实读 scopes/ghWrittenAt（R1-2）", async () => {
+  const store = openStore();
+  const seen = [];
+  const provider = {
+    ...PROVIDER5({ token: "tk2", viewerLogin: "iasiv5" }),
+    deviceCodeStart: async () => ({ deviceCode: "DC", userCode: "ABCD-1234", verificationUri: "https://github.com/login/device", expiresAt: Date.now() + 60000, interval: 0 }),
+    deviceCodePoll: async () => ({ token: "tk2" }),
+    getViewer: async () => { seen.push("getViewer"); return { login: "x" }; },
+    verifyToken: async (tk) => { seen.push("verify:" + tk); return { login: "iasiv5", scopes: ["repo", "read:org"], fineGrained: false, verifiedAt: "2026-11-19T00:00:02.000Z" }; },
+  };
+  const h = makeHandlers({ store, provider, triage: noTriage });
+  await h.postAuthDeviceStart();
+  await new Promise((res) => setTimeout(res, 20));   // interval:0 → 立即轮询完成后台循环
+  assert.equal((await h.getAuthDevice()).phase, "authorized");
+  assert.deepEqual(seen.filter((s) => s.startsWith("verify")), ["verify:tk2"]);
+  assert.equal(seen.includes("getViewer"), false);   // 设备流路径不再调 getViewer
+  const c = store.getCredential();
+  assert.equal(c.source, "device-flow");
+  assert.deepEqual(c.scopes, ["repo", "read:org"]);
+  assert.equal(c.verifiedAt, "2026-11-19T00:00:02.000Z");
+  assert.ok(c.ghWrittenAt);
+  assert.equal(store.getAuth().account, "iasiv5");   // 既有自动绑定保持
+});
+
+test("postAuthBind 成功后凭据块持久化 scopes/verifiedAt（B3 实读）", async () => {
+  const store = openStore();
+  const provider = { ...PROVIDER({ token: "tk", viewerLogin: "IasiV5" }), verifyToken: async () => ({ login: "IasiV5", scopes: ["repo", "read:org"], fineGrained: false, verifiedAt: "2026-11-19T00:00:03.000Z" }) };
+  await makeHandlers({ store, provider, triage: noTriage }).postAuthBind({});
+  assert.deepEqual(store.getCredential().scopes, ["repo", "read:org"]);
+  assert.equal(store.getCredential().verifiedAt, "2026-11-19T00:00:03.000Z");
+});
+
+test("bind 遇 401：token-invalid 锚映射不变，且 healthy=false（被动失效）", async () => {
+  const store = openStore();
+  store.setCredential({ token: "tk", scopes: ["repo"], verifiedAt: "T0", healthy: true });
+  const h = makeHandlers({ store, provider: PROVIDER({ token: "tk" }), triage: noTriage });
+  const r = await h.postAuthBind({ account: "o" });
+  assert.match(r.error, /^token-invalid/);
+  assert.equal(store.getCredential().healthy, false);
 });
 
 // ---- Task 9：run 四路由 + postGate 别名（engine 真 makeEngine + fake workspace/executor）----

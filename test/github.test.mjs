@@ -39,6 +39,77 @@ test("非 2xx 抛带路径的错误", async () => {
   await assert.rejects(github.listOpenPulls({ repo: "o/x", token: null, fetch: f }), /github api 404 for \/repos\/o\/x\/pulls/);
 });
 
+// ── pagedGet 额度卫生（Task 4）：ETag 键=完整 URL、预算、err.status、仓库发现扩面 ──
+test("pagedGet：ETag 键含 page——同 path 两 page 各自 304", async () => {
+  const full = Array.from({ length: 100 }, (_, i) => issue(i + 1));
+  const calls = [];
+  const f = async (url, init) => {
+    calls.push({ url, inm: init.headers["if-none-match"] });
+    const pageNo = Number(new URL(url).searchParams.get("page"));
+    if (calls.length <= 2) {
+      return { ok: true, status: 200, headers: { get: (x) => (x.toLowerCase() === "etag" ? (pageNo === 1 ? 'W/"p1"' : 'W/"p2"') : null) }, json: async () => (pageNo === 1 ? full : [issue(101)]) };
+    }
+    return { ok: false, status: 304, headers: { get: () => null } };
+  };
+  const r1 = await github.pagedGet("/repos/o/r/issues?state=open", { token: "tk", fetch: f });
+  assert.equal(r1.items.length, 101);
+  assert.equal(r1.partial, false);
+  const r2 = await github.pagedGet("/repos/o/r/issues?state=open", { token: "tk", fetch: f });
+  assert.equal(r2.unchanged, true);
+  assert.deepEqual(r2.items, []);
+  assert.equal(calls[2].inm, 'W/"p1"');   // page1 带自己的 etag
+  assert.equal(calls[3].inm, 'W/"p2"');   // page2 带自己的 etag（键含 page 的回归锚）
+});
+
+test("pagedGet：单页仓 304 → unchanged 跳过处理", async () => {
+  let n = 0;
+  const calls = [];
+  const f = async (url, init) => {
+    calls.push(init.headers["if-none-match"]);
+    n++;
+    if (n === 1) return { ok: true, status: 200, headers: { get: (x) => (x.toLowerCase() === "etag" ? 'W/"s"' : null) }, json: async () => [issue(1)] };
+    return { ok: false, status: 304, headers: { get: () => null } };
+  };
+  await github.pagedGet("/repos/o/uni1/issues", { token: "tk", fetch: f });
+  const r2 = await github.pagedGet("/repos/o/uni1/issues", { token: "tk", fetch: f });
+  assert.deepEqual(r2, { items: [], unchanged: true, partial: false });
+  assert.equal(calls[1], 'W/"s"');
+});
+
+test("pagedGet：预算耗尽截断 partial；剩余 0 时不发请求", async () => {
+  const full = Array.from({ length: 100 }, (_, i) => issue(i + 1));
+  const calls = [];
+  const f = async (url) => { calls.push(url); return { ok: true, status: 200, headers: { get: () => null }, json: async () => full }; };
+  const r = await github.pagedGet("/repos/o/uni2/issues", { token: null, fetch: f, budget: { remaining: 1 } });
+  assert.equal(r.items.length, 100);
+  assert.equal(r.partial, true);
+  assert.equal(calls.length, 1);
+  const r0 = await github.pagedGet("/repos/o/uni2/pulls", { token: null, fetch: f, budget: { remaining: 0 } });
+  assert.deepEqual(r0, { items: [], partial: true });
+  assert.equal(calls.length, 1);
+});
+
+test("pagedGet：错误对象挂 err.status，消息风格不变", async () => {
+  const f = async () => ({ ok: false, status: 401, headers: { get: () => null }, json: async () => ({}) });
+  await assert.rejects(github.pagedGet("/repos/o/uni3/pulls", { token: "tk", fetch: f }), /github api 401/);
+  try {
+    await github.pagedGet("/repos/o/uni3/pulls", { token: "tk", fetch: f });
+    assert.fail("should reject");
+  } catch (e) {
+    assert.equal(e.status, 401);
+    assert.match(e.message, /github api 401 for \/repos\/o\/uni3\/pulls/);
+  }
+});
+
+test("listUserRepos：affiliation 扩 owner,collaborator,organization_member", async () => {
+  const calls = [];
+  const f = async (url) => { calls.push(url); return { ok: true, status: 200, headers: { get: () => null }, json: async () => [{ full_name: "o/r", pushed_at: "T", visibility: "private" }] }; };
+  const rows = await github.listUserRepos({ token: "tk", fetch: f });
+  assert.equal(rows[0].fullName, "o/r");
+  assert.ok(calls[0].includes("affiliation=owner,collaborator,organization_member"));
+  assert.ok(calls[0].includes("sort=pushed"));
+});
+
 test("getRepo 取真实默认分支与 SSH 克隆地址，带 token", async () => {
   const { f, calls } = fetchPages(page({ default_branch: "master", ssh_url: "git@github.com:o/r.git" }));
   const r = await github.getRepo({ repo: "o/r", token: "tk", fetch: f });
@@ -61,6 +132,19 @@ test("token 解析顺序：配置引用 → gh → null；非法引用名跳过"
   assert.equal(await github.resolveToken({ credentials: cred(null), tokenRef: "GH_TOKEN", execFile: gh(" gk ") }), "gk");
   assert.equal(await github.resolveToken({ credentials: cred("ck"), tokenRef: "bad name", execFile: gh("gk") }), "gk");
   assert.equal(await github.resolveToken({ credentials: cred(null), tokenRef: null, execFile: noGh }), null);
+});
+
+test("token 三级链：配置引用 → 工作台自存(storedToken) → gh → null", async () => {
+  const cred = (v) => ({ resolve: async (ref) => (ref === "GH_TOKEN" && v ? { value: v, source: "env" } : undefined) });
+  const gh = (out) => async () => ({ stdout: out });
+  const noGh = async () => { throw new Error("no gh"); };
+  const stored = (v) => async () => v;
+  assert.equal(await github.resolveToken({ credentials: cred("ck"), tokenRef: "GH_TOKEN", storedToken: stored("sk"), execFile: gh("gk") }), "ck");   // 引用最优先
+  assert.equal(await github.resolveToken({ credentials: cred(null), tokenRef: "GH_TOKEN", storedToken: stored("sk"), execFile: gh("gk") }), "sk");   // stored 次之
+  assert.equal(await github.resolveToken({ credentials: cred(null), tokenRef: "GH_TOKEN", storedToken: stored(""), execFile: gh("gk") }), "gk");   // stored 空串 → gh 兜底
+  assert.equal(await github.resolveToken({ credentials: cred(null), tokenRef: "GH_TOKEN", storedToken: stored("sk"), execFile: noGh }), "sk");   // 无 gh 时 stored 兜住
+  assert.equal(await github.resolveToken({ credentials: cred(null), tokenRef: "GH_TOKEN", storedToken: async () => { throw new Error("boom"); }, execFile: gh("gk") }), "gk");   // stored 抛错不炸
+  assert.equal(await github.resolveToken({ credentials: cred(null), tokenRef: null, storedToken: stored(null), execFile: noGh }), null);
 });
 
 test("getViewer：GET /user 拿 token 身份；401 抛错", async () => {
@@ -102,11 +186,115 @@ test("deviceCodeStart：POST /login/device/code 映射 user_code/verification_ur
   assert.deepEqual(JSON.parse(calls[0].init.body).client_id, github.GH_CLIENT_ID);
 });
 
+test("deviceCodeStart：clientId 可覆写（config.githubClientId 注入位）", async () => {
+  const calls = [];
+  const f = async (url, init) => { calls.push({ url, init }); return { ok: true, status: 200, json: async () => ({ device_code: "DC", user_code: "ABCD-1234", verification_uri: "https://github.com/login/device", interval: 5 }) }; };
+  await github.deviceCodeStart({ fetch: f, clientId: "my-client-id" });
+  assert.deepEqual(JSON.parse(calls[0].init.body).client_id, "my-client-id");
+});
+
 test("deviceCodePoll：access_token 与 pending error 双路径", async () => {
   const ok = async () => ({ ok: true, status: 200, json: async () => ({ access_token: "tk" }) });
   assert.deepEqual(await github.deviceCodePoll({ deviceCode: "DC", fetch: ok }), { token: "tk" });
   const pending = async () => ({ ok: true, status: 200, json: async () => ({ error: "authorization_pending" }) });
   assert.deepEqual(await github.deviceCodePoll({ deviceCode: "DC", fetch: pending }), { error: "authorization_pending" });
+});
+
+// ── verifyToken（Task 3）：身份+scopes 一次取、ETag 条件请求、主/二级限流分型 ──
+const hres = (status, { body = {}, headers = {}, text } = {}) => ({
+  ok: status >= 200 && status < 300,
+  status,
+  json: async () => body,
+  text: async () => text ?? JSON.stringify(body),
+  headers: { get: (n) => headers[n.toLowerCase()] ?? null },
+});
+
+test("verifyToken：200 实读 X-OAuth-Scopes，多值去空白，首次不带 If-None-Match", async () => {
+  const calls = [];
+  const f = async (url, init) => { calls.push({ url, init }); return hres(200, { body: { login: "iasiv5" }, headers: { "x-oauth-scopes": "repo,  read:org , gist" } }); };
+  const r = await github.verifyToken("tk", { fetch: f });
+  assert.deepEqual(r.scopes, ["repo", "read:org", "gist"]);
+  assert.equal(r.fineGrained, false);
+  assert.equal(r.login, "iasiv5");
+  assert.ok(r.verifiedAt);
+  assert.equal(calls[0].init.headers.authorization, "Bearer tk");
+  assert.equal(calls[0].init.headers["if-none-match"], undefined);
+});
+
+test("verifyToken：X-OAuth-Scopes 空 = 细粒度 PAT", async () => {
+  const f = async () => hres(200, { body: { login: "iasiv5" }, headers: {} });
+  const r = await github.verifyToken("tk", { fetch: f });
+  assert.deepEqual(r.scopes, []);
+  assert.equal(r.fineGrained, true);
+});
+
+test("verifyToken：401 → token-invalid", async () => {
+  const f = async () => hres(401);
+  await assert.rejects(github.verifyToken("bad", { fetch: f }), /token-invalid/);
+});
+
+test("verifyToken：403 主限流（Remaining:0）→ rate-limited:<reset 余秒，下限 60>", async () => {
+  const reset = Math.floor(Date.now() / 1000) + 120;
+  const f = async () => hres(403, { headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": String(reset) } });
+  await assert.rejects(github.verifyToken("tk", { fetch: f }), /^Error: rate-limited:\d+$/);
+});
+
+test("verifyToken：403 二级限流（abuse：Remaining>0 + body 特征 + Retry-After）→ rate-limited:33", async () => {
+  const f = async () => hres(403, { body: { message: "abuse detection mechanism: secondary rate limit" }, headers: { "x-ratelimit-remaining": "4900", "retry-after": "33" } });
+  await assert.rejects(github.verifyToken("tk", { fetch: f }), /^Error: rate-limited:33$/);
+});
+
+test("verifyToken：429 → rate-limited:<Retry-After>", async () => {
+  const f = async () => hres(429, { headers: { "retry-after": "10" } });
+  await assert.rejects(github.verifyToken("tk", { fetch: f }), /^Error: rate-limited:10$/);
+});
+
+test("verifyToken：其余非 2xx 保持既有错误风格", async () => {
+  const f = async () => hres(500);
+  await assert.rejects(github.verifyToken("tk", { fetch: f }), /github api 500 for \/user/);
+});
+
+test("verifyToken：ETag 条件请求——200 存 etag，304 返回缓存 + notModified", async () => {
+  const calls = [];
+  let n = 0;
+  const f = async (url, init) => {
+    calls.push(init.headers["if-none-match"]);
+    n++;
+    if (n === 1) return hres(200, { body: { login: "iasiv5" }, headers: { "x-oauth-scopes": "repo", etag: 'W/"abc"' } });
+    return hres(304);
+  };
+  const r1 = await github.verifyToken("tk", { fetch: f });
+  assert.equal(r1.notModified, undefined);
+  const r2 = await github.verifyToken("tk", { fetch: f });
+  assert.equal(r2.notModified, true);
+  assert.equal(r2.login, "iasiv5");
+  assert.deepEqual(r2.scopes, ["repo"]);
+  assert.ok(r2.verifiedAt);
+  assert.equal(calls[0], undefined);
+  assert.equal(calls[1], 'W/"abc"');
+});
+
+test("verifyToken：无缓存时 304 按既有错误风格上抛（不发生）", async () => {
+  const f = async () => hres(304);
+  await assert.rejects(github.verifyToken("tk-nocache-304", { fetch: f }), /github api 304 for \/user/);
+});
+
+test("scopesOk：repo 在场或细粒度空数组放行，缺 repo 拒绝", () => {
+  assert.equal(github.scopesOk(["repo", "read:org"]), true);
+  assert.equal(github.scopesOk([]), true);
+  assert.equal(github.scopesOk(["read:org"]), false);
+  assert.equal(github.scopesOk(null), false);
+});
+
+test("verifyToken：/user 缓存 LRU 上限 8，淘汰后重走全量", async () => {
+  const mk = () => { let full = 0; const etag = 'W/"e"'; const f = async (url, init) => { if (init.headers["if-none-match"] === etag) return hres(304); full++; return hres(200, { body: { login: "L" }, headers: { etag } }); }; return { f, count: () => full }; };
+  const tks = ["t1", "t2", "t3", "t4", "t5", "t6", "t7", "t8"];
+  const stubs = Object.fromEntries(tks.map((tk) => [tk, mk()]));
+  for (const tk of tks) { await github.verifyToken(tk, { fetch: stubs[tk].f }); await github.verifyToken(tk, { fetch: stubs[tk].f }); }
+  assert.equal(stubs.t1.count(), 1);   // 第二次走 304
+  await github.verifyToken("t9", { fetch: mk().f });
+  await github.verifyToken("t1", { fetch: stubs.t1.f });
+  assert.equal(stubs.t1.count(), 2);   // 被 t9 挤出缓存 → 重走全量
 });
 
 test("ghLoginWithToken：token 走 stdin；spawn ENOENT 换下一候选；非零退出抛真实错误", async () => {

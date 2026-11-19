@@ -1,4 +1,5 @@
 import { chmodSync, createWriteStream, mkdirSync, renameSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { join, dirname } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { Readable } from "node:stream";
@@ -16,17 +17,39 @@ const headers = (token) => ({
   ...(token ? { authorization: "Bearer " + token } : {}),
 });
 
-async function pagedGet(path, { token, fetch: f = globalThis.fetch }) {
+// ── 摄取分页（登录门禁改造 Task 4）：ETag 条件请求 + 请求预算 ────
+// ETag 键 = 完整请求 URL（path+query+page）：仅按 path 建键会被末页 etag 覆写、多页仓 304 收益静默失效。
+// 与 verifyToken 的 /user 缓存（token hash 键）是两个独立 Map，LRU 64。
+// budget = { remaining }（调用方创建并跨仓共享）：请求前 remaining<=0 即停、置 partial（Task 6 每次刷新预算 60）。
+const pagedEtagCache = new Map();
+const PAGED_CACHE_LIMIT = 64;
+const pagedCacheTouch = (key, etag) => {
+  if (!etag) return;
+  pagedEtagCache.delete(key);
+  pagedEtagCache.set(key, etag);
+  if (pagedEtagCache.size > PAGED_CACHE_LIMIT) pagedEtagCache.delete(pagedEtagCache.keys().next().value);
+};
+
+export async function pagedGet(path, { token, fetch: f = globalThis.fetch, budget }) {
   const rows = [];
+  let partial = false;
+  let unchanged = true;   // 全部页都 304 才判 unchanged（列表尾部变更不会改 page1 的 etag，禁单页短路）
   for (let pageNo = 1; pageNo <= 10; pageNo++) {
+    if (budget && budget.remaining <= 0) { partial = true; break; }
+    if (budget) budget.remaining -= 1;
     const url = API_BASE + path + (path.includes("?") ? "&" : "?") + "per_page=100&page=" + pageNo;
-    const res = await f(url, { headers: headers(token) });
-    if (!res.ok) throw new Error("github api " + res.status + " for " + path);
+    const etag = pagedEtagCache.get(url) ?? null;
+    const res = await f(url, { headers: { ...headers(token), ...(etag ? { "if-none-match": etag } : {}) } });
+    if (res.status === 304) continue;   // 该页未变：内容与上轮一致，upsert 幂等无害，直接跳过
+    unchanged = false;
+    if (!res.ok) throw Object.assign(new Error("github api " + res.status + " for " + path), { status: res.status });
+    pagedCacheTouch(url, res.headers?.get?.("etag"));
     const batch = await res.json();
     rows.push(...batch);
     if (batch.length < 100) break;
   }
-  return rows;
+  if (unchanged && rows.length === 0 && !partial) return { items: [], unchanged: true, partial: false };
+  return { items: rows, partial };
 }
 
 const excerpt = (body) => String(body ?? "").slice(0, 600);
@@ -38,8 +61,8 @@ const base = (repo, type, r) => ({
 });
 
 export async function listOpenIssues({ repo, token, fetch }) {
-  const rows = await pagedGet("/repos/" + repo + "/issues?state=open", { token, fetch });
-  return rows.filter((r) => !r.pull_request).map((r) => ({
+  const { items } = await pagedGet("/repos/" + repo + "/issues?state=open", { token, fetch });
+  return items.filter((r) => !r.pull_request).map((r) => ({
     ...base(repo, "issue", r),
     meta: { comments: r.comments ?? 0, reactionsTotal: r.reactions?.total_count ?? 0, ageDays: ageDays(r.created_at) },
     pull: null,
@@ -47,8 +70,8 @@ export async function listOpenIssues({ repo, token, fetch }) {
 }
 
 export async function listOpenPulls({ repo, token, fetch }) {
-  const rows = await pagedGet("/repos/" + repo + "/pulls?state=open", { token, fetch });
-  return rows.map((r) => ({
+  const { items } = await pagedGet("/repos/" + repo + "/pulls?state=open", { token, fetch });
+  return items.map((r) => ({
     ...base(repo, "pull", r),
     meta: { comments: r.comments ?? 0, reactionsTotal: 0, ageDays: ageDays(r.created_at) },
     pull: { draft: Boolean(r.draft), headRef: r.head?.ref ?? "" },
@@ -63,9 +86,10 @@ export async function getRepo({ repo, token, fetch: f = globalThis.fetch }) {
   return { defaultBranch: r.default_branch ?? "main", cloneUrl: r.ssh_url ?? ("git@github.com:" + repo + ".git") };
 }
 
-export async function discoverRepos({ token, fetch }) {
-  const rows = await pagedGet("/user/repos?affiliation=owner&sort=pushed", { token, fetch });
-  return rows.map((r) => ({ fullName: r.full_name, pushedAt: r.pushed_at, visibility: r.visibility }));
+// 仓库发现（Task 4）：affiliation 对齐 loopforge 口径；read:org 分句经查证对本端点不适用（repo scope 即可用）。
+export async function listUserRepos({ token, fetch, budget }) {
+  const { items } = await pagedGet("/user/repos?affiliation=owner,collaborator,organization_member&sort=pushed", { token, fetch, budget });
+  return items.map((r) => ({ fullName: r.full_name, pushedAt: r.pushed_at, visibility: r.visibility }));
 }
 
 export async function getViewer({ token, fetch: f = globalThis.fetch }) {
@@ -74,6 +98,80 @@ export async function getViewer({ token, fetch: f = globalThis.fetch }) {
   if (!res.ok) throw new Error("github api " + res.status + " for /user");
   const v = await res.json();
   return { login: v.login ?? "" };
+}
+
+// ── verifyToken（登录门禁改造 Task 3）────────────────────────────
+// GET /user 一次同时取身份与 X-OAuth-Scopes（细粒度 PAT 该头为空 = scopes:[]）。
+// ETag 条件请求：304 免计费（GitHub 官方语义），缓存 LRU 8 条、key=token sha256 前 16 位。
+// 限流分型：403 且（Remaining:0 ∨ body abuse/secondary 特征 ∨ Retry-After）或 429 → rate-limited:<秒>；
+// 仅 401 → token-invalid。Task 5/6 的端点语义建立在此分型上（403/429 不伤凭据健康）。
+const userVerifyCache = new Map();
+const USER_CACHE_LIMIT = 8;
+const cacheTouch = (key, entry) => {
+  userVerifyCache.delete(key);
+  userVerifyCache.set(key, entry);
+  if (userVerifyCache.size > USER_CACHE_LIMIT) userVerifyCache.delete(userVerifyCache.keys().next().value);
+};
+
+const looksRateLimited = async (res) => {
+  if (res.status === 429) return true;
+  if (res.status !== 403) return false;
+  if ((res.headers?.get?.("x-ratelimit-remaining") ?? "") === "0") return true;
+  if (res.headers?.get?.("retry-after") != null) return true;
+  let body = "";
+  try { body = typeof res.text === "function" ? await res.text() : ""; } catch {}
+  return /abuse detection|secondary rate limit/i.test(body);
+};
+
+const rateLimitedError = (res) => {
+  const ra = parseInt(res.headers?.get?.("retry-after"), 10);
+  let sec = Number.isFinite(ra) ? ra : NaN;
+  if (!Number.isFinite(sec)) {
+    const reset = parseInt(res.headers?.get?.("x-ratelimit-reset"), 10);
+    sec = Number.isFinite(reset) ? Math.max(60, Math.ceil(reset - Date.now() / 1000)) : 60;
+  }
+  return new Error("rate-limited:" + sec);
+};
+
+export function scopesOk(scopes) {
+  if (!Array.isArray(scopes)) return false;
+  return scopes.includes("repo") || scopes.length === 0;
+}
+
+export async function verifyToken(token, { fetch: f = globalThis.fetch } = {}) {
+  const key = createHash("sha256").update(String(token)).digest("hex").slice(0, 16);
+  const cached = userVerifyCache.get(key) ?? null;
+  const h = { ...headers(token), ...(cached?.etag ? { "if-none-match": cached.etag } : {}) };
+  const res = await f(API_BASE + "/user", { headers: h });
+  if (res.status === 304 && cached) {
+    cacheTouch(key, cached);
+    return { login: cached.login, scopes: cached.scopes, fineGrained: cached.scopes.length === 0, verifiedAt: new Date().toISOString(), notModified: true };
+  }
+  if (res.status === 401) throw new Error("token-invalid");
+  if (await looksRateLimited(res)) throw rateLimitedError(res);
+  if (!res.ok) throw new Error("github api " + res.status + " for /user");
+  const v = await res.json();
+  const scopes = String(res.headers?.get?.("x-oauth-scopes") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const entry = { login: v.login ?? "", scopes, etag: res.headers?.get?.("etag") ?? null };
+  if (entry.etag) cacheTouch(key, entry);
+  return { login: entry.login, scopes, fineGrained: scopes.length === 0, verifiedAt: new Date().toISOString() };
+}
+
+// gh 登出（Task 5）：删除凭证的显式选项专用——stdin 由调用方管理；非零退出/异常上抛，调用方记录不回滚。
+export async function ghLogout({ spawn, candidates = ["gh"] }) {
+  let lastErr = null;
+  for (const gh of candidates) {
+    try {
+      const child = spawn(gh, ["auth", "logout", "--hostname", "github.com"]);
+      const code = await new Promise((resolve, reject) => {
+        child.on?.("error", reject);
+        child.on?.("close", (c) => resolve(c));
+      });
+      if (code === 0) return { ok: true };
+      lastErr = new Error("gh auth logout failed (" + code + ")");
+    } catch (e) { lastErr = e; }
+  }
+  throw lastErr ?? new Error("gh auth logout failed");
 }
 
 // gh 探测与调用均走候选序列：系统 PATH 的 gh 优先，插件私有安装（数据目录 bin/gh）兜底。
@@ -86,11 +184,18 @@ export async function ghAvailable({ execFile, ghPath }) {
   return false;
 }
 
-export async function resolveToken({ credentials, tokenRef, execFile, ghPath }) {
+export async function resolveToken({ credentials, tokenRef, storedToken, execFile, ghPath }) {
   if (typeof tokenRef === "string" && REF_PATTERN.test(tokenRef)) {
     try {
       const hit = await credentials?.resolve?.(tokenRef);
       if (typeof hit?.value === "string" && hit.value !== "") return hit.value;
+    } catch {}
+  }
+  // 工作台自存凭据（登录门禁改造 Task 2）：引用覆写之后、gh 登录态兜底之前；空串/抛错视为未提供。
+  if (typeof storedToken === "function") {
+    try {
+      const own = await storedToken();
+      if (typeof own === "string" && own !== "") return own;
     } catch {}
   }
   for (const gh of ghCandidates(ghPath)) {

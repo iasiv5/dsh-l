@@ -1,4 +1,5 @@
 import { candidateKey, makeRunId } from "./store.mjs";
+import { scopesOk } from "./github.mjs";   // scope 规则单一来源（纯函数；provider 命名空间之外的规范引用）
 import { summarizeRun } from "./engine/scheduler.mjs";
 import { BUILTIN_ROLES, resolveRole } from "./workflows/roles.mjs";
 import { LOOP_V1 } from "./workflows/builtin.mjs";
@@ -50,8 +51,9 @@ export function buildTaskPackage(candidate, repoInfo = null, now = () => new Dat
   return pkg;
 }
 
-export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null, workflowCatalog = { templates: [], warnings: [] }, engine = null, feishu = null, templates = {} }) {
-  const token = () => provider.resolveToken({ credentials, tokenRef, execFile, ghPath: ghBin });
+export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, storedToken = null, githubClientId = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null, workflowCatalog = { templates: [], warnings: [] }, engine = null, feishu = null, templates = {} }) {
+  // 三级 token 链（Task 2/R1-1）：credentials 引用覆写 → 工作台自存（storedToken，host 注入闭包）→ gh 登录态兜底。
+  const token = () => provider.resolveToken({ credentials, tokenRef, storedToken, execFile, ghPath: ghBin });
   // 任务包 v2 生产接线（M4 契约补全，M5 后落账）：makeRunId 先行 + 首个 agent 节点角色 + workflow 块；
   // postRunStart 与 postGate 别名两路由共用（防双轨不一致）。
   const resolveStartTpl = (templateId) => (templateId ? (templates[templateId] ?? null) : LOOP_V1);
@@ -70,19 +72,53 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
   let ghInstallState = { phase: "idle" };            // idle|installing|done|failed(+version/error)
   let deviceState = { phase: "idle" };               // idle|pending|authorizing|authorized|expired|failed(+userCode/verificationUri/login/error)
   let viewerCache = null;                            // token→login 探测缓存（每进程一次；改绑极低频，可接受）
+  let rateLimitedUntil = null;                       // 最近一次限流恢复时刻（ISO，进程内存）——B9「限流中」横幅数据源；403/429 不伤凭据健康
+  // credentialOk（Task 5/R1-4）：token 可解析 ∧ healthy ∧ verifiedAt ∧ scopesOk——device-start 守卫与 G3 闸共用此定义。
+  const credentialOkFor = (tk) => {
+    if (!tk) return false;
+    const c = store.getCredential();
+    return c.healthy !== false && Boolean(c.verifiedAt) && scopesOk(c.scopes);
+  };
+  // 凭据端点共用错误映射：token-invalid 置 unhealthy；rate-limited 置横幅时刻；其余 credential-verify-failed（可重试、不暗示令牌坏）。
+  const credentialErrorMap = (err) => {
+    const msg = String(err?.message ?? err);
+    if (msg.startsWith("rate-limited:")) {
+      const sec = Number(msg.slice("rate-limited:".length)) || 60;
+      rateLimitedUntil = new Date(Date.now() + sec * 1000).toISOString();
+      return fail(msg, 409);
+    }
+    if (msg === "token-invalid") { store.setCredential({ healthy: false }); return fail("token-invalid", 409); }
+    return fail("credential-verify-failed: " + msg, 409);
+  };
   return {
     async getState() {
       return { watch: store.getWatch(), snapshots: store.getSnapshots(), settings: store.getSettings(), candidates: store.listCandidates(), ingestLog: store.getIngestLog(), auth: store.getAuth(),
         runs: store.listRuns().map(summarizeRun), workflow: workflowCatalog };
     },
     async getAuth() {
-      // gh 安装（PATH 优先、插件私有 bin 兜底）+ 凭据可得性；token 可得时顺带探一次身份（缓存）。
+      // 门禁重塑（Task 5）：三关布尔 + 凭据卡详情。account 保留供客户端回显绑定态；token 在手仍顺带探身份（缓存）。
       const installed = await provider.ghAvailable({ execFile, ghPath: ghBin });
       const tk = await token();
       if (tk && viewerCache === null) {
         try { viewerCache = (await provider.getViewer({ token: tk, fetch })).login ?? null; } catch { viewerCache = null; }
       }
-      return { ...store.getAuth(), installed, tokenAvailable: tk !== null, viewerLogin: tk ? viewerCache : null, install: { ...ghInstallState }, device: { ...deviceState } };
+      const c = store.getCredential();
+      return {
+        account: store.getAuth().account,
+        gates: { ghInstalled: installed === true, ghLogin: tk !== null, credentialOk: credentialOkFor(tk) },
+        viewerLogin: tk ? viewerCache : null,
+        credential: {
+          configured: Boolean(c.token || c.source || c.verifiedAt),   // 工作台侧凭据产物在场（自存 token/来源/校验痕）
+          source: c.source ?? null,
+          scopes: c.scopes ?? null,
+          verifiedAt: c.verifiedAt ?? null,
+          healthy: c.healthy !== false,
+          ghWrittenByUs: c.ghWrittenAt != null,
+          rateLimitedUntil,
+        },
+        install: { ...ghInstallState },
+        device: { ...deviceState },
+      };
     },
     async postAuthBind(body) {
       // account 可选：无参绑定（登录闸「进入工作台」大按钮）直接采用 token 身份；
@@ -95,11 +131,19 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       try {
         viewer = await provider.getViewer({ token: tk, fetch });
       } catch (err) {
-        return fail("token-invalid (" + String(err?.message ?? err) + ")", 409);
+        const msg = String(err?.message ?? err);
+        if (msg.includes("401")) store.setCredential({ healthy: false });   // 被动失效（B10）：401 才伤凭据健康
+        return fail("token-invalid (" + msg + ")", 409);
       }
       const login = String(viewer.login ?? "");
       if (account && account.toLowerCase() !== login.toLowerCase()) return fail("account-mismatch: " + login, 409);
       store.setAuth({ account: account || login, login });
+      try {
+        // B3 实读 scopes：同端点 verifyToken（ETag 生效，通常 304 免计费），scopes/verifiedAt 落凭据块。
+        const v = await provider.verifyToken(tk, { fetch });
+        store.setCredential({ scopes: v.scopes, verifiedAt: v.verifiedAt, healthy: true });
+        rateLimitedUntil = null;
+      } catch {}
       return store.getAuth();
     },
     async postAuthLogout() {
@@ -119,11 +163,13 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
     async postAuthDeviceStart() {
       // 页内设备流授权：出 user_code + 验证链接，后台轮询；授权成功即移交 gh 凭据库并自动绑定。
       const tk = await token();
-      if (tk) return fail("already-authorized", 409);
+      // R1-4（主人签核·收窄版）：仅「token 可解析 ∧ credentialOk」（就绪态）拒绝重复发起；
+      // 非就绪态（未配置/失效/缺权限）允许重授权——成功后同槽覆盖（loopforge 同语义）。
+      if (tk && credentialOkFor(tk)) return fail("already-authorized", 409);
       if (deviceState.phase === "pending" || deviceState.phase === "authorizing") return { ...deviceState };
       let d;
       try {
-        d = await provider.deviceCodeStart({ fetch });
+        d = await provider.deviceCodeStart({ fetch, clientId: githubClientId });
       } catch (err) {
         return fail("device-start-failed: " + String(err?.message ?? err).slice(0, 160), 502);
       }
@@ -140,9 +186,11 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
             try {
               await provider.ghLoginWithToken({ token: out.token, spawn, candidates: ["gh", ...(ghBin ? [ghBin] : [])] });
               const tk2 = await token();
-              const viewer = await provider.getViewer({ token: tk2, fetch });
-              viewerCache = viewer.login ?? null;
+              const v = await provider.verifyToken(tk2, { fetch });   // R1-2：getViewer→verifyToken，同端点一次取 login+实读 scopes
+              viewerCache = v.login ?? null;
               store.setAuth({ account: viewerCache, login: viewerCache });
+              store.setCredential({ token: tk2, source: "device-flow", scopes: v.scopes, verifiedAt: v.verifiedAt, healthy: true, ghWrittenAt: now().toISOString() });
+              rateLimitedUntil = null;
               deviceState = { phase: "authorized", login: viewerCache };
             } catch (err) {
               deviceState = { phase: "failed", error: String(err?.message ?? err).slice(0, 200) };
@@ -161,6 +209,53 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
     },
     async getAuthDevice() {
       return { ...deviceState };
+    },
+    // ── 凭据端点（Task 5）：重新校验 / 手动令牌（verify-before-save）/ 删除凭证 ──
+    async postCredentialVerify() {
+      const tk = await token();
+      if (!tk) return fail("credential-missing", 409);
+      try {
+        const v = await provider.verifyToken(tk, { fetch });
+        store.setCredential({ scopes: v.scopes, verifiedAt: v.verifiedAt, healthy: true });
+        rateLimitedUntil = null;
+        return { login: v.login, scopes: v.scopes, fineGrained: v.fineGrained, verifiedAt: v.verifiedAt };
+      } catch (err) { return credentialErrorMap(err); }
+    },
+    async putCredential(body) {
+      const tk = String(body?.token ?? "");
+      if (!tk || tk.length > 4096 || /\s/.test(tk)) return fail("credential-format", 409);
+      try {
+        const v = await provider.verifyToken(tk, { fetch });   // verify-before-save：校验不过不落库
+        store.setCredential({ token: tk, source: "manual-pat", scopes: v.scopes, verifiedAt: v.verifiedAt, healthy: true });
+        viewerCache = null;   // R1-5：换令牌（可能换账号）→ viewer 探测缓存失效
+        rateLimitedUntil = null;
+        if (typeof provider.ghLoginWithToken === "function") {
+          try {
+            await provider.ghLoginWithToken({ token: tk, spawn, candidates: ["gh", ...(ghBin ? [ghBin] : [])] });
+            store.setCredential({ ghWrittenAt: now().toISOString() });   // 移交 gh 凭据库并打标（执行环镜像）
+          } catch {}
+        }
+        return { login: v.login, scopes: v.scopes, fineGrained: v.fineGrained, verifiedAt: v.verifiedAt };
+      } catch (err) {
+        const msg = String(err?.message ?? err);
+        if (msg === "token-invalid") return fail("credential-invalid", 409);   // 不暗示令牌坏之外的重试语义由前端呈现
+        return credentialErrorMap(err);
+      }
+    },
+    async deleteCredential(body) {
+      const ghLogoutRequested = body?.ghLogout === true;
+      const ours = store.getCredential()?.ghWrittenAt != null;   // gh 登录是否为工作台设备流所建（R2Q2 门控）
+      store.clearCredential();
+      store.clearAuth();
+      viewerCache = null;   // R1-5
+      if (!ghLogoutRequested) return { cleared: true, ghLogoutDone: false };
+      if (!ours) return { ...fail("gh-not-ours", 409), cleared: true, ghLogoutDone: false };   // 清除已执行；gh 登录非工作台所建，不代作主
+      let ghLogoutDone = false;
+      if (typeof provider.ghLogout === "function") {
+        try { await provider.ghLogout({ spawn, candidates: ["gh", ...(ghBin ? [ghBin] : [])] }); ghLogoutDone = true; }
+        catch {}   // 非零退出仅记录不回滚（工作台侧清除已生效）
+      }
+      return { cleared: true, ghLogoutDone };
     },
     async postRefresh() {
       const gate = requireAuth(); if (gate) return gate;
@@ -205,7 +300,7 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
     },
     async getDiscover() {
       const gate = requireAuth(); if (gate) return gate;
-      return { repos: await provider.discoverRepos({ token: await token(), fetch }) };
+      return { repos: await provider.listUserRepos({ token: await token(), fetch }) };
     },
     async postTriage(body) {
       const keys = body?.keys;

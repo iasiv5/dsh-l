@@ -93,8 +93,52 @@ test("auth 绑定：set/get/clear + 旧档迁移补空 auth", () => {
   assert.equal(createStore({ filePath }).getAuth().account, null);
 });
 
-test("repo 事实：写入读回，未知的仓返回 null", () => {
+// ── credential 凭据块（登录门禁改造 Task 1）─────────────────────────
+test("credential 默认空档：未初始化返回空档形状", () => {
   const s = open();
+  assert.deepEqual(s.getCredential(), { token: null, source: null, scopes: null, verifiedAt: null, healthy: true, ghWrittenAt: null });
+});
+
+test("credential setCredential：patch 部分合并 + 字段规整", () => {
+  const s = open();
+  s.setCredential({ token: "ghp_t", source: "device-flow", scopes: ["repo", "read:org"], verifiedAt: "2026-11-19T00:00:00.000Z", healthy: true, ghWrittenAt: "2026-11-19T00:00:01.000Z" });
+  assert.equal(s.getCredential().token, "ghp_t");
+  assert.equal(s.getCredential().source, "device-flow");
+  assert.deepEqual(s.getCredential().scopes, ["repo", "read:org"]);
+  assert.equal(s.getCredential().ghWrittenAt, "2026-11-19T00:00:01.000Z");
+  s.setCredential({ healthy: false });   // 部分合并：其余字段不丢
+  assert.equal(s.getCredential().healthy, false);
+  assert.equal(s.getCredential().token, "ghp_t");
+  s.setCredential({ scopes: "repo" });   // scopes 非数组 → null
+  assert.equal(s.getCredential().scopes, null);
+  s.setCredential({ scopes: [1, "repo", null] });   // 数组内非字符串剔除
+  assert.deepEqual(s.getCredential().scopes, ["repo"]);
+  s.setCredential({ bogus: "x", verifiedAt: "2026-11-20T00:00:00.000Z" });   // 未知字段拒收
+  assert.equal(s.getCredential().bogus, undefined);
+  assert.equal(s.getCredential().verifiedAt, "2026-11-20T00:00:00.000Z");
+  s.setCredential({ token: "", source: "nope", ghWrittenAt: "" });   // 空串/非法枚举 → null
+  assert.equal(s.getCredential().token, null);
+  assert.equal(s.getCredential().source, null);
+  assert.equal(s.getCredential().ghWrittenAt, null);
+});
+
+test("credential clearCredential：全字段复位", () => {
+  const s = open();
+  s.setCredential({ token: "t", source: "manual-pat", scopes: ["repo"], verifiedAt: "2026-11-19T00:00:00.000Z", healthy: false, ghWrittenAt: "2026-11-19T00:00:00.000Z" });
+  s.clearCredential();
+  assert.deepEqual(s.getCredential(), { token: null, source: null, scopes: null, verifiedAt: null, healthy: true, ghWrittenAt: null });
+});
+
+test("credential 旧档迁移：无 credential 块的存量档补空结构", () => {
+  const filePath = join(mkdtempSync(join(tmpdir(), "dsh-l-")), "store.json");
+  writeFileSync(filePath, JSON.stringify({ version: 2, watch: { repos: [], updatedAt: "T" }, candidates: {}, snapshots: {}, settings: { intervalMinutes: 0, triageModel: null }, auth: { account: "iasiv5", login: "iasiv5", verifiedAt: "T" } }));
+  const s = createStore({ filePath });
+  assert.equal(s.getCredential().token, null);
+  assert.equal(s.getCredential().healthy, true);
+  assert.equal(createStore({ filePath }).getCredential().healthy, true);   // 重开读回
+});
+
+test("repo 事实：写入读回，未知的仓返回 null", () => {  const s = open();
   s.setRepoFacts("o/r", { defaultBranch: "trunk", cloneUrl: "git@github.com:o/r.git" });
   assert.equal(s.getRepoFacts("o/r").defaultBranch, "trunk");
   assert.equal(s.getRepoFacts("o/unknown"), null);

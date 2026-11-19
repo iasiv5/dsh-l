@@ -18,6 +18,22 @@ export const candidateKey = (repo, type, number) => repo + "#" + type + "#" + nu
 export const makeRunId = (now = () => new Date()) =>
   "run-" + now().getTime() + "-" + randomBytes(2).toString("hex");
 
+// credential 凭据块（登录门禁改造 Task 1）：工作台自持的 GitHub 主机级访问凭证。
+// 时间字段统一 ISO 8601 字符串（与 auth 块同构）；healthy=false 表示被动失效（401），凭据材料保留待重校验。
+export const EMPTY_CREDENTIAL = {
+  token: null, source: null, scopes: null, verifiedAt: null, healthy: true, ghWrittenAt: null,
+};
+const normalizeCredential = (base, patch = {}) => {
+  const c = { ...base };
+  if ("token" in patch) c.token = typeof patch.token === "string" && patch.token !== "" ? patch.token : null;
+  if ("source" in patch) c.source = patch.source === "device-flow" || patch.source === "manual-pat" ? patch.source : null;
+  if ("scopes" in patch) c.scopes = Array.isArray(patch.scopes) ? patch.scopes.filter((x) => typeof x === "string") : null;
+  if ("verifiedAt" in patch) c.verifiedAt = typeof patch.verifiedAt === "string" && patch.verifiedAt !== "" ? patch.verifiedAt : null;
+  if ("healthy" in patch) c.healthy = patch.healthy !== false;
+  if ("ghWrittenAt" in patch) c.ghWrittenAt = typeof patch.ghWrittenAt === "string" && patch.ghWrittenAt !== "" ? patch.ghWrittenAt : null;
+  return c;
+};
+
 const emptyDoc = (now) => ({
   version: 2,
   runs: {},           // 执行层（design-v2 §2）：runId → run（锁模板快照 + 节点状态机）
@@ -29,6 +45,7 @@ const emptyDoc = (now) => ({
   ingestLog: [],      // 每次摄取一条（上限 50，FIFO）——「刷新有历史可回溯」的载体
   settings: { intervalMinutes: 0, triageModel: null, engineConcurrency: 2, workspaceRetentionDays: 7 },
   auth: { account: null, login: null, verifiedAt: null },  // 收活绑定：工作台级 GitHub 账号连接；退出=清空（不动本机 gh 登录态）
+  credential: { ...EMPTY_CREDENTIAL },  // 凭据（GLOSSARY「凭据」）：token + 来源/权限/校验健康；gh 凭据库副本只是执行环镜像
 });
 
 export function createStore({ filePath, now = () => new Date() }) {
@@ -38,6 +55,7 @@ export function createStore({ filePath, now = () => new Date() }) {
   doc.repos ??= {};
   doc.ingestLog ??= [];
   doc.auth ??= { account: null, login: null, verifiedAt: null };
+  doc.credential ??= { ...EMPTY_CREDENTIAL };   // 登录门禁改造 Task 1：存量档补凭据空档
   const persist = () => {
     mkdirSync(dirname(filePath), { recursive: true });
     const tmp = join(dirname(filePath), ".store-" + process.pid + "-" + Date.now() + ".tmp");
@@ -74,6 +92,10 @@ export function createStore({ filePath, now = () => new Date() }) {
     getAuth: () => doc.auth,
     setAuth({ account, login }) { doc.auth = { account, login, verifiedAt: now().toISOString() }; persist(); },
     clearAuth() { doc.auth = { account: null, login: null, verifiedAt: null }; persist(); },
+    // credential 凭据块（Task 1）：patch 部分合并 + 字段规整（normalizeCredential）；clear 全字段复位。
+    getCredential: () => doc.credential,
+    setCredential(patch) { doc.credential = normalizeCredential(doc.credential, patch); persist(); },
+    clearCredential() { doc.credential = { ...EMPTY_CREDENTIAL }; persist(); },
     listCandidates: () => Object.values(doc.candidates),
     getCandidate: (key) => doc.candidates[key] ?? null,
     upsertCandidates(list) {

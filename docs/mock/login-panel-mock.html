@@ -1,0 +1,588 @@
+<!doctype html>
+<!-- DSH Loop Forge · 登录面板 mock v3
+     v3 修订（2026-11-19 用户审阅意见）：
+     ① 品牌区只留大标题（金句可从工具条切换预览，选定后定稿）；
+     ② 就绪态注脚「凭据已就绪…」删除；
+     ③ 明暗双主题重调色：token 化配色（ porcelain/深空蓝双基底 + 品牌辉光 + 半透明玻璃卡），
+        不再裸用系统 canvas 灰调。
+     结构对齐 loopforge 凭证卡信息架构（四态徽章 + 三关门禁行 + kv + 并列双方法），皮肤为 dsh-l 自有语言。 -->
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DSH Loop Forge · 登录面板 mock</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  :root, html[data-theme="light"] {
+    color-scheme: light;
+    --bg-1: #f5f7fc; --bg-2: #edf0f9;
+    --surface: rgba(255, 255, 255, .88); --surface-2: rgba(17, 24, 52, .045);
+    --border: rgba(17, 24, 52, .08); --border-strong: rgba(17, 24, 52, .16);
+    --text: #131a33; --text-2: rgba(19, 26, 51, .64); --text-3: rgba(19, 26, 51, .44);
+    --accent: #324de2; --accent-soft: rgba(50, 77, 226, .09);
+    --ok: #1a7f37; --warn: #9a6700; --err: #cf222e;
+    --cta-bg: #161a35; --cta-text: #f7f8ff;
+    --glow-1: rgba(80, 110, 255, .10); --glow-2: rgba(5, 144, 157, .09);
+    --shadow-1: 0 32px 64px -28px rgba(19, 26, 51, .25), 0 6px 18px rgba(19, 26, 51, .08);
+  }
+  html[data-theme="dark"] {
+    color-scheme: dark;
+    --bg-1: #0b0e17; --bg-2: #0e1220;
+    --surface: rgba(20, 25, 40, .80); --surface-2: rgba(151, 167, 215, .07);
+    --border: rgba(151, 167, 215, .13); --border-strong: rgba(151, 167, 215, .24);
+    --text: #e9edfb; --text-2: rgba(216, 224, 247, .68); --text-3: rgba(216, 224, 247, .44);
+    --accent: #8fa4ff; --accent-soft: rgba(143, 164, 255, .12);
+    --ok: #3fb950; --warn: #e3b341; --err: #f85149;
+    --cta-bg: #e9edfb; --cta-text: #10132b;
+    --glow-1: rgba(80, 110, 255, .13); --glow-2: rgba(5, 144, 157, .10);
+    --shadow-1: 0 32px 64px -28px rgba(0, 0, 0, .6), 0 6px 18px rgba(0, 0, 0, .4);
+  }
+  body {
+    font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg-1);
+    color: var(--text);
+  }
+  .stage {
+    position: fixed; inset: 0 0 52px 0;
+    background:
+      radial-gradient(900px 480px at 22% -6%, var(--glow-1), transparent 62%),
+      radial-gradient(760px 420px at 84% 108%, var(--glow-2), transparent 58%),
+      linear-gradient(180deg, var(--bg-1), var(--bg-2));
+  }
+
+  /* ── 面板三段式：品牌区 / 授权卡区 / 脚注区 ─────────────────────── */
+  .panel {
+    position: absolute; inset: 0;
+    overflow: auto; overscroll-behavior: contain;
+    display: flex; flex-direction: column;
+    padding: clamp(20px, 4vh, 44px) 24px;
+  }
+  .col { width: min(560px, 100%); margin: auto; display: flex; flex-direction: column; }
+
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .mark {
+    width: 48px; height: 48px; flex: none; display: grid; place-items: center;
+    border-radius: 13px;
+    background: var(--accent-soft);
+    border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
+    box-shadow: 0 2px 6px rgba(50, 77, 226, .16), 0 8px 20px -8px rgba(50, 77, 226, .28);
+  }
+  .brand h1 { font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
+
+  /* ── 授权卡（唯一卡片；门禁行与凭据详情是卡内行，不是子卡） ────── */
+  .card {
+    margin-top: 26px;
+    display: flex; flex-direction: column;
+    padding: 22px 24px 18px;
+    border-radius: 14px;
+    background: var(--surface);
+    backdrop-filter: blur(18px);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-1);
+    animation: gate-in 220ms cubic-bezier(.22, 1, .36, 1);
+  }
+  @media (prefers-reduced-motion: reduce) { .card { animation: none; } }
+  @keyframes gate-in { from { transform: translateY(8px); opacity: .6; } }
+
+  .cardHead { display: flex; align-items: center; gap: 12px; }
+  .ghMark {
+    width: 38px; height: 38px; flex: none; display: grid; place-items: center;
+    border-radius: 10px; color: var(--text);
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+  }
+  .ghMark svg { display: block; }
+  .who { flex: 1; min-width: 0; }
+  .who b { display: block; font-size: 14px; font-weight: 600; }
+  .who .sub { margin-top: 2px; font-size: 12px; color: var(--text-3); }
+  .badge {
+    flex: none; display: inline-flex; align-items: center; gap: 6px;
+    font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: 999px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-2);
+  }
+  .badge .dot { width: 7px; height: 7px; border-radius: 50%; }
+  .dot-ok { background: var(--ok); }
+  .dot-warn { background: var(--warn); }
+  .dot-err { background: var(--err); }
+  .dot-wait { background: var(--warn); animation: breathe 1.6s ease-in-out infinite; }
+  @keyframes breathe { 50% { opacity: .35; } }
+  @media (prefers-reduced-motion: reduce) { .dot-wait { animation: none; } }
+  .recheck {
+    flex: none; width: 30px; height: 30px; display: grid; place-items: center;
+    border: 1px solid var(--border-strong);
+    border-radius: 8px; background: transparent; color: var(--text-2); cursor: pointer;
+  }
+  .recheck:hover { color: var(--text); }
+  .recheck svg { transition: transform 400ms cubic-bezier(.22, 1, .36, 1); }
+  .recheck:hover svg { transform: rotate(140deg); }
+  .recheck:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 2px; }
+
+  /* 门禁三行：点 + 名称 + 状态 */
+  .gates { margin-top: 16px; display: flex; flex-direction: column; gap: 9px; }
+  .gateRow { display: flex; align-items: center; gap: 10px; min-height: 24px; font-size: 13px; }
+  .gateRow .dot { width: 7px; height: 7px; flex: none; border-radius: 50%; }
+  .gateRow .name { flex: none; font-weight: 550; }
+  .gateRow .st { flex: 1; min-width: 0; color: var(--text-3); }
+  .gateRow .st.is-bad { color: var(--err); }
+
+  /* 凭据 kv：四字段 */
+  .kv { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); display: grid; grid-template-columns: 64px 1fr; row-gap: 10px; column-gap: 12px; font-size: 13px; }
+  .kv dt { color: var(--text-3); }
+  .kv dd { line-height: 1.5; min-width: 0; overflow-wrap: anywhere; }
+  .chips { display: inline-flex; gap: 6px; flex-wrap: wrap; vertical-align: -2px; }
+  .chip { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; padding: 1px 8px; border-radius: 5px; border: 1px solid var(--border-strong); background: var(--surface-2); }
+  .chip.is-miss { color: var(--err); border-color: color-mix(in srgb, var(--err) 35%, transparent); background: color-mix(in srgb, var(--err) 8%, transparent); }
+  .ok-frag { color: var(--ok); }
+  .bad-frag { color: var(--err); }
+
+  /* 连接区（双方法并列：设备流 / 访问令牌，对齐 loopforge 向导双 tab 结构） */
+  .connect { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 13.5px; line-height: 1.55; color: var(--text-2); }
+  .methodRow { display: flex; gap: 10px; margin-top: 10px; }
+  .method {
+    flex: 1; height: 40px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer;
+    border: 1px solid var(--border-strong);
+    background: transparent; color: var(--text);
+  }
+  .method.primary { background: var(--cta-bg); color: var(--cta-text); border: none; }
+  .method.primary:hover { background: color-mix(in srgb, var(--cta-bg) 86%, var(--accent)); }
+  .method:not(.primary):hover { background: var(--surface-2); }
+  .method:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 2px; }
+  .methodHint { margin-top: 8px; font-size: 12px; color: var(--text-3); }
+  .switchLink { border: none; background: transparent; padding: 2px 4px; cursor: pointer; font-size: 12.5px; text-decoration: underline; text-underline-offset: 2px; color: var(--text-3); }
+  .switchLink:hover { color: var(--text); }
+  .switchLink:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 1px; }
+
+  /* 设备流码框 */
+  .codeBox {
+    margin-top: 18px; padding: 12px 16px; border-radius: 10px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+  }
+  .codeBox b { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 26px; font-weight: 700; letter-spacing: .08em; }
+  .codeBox button {
+    border: 1px solid var(--border-strong); border-radius: 8px;
+    background: transparent; color: var(--text); font-size: 12.5px; padding: 6px 12px; cursor: pointer;
+  }
+  .codeBox button:hover { background: var(--surface-2); }
+  .codeBox button:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 1px; }
+  .deviceLine { margin-top: 12px; font-size: 13px; line-height: 1.55; color: var(--text-2); }
+  .deviceLine a { color: inherit; text-underline-offset: 2px; }
+
+  /* PAT 表单 */
+  .patForm { margin-top: 18px; padding: 14px 16px; border-radius: 10px; border: 1px dashed var(--border-strong); display: none; flex-direction: column; gap: 10px; }
+  .patForm.open { display: flex; }
+  .patForm label { font-size: 12.5px; font-weight: 550; }
+  .patForm input {
+    width: 100%; height: 36px; padding: 0 12px; font-size: 13px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    border-radius: 8px; border: 1px solid var(--border-strong);
+    background: var(--surface-2); color: var(--text);
+  }
+  .patForm input::placeholder { color: var(--text-3); }
+  .patForm input:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 1px; }
+  .patRow { display: flex; align-items: center; gap: 12px; }
+  .patRow .save {
+    height: 34px; padding: 0 16px; border: none; border-radius: 8px; cursor: pointer;
+    background: var(--cta-bg); color: var(--cta-text); font-size: 13px; font-weight: 600;
+  }
+  .patRow .save:hover { background: color-mix(in srgb, var(--cta-bg) 86%, var(--accent)); }
+  .patRow .cancel { border: none; background: transparent; color: var(--text-3); font-size: 12.5px; cursor: pointer; }
+  .patRow .cancel:hover { color: var(--text); }
+  .patHint { font-size: 12px; line-height: 1.5; color: var(--text-3); }
+
+  /* 主行动与辅助操作 */
+  .cta {
+    width: 100%; height: 44px; margin-top: 18px; padding: 0 18px;
+    font-weight: 600; font-size: 14.5px; border: none; border-radius: 10px; cursor: pointer;
+    background: var(--cta-bg); color: var(--cta-text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .cta:hover:not(:disabled) { background: color-mix(in srgb, var(--cta-bg) 86%, var(--accent)); }
+  .cta:disabled { opacity: .55; cursor: default; }
+  .cta:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 2px; }
+  .aux { margin-top: 10px; display: flex; justify-content: flex-end; gap: 4px; flex-wrap: wrap; }
+  .aux .act {
+    border: none; background: transparent; cursor: pointer; font-size: 12.5px; padding: 4px 8px; border-radius: 6px;
+    color: var(--text-2); text-decoration: none; text-underline-offset: 2px;
+  }
+  .aux .act:hover { color: var(--text); background: var(--surface-2); }
+  .aux .act:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 1px; }
+  .aux .act.is-danger { color: var(--err); }
+
+  .err {
+    font-size: 13px; line-height: 1.5; margin-top: 12px; padding: 8px 12px; border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--err) 32%, transparent);
+    background: color-mix(in srgb, var(--err) 8%, transparent);
+  }
+  .warnNote {
+    font-size: 13px; line-height: 1.5; margin-top: 12px; padding: 8px 12px; border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--warn) 38%, transparent);
+    background: color-mix(in srgb, var(--warn) 9%, transparent);
+  }
+  .note {
+    margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border);
+    font-size: 12px; line-height: 1.55; color: var(--text-3);
+  }
+  .note + .note { margin-top: 8px; padding-top: 0; border-top: none; }
+  .note code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; border: 1px solid var(--border-strong); border-radius: 5px; padding: 1px 6px; background: var(--surface-2); }
+  .note a { color: inherit; text-underline-offset: 2px; }
+
+  .foot {
+    margin-top: 20px; padding: 14px 2px 4px; border-top: 1px solid var(--border);
+    font-size: 12px; line-height: 1.6; color: var(--text-3);
+  }
+
+  .hidden { display: none !important; }
+
+  /* ── 审阅工具条（非设计部分） ─────────────────────────────────── */
+  .toolbar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 99;
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    padding: 8px 12px;
+    background: color-mix(in srgb, var(--bg-1) 88%, transparent);
+    border-top: 1px solid var(--border);
+    backdrop-filter: blur(10px); font-size: 12px; color: var(--text);
+  }
+  .toolbar .lbl { color: var(--text-3); margin-right: 2px; }
+  .toolbar button, .toolbar select {
+    border: 1px solid var(--border-strong); border-radius: 7px;
+    background: transparent; color: var(--text); font-size: 12px; padding: 4px 10px; cursor: pointer;
+  }
+  .toolbar select { max-width: 340px; }
+  .toolbar button:hover, .toolbar select:hover { background: var(--surface-2); }
+  .toolbar button.on { background: var(--cta-bg); color: var(--cta-text); border-color: transparent; }
+  .toolbar .sep { width: 1px; height: 18px; background: var(--border-strong); margin: 0 4px; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="panel">
+    <div class="col">
+
+      <!-- ① 品牌区：只留大标题（金句经工具条切换） -->
+      <header class="brand">
+        <div class="mark">
+          <svg width="27" height="27" viewBox="0 0 36 36" fill="none" aria-hidden="true">
+            <path d="M14.41 27.87A10.5 10.5 0 0 1 13.56 8.48" stroke="url(#mb)" stroke-width="4" stroke-linecap="round" fill="none"/>
+            <path d="M21.59 8.13A10.5 10.5 0 0 1 22.44 27.52" stroke="url(#mt)" stroke-width="4" stroke-linecap="round" fill="none"/>
+            <path d="M13.42 11.98 10.8 6.36 19.18 5.87Z" fill="url(#mb)" stroke="url(#mb)" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M22.58 24.02 25.2 29.64 16.82 30.13Z" fill="url(#mt)" stroke="url(#mt)" stroke-width="1.5" stroke-linejoin="round"/>
+            <defs>
+              <linearGradient id="mb" x1="9" y1="8" x2="25" y2="29" gradientUnits="userSpaceOnUse"><stop stop-color="#69B9FF"/><stop offset="1" stop-color="#324DE2"/></linearGradient>
+              <linearGradient id="mt" x1="22" y1="8" x2="20" y2="28" gradientUnits="userSpaceOnUse"><stop stop-color="#45E7A4"/><stop offset="1" stop-color="#05909D"/></linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <h1 id="title">连接你的代码库，让 Agent 自主交付</h1>
+      </header>
+
+      <!-- ② 授权卡 -->
+      <section class="card" aria-label="GitHub 仓库授权">
+        <div class="cardHead">
+          <div class="ghMark" aria-hidden="true">
+            <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+          </div>
+          <div class="who">
+            <b>GitHub 仓库授权</b>
+            <span class="sub" id="cardSub">设备流授权 · 无需复制令牌</span>
+          </div>
+          <span class="badge" id="badge"><span class="dot dot-warn" id="badgeDot"></span><span id="badgeText">未配置</span></span>
+          <button class="recheck" id="recheck" title="重新校验" aria-label="重新校验">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M13.6 8a5.6 5.6 0 1 1-1.64-3.96"/><path d="M13.7 1.6v2.9h-2.9" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+
+        <!-- 三关门禁 -->
+        <div class="gates" id="gates"></div>
+
+        <!-- 凭据四字段（已配置态） -->
+        <dl class="kv hidden" id="kv">
+          <dt>来源</dt><dd id="kvSource">GitHub 授权（设备流）· 副本已移交 gh</dd>
+          <dt>权限</dt><dd><span class="chips" id="kvScopes"></span></dd>
+          <dt>最近校验</dt><dd id="kvChecked"><span class="ok-frag">令牌有效</span> · 刚刚</dd>
+          <dt>用于</dt><dd>摄取候选、发现仓库、执行环克隆与交付推送。</dd>
+        </dl>
+
+        <!-- 连接区（双方法并列） -->
+        <div class="connect hidden" id="connectZone">
+          <p>两种方式任选其一，无需都做。</p>
+          <div class="methodRow">
+            <button class="method primary" id="mDevice" type="button">连接 GitHub</button>
+            <button class="method" id="mPat" type="button">使用访问令牌</button>
+          </div>
+          <p class="methodHint">设备流免复制令牌 · 访问令牌适合无浏览器环境</p>
+        </div>
+
+        <!-- 设备流码框 -->
+        <div class="codeBox hidden" id="codeBox">
+          <b>ABCD-1234</b>
+          <button type="button">复制</button>
+        </div>
+        <p class="deviceLine hidden" id="deviceLine">等待你在 GitHub 完成授权… <a href="https://github.com/login/device" target="_blank" rel="noreferrer noopener">github.com/login/device</a> · <button class="switchLink" id="switchToPat" type="button">改用访问令牌</button></p>
+
+        <!-- 手动令牌表单 -->
+        <div class="patForm" id="patForm">
+          <label for="patInput">访问令牌（PAT）</label>
+          <p class="patHint" style="margin:0"><button class="switchLink" id="switchToDevice" type="button">改用设备流授权</button></p>
+          <input id="patInput" type="password" placeholder="ghp_···· 或 github_pat_····" autocomplete="off">
+          <div class="patRow">
+            <button class="save" type="button">校验并保存</button>
+            <button class="cancel" type="button" id="patCancel">取消</button>
+          </div>
+          <p class="patHint">校验通过才会保存；classic 令牌需含 repo、read:org，细粒度令牌按仓库授权。保存后与设备流凭据同槽覆盖。</p>
+        </div>
+
+        <!-- 错误 / 提示条 -->
+        <p class="err hidden" id="err"></p>
+        <p class="warnNote hidden" id="warn"></p>
+
+        <!-- 主行动 -->
+        <button class="cta" id="cta" type="button">连接 GitHub</button>
+
+        <!-- 辅助操作 -->
+        <div class="aux hidden" id="aux">
+          <button class="act" id="auxPat" type="button">使用访问令牌</button>
+          <button class="act" id="auxReverify" type="button">重新校验</button>
+          <button class="act is-danger" id="auxDelete" type="button">删除凭证</button>
+        </div>
+
+        <!-- 状态注脚（按状态显示） -->
+        <p class="note hidden" id="note1"></p>
+        <p class="note hidden" id="note2"></p>
+      </section>
+
+      <!-- ③ 脚注区 -->
+      <footer class="foot">
+        凭据仅存本机；退出只解除绑定，不影响 gh 登录态。
+      </footer>
+    </div>
+  </div>
+</div>
+
+<div class="toolbar">
+  <span class="lbl">状态</span>
+  <button data-s="fresh" class="on">未配置</button>
+  <button data-s="installing">安装中</button>
+  <button data-s="device">设备流中</button>
+  <button data-s="scopemiss">缺权限</button>
+  <button data-s="pat">访问令牌</button>
+  <button data-s="ready">全绿就绪</button>
+  <button data-s="ratelimit">限流中</button>
+  <span class="sep"></span>
+  <span class="lbl">主题</span>
+  <button data-t="light" class="on">浅色</button>
+  <button data-t="dark">深色</button>
+  <span class="sep"></span>
+  <span class="lbl">金句</span>
+  <select id="tagline">
+    <option value="0">链接你的代码库，开始 Agent 自主交付</option>
+    <option value="1" selected>连接你的代码库，让 Agent 自主交付</option>
+    <option value="2">仓库连上，交付成环</option>
+    <option value="3">把 issue 和 PR，交付成环</option>
+    <option value="4">从候选到交付，一环扣一环</option>
+  </select>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; };
+
+const chip = (text, miss) => { const c = el("span", "chip" + (miss ? " is-miss" : ""), text); return c; };
+
+// 每个状态：门禁三元组（ok|bad|wait + 状态文案）、徽章、kv、CTA、辅助区、注脚
+const STATES = {
+  fresh: {
+    badge: ["未配置", "warn"],
+    sub: "设备流授权 · 无需复制令牌",
+    gates: [
+      ["bad", "未安装（下方按钮一键安装，或见手动安装指引）", null],
+      ["wait", "等待 gh CLI 就绪", null],
+      ["wait", "等待 gh 登录与凭据校验", null],
+    ],
+    kv: false, connect: true, code: false,
+    cta: ["一键安装 gh CLI", false, () => setState("installing")],
+    aux: [],
+    notes: [
+      "一键安装：官方发布源下载（约 15MB）装入插件私有目录，无需 root。",
+      "或手动安装：<code>brew install gh</code> · <code>winget install GitHub.cli</code> · <code>sudo apt install gh</code>，装完本页自动检测。",
+    ],
+  },
+  installing: {
+    badge: ["未配置", "warn"],
+    sub: "设备流授权 · 无需复制令牌",
+    gates: [
+      ["wait", "正在后台安装…", null],
+      ["wait", "等待 gh CLI 就绪", null],
+      ["wait", "等待 gh 登录与凭据校验", null],
+    ],
+    kv: false, connect: true, code: false,
+    cta: ["正在后台安装 gh CLI…", true, null],
+    aux: [],
+    notes: ["安装完成后本页自动继续，可随时离开；不改动系统 PATH 与已有环境。"],
+  },
+  device: {
+    badge: ["校验中", "wait"],
+    sub: "设备流授权 · 等待确认",
+    gates: [
+      ["ok", "已安装 v2.63", null],
+      ["wait", "等待你在 GitHub 确认授权", null],
+      ["wait", "授权后自动校验", null],
+    ],
+    kv: false, connect: false, code: true,
+    cta: null,
+    aux: [],
+    notes: ["授权成功后自动移交 gh 凭据库、校验凭据并进入工作台，全程无需手动输入用户名。"],
+  },
+  scopemiss: {
+    badge: ["有错误", "err"],
+    sub: "凭据校验未通过 · 缺少权限",
+    gates: [
+      ["ok", "已安装 v2.63", null],
+      ["ok", "已登录（iasiv5）", null],
+      ["bad", "令牌缺少 read:org（组织仓库发现不可用）", null],
+    ],
+    kv: true,
+    kvOverrides: {
+      source: "本机 gh 登录态（工作台外建立）",
+      scopes: [["repo", false], ["read:org", true]],
+      checked: '<span class="bad-frag">缺少权限</span> · 5 分钟前',
+    },
+    connect: false, code: false,
+    err: "缺少 read:org：组织仓库发现不可用。重新授权（设备流）或更换含该权限的访问令牌即可补齐。",
+    cta: ["重新授权 · 连接 GitHub", false, () => setState("device")],
+    aux: [["auxPat", "使用访问令牌更换"]],
+    notes: [],
+  },
+  pat: {
+    badge: ["未配置", "warn"],
+    sub: "访问令牌 · 校验后保存",
+    gates: [
+      ["ok", "已安装 v2.63", null],
+      ["ok", "已登录（iasiv5）", null],
+      ["bad", "未提供工作台凭据", null],
+    ],
+    kv: false, connect: false, code: false, pat: true,
+    cta: null,
+    aux: [],
+    notes: [],
+  },
+  ready: {
+    badge: ["已配置", "ok"],
+    sub: "个人访问令牌 · 令牌有效",
+    gates: [
+      ["ok", "已安装 v2.63", null],
+      ["ok", "已登录（iasiv5）", null],
+      ["ok", "令牌有效 · repo / read:org", null],
+    ],
+    kv: true,
+    kvOverrides: {},
+    connect: false, code: false,
+    cta: ["iasiv5 · 进入工作台", false, null],
+    aux: [["auxPat", "更换访问令牌"], ["auxReverify", "重新校验"], ["auxDelete", "删除凭证"]],
+    notes: [],
+  },
+  ratelimit: {
+    badge: ["限流中", "warn"],
+    sub: "凭据健康 · GitHub 主限流生效",
+    gates: [
+      ["ok", "已安装 v2.63", null],
+      ["ok", "已登录（iasiv5）", null],
+      ["ok", "凭据有效 · 限流非凭据问题", null],
+    ],
+    kv: true,
+    kvOverrides: { checked: '<span class="ok-frag">凭据有效</span> · 上次校验 12 分钟前' },
+    connect: false, code: false,
+    warn: "GitHub 主限流中：候选摄取暂停约 8 分钟后自动恢复。限流不影响凭据有效性，无需重新授权。",
+    cta: ["iasiv5 · 进入工作台", false, null],
+    aux: [["auxReverify", "稍后重试校验"], ["auxPat", "更换访问令牌"], ["auxDelete", "删除凭证"]],
+    notes: [],
+  },
+};
+
+function chipHtml(pairs) {
+  const box = $("kvScopes"); box.textContent = "";
+  pairs.forEach(([t, miss]) => box.append(chip(t, miss)));
+}
+function renderGates(rows) {
+  const box = $("gates"); box.textContent = "";
+  const names = ["gh CLI 已安装", "gh 已登录", "凭据校验通过"];
+  rows.forEach((r, i) => {
+    const [state, stText] = r;
+    const row = el("div", "gateRow");
+    const dot = el("span", "dot " + (state === "ok" ? "dot-ok" : state === "bad" ? "dot-warn" : "dot-wait"));
+    const name = el("span", "name", names[i]);
+    const st = el("span", "st" + (state === "bad" ? " is-bad" : ""), stText);
+    row.append(dot, name, st);
+    box.append(row);
+  });
+}
+function setState(name) {
+  const s = STATES[name];
+  // badge
+  $("badgeText").textContent = s.badge[0];
+  $("badgeDot").className = "dot " + (s.badge[1] === "ok" ? "dot-ok" : s.badge[1] === "err" ? "dot-err" : "dot-warn");
+  $("cardSub").textContent = s.sub;
+  // gates
+  renderGates(s.gates);
+  // kv
+  $("kv").classList.toggle("hidden", !s.kv);
+  $("connectZone").classList.toggle("hidden", !s.connect);
+  if (s.kv) {
+    const o = s.kvOverrides || {};
+    $("kvSource").textContent = o.source ?? "GitHub 授权（设备流）· 副本已移交 gh";
+    chipHtml((o.scopes) ?? [["repo", false], ["read:org", false]]);
+    $("kvChecked").innerHTML = o.checked ?? '<span class="ok-frag">令牌有效</span> · 刚刚';
+  }
+  // device / pat / err / warn
+  $("codeBox").classList.toggle("hidden", !s.code);
+  $("deviceLine").classList.toggle("hidden", !s.code);
+  $("patForm").classList.toggle("open", !!s.pat);
+  $("err").classList.toggle("hidden", !s.err);
+  if (s.err) $("err").textContent = s.err;
+  $("warn").classList.toggle("hidden", !s.warn);
+  if (s.warn) $("warn").textContent = s.warn;
+  // cta
+  const cta = $("cta");
+  if (s.cta) {
+    cta.classList.remove("hidden");
+    cta.textContent = s.cta[0];
+    cta.disabled = !!s.cta[1];
+    cta.onclick = s.cta[2] || null;
+  } else cta.classList.add("hidden");
+  // aux
+  const aux = $("aux");
+  aux.classList.toggle("hidden", !s.aux || s.aux.length === 0);
+  ["auxPat", "auxReverify", "auxDelete"].forEach((id) => { const b = $(id); b.classList.add("hidden"); b.onclick = null; });
+  (s.aux || []).forEach(([id, label]) => { const b = $(id); b.classList.remove("hidden"); b.textContent = label; b.onclick = id === "auxPat" ? () => setState("pat") : null; });
+  // notes
+  const n1 = $("note1"), n2 = $("note2");
+  const notes = s.notes || [];
+  [[n1, notes[0]], [n2, notes[1]]].forEach(([n, text]) => {
+    n.classList.toggle("hidden", !text);
+    if (text) n.innerHTML = text;
+  });
+  // toolbar on-state
+  document.querySelectorAll(".toolbar [data-s]").forEach((b) => b.classList.toggle("on", b.dataset.s === name));
+}
+
+document.querySelectorAll(".toolbar [data-s]").forEach((b) => b.onclick = () => setState(b.dataset.s));
+document.querySelectorAll(".toolbar [data-t]").forEach((b) => b.onclick = () => {
+  document.documentElement.dataset.theme = b.dataset.t;
+  document.querySelectorAll(".toolbar [data-t]").forEach((x) => x.classList.toggle("on", x === b));
+});
+$("tagline").onchange = (e) => { $("title").textContent = e.target.value; };
+$("patCancel").onclick = () => setState("scopemiss");
+$("mDevice").onclick = () => setState("device");
+$("mPat").onclick = () => setState("pat");
+$("switchToPat").onclick = () => setState("pat");
+$("switchToDevice").onclick = () => setState("device");
+$("auxDelete").onclick = () => { /* mock：不动作 */ };
+$("recheck").onclick = () => setState("ready");
+
+setState("fresh");
+</script>
+</body>
+</html>
