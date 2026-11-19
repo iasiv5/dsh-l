@@ -9,7 +9,7 @@
 
 ## 架构快照
 
-- 设置面板：settings GET 已回 {intervalMinutes, triageModel, engineConcurrency, workspaceRetentionDays}；agentDefaultModel 经 hostDefault()（host.mjs:140-143 currentSelection() → {provider, model} | null）已进 handlers（listCatalog 同级注入）——GET settings 响应增 `agentDefaultModel` 只读字段（handlers 有 hostDefault 闭包可直取）；UI 增数字 input（engineConcurrency，putSettings 校验 1–8 已有 :412-415）与只读行（agentDefaultModel）。
+- 设置面板：settings GET 已回 {intervalMinutes, triageModel, engineConcurrency, workspaceRetentionDays}；agentDefaultModel 经 hostDefault()（host.mjs:140-143 currentSelection() → {provider, model} | null）已进 handlers（listCatalog 同级注入）——GET settings 响应增 `agentDefaultModel` 只读字段（handlers 有 hostDefault 闭包可直取）；UI 增数字 input（engineConcurrency，putSettings 校验 1–4（评审问题3 修正：实文双钉） 已有 :412-415）与只读行（agentDefaultModel）。
 - 模型观测：engine dispatch agent 分支（:112-118 roleModel 在位）→ runAgentNode ns 写入时增 `model: roleModel ?? null`（经 saveRun 持久）；client runBlock 增 model 行（run.nodeStates? 不——runs 摘要无 nodeStates；**实现时读实文**：summarizeRun 不含 nodeStates，model 展示数据源需经 nodeStates 摘要或从 run history——最小形改为「summarizeRun 增 models: {nodeId: model} 仅在途 agent 节点」或 runBlock 读取 needsReview 通道外的 run 全量?）——**形状分叉授权执行者按实文裁决并在 commit message 声明**（最小数据面：summarizeRun 增 `models` 对象仅含非空 model 的在途 agent 节点）。
 - T6 多 ready 补钉例：resume 多节点（build+verify 同轮回 ready）→ node.resumed 各一条（detail 各带 nodeId）。
 
@@ -43,6 +43,17 @@
 ## 任务清单
 
 ### Task 1: 设置面板深化（§16-5）
+
+- 目标：engineConcurrency 数字输入（写）+ agentDefaultModel 只读展示（读宿主接口）。
+- 涉及文件：Modify `src/client/components/actions.mjs`、`src/client/logic.mjs`（settingsPatch 白名单增透传——评审问题2）；Test `test/logic.test.mjs`（三处 deepEqual 同步 + engineConcurrency 用例）
+- 接口契约（评审问题1 修正：GET settings 为无消费方死面——**通道选 (b) 复用 api.models() 已回的 hostDefault**（actions.mjs:54 现成在案），零端点改造；§19.2 双通道授权按「实文最小面」落 (b)）：
+  - Consumes: api.models() 响应 {providers, hostDefault}；settingsPatch(current, patch)（logic.mjs:50-56 白名单现状=intervalMinutes+triageModel——评审问题2：engineConcurrency 输入被白名单丢弃，PUT 永不携带）
+  - Produces: ①settingsPatch 白名单增 `engineConcurrency` 透传；②openSettings 增「并发上限」number input（**min 1 max 4——评审问题3 修正：实文双钉 1–4**（handlers :414 校验 + handlers.test :123/:128），提交走新透传键）+「默认模型」只读行（值 = api.models() 已回的 hostDefault?.model ?? "（宿主未配置）"——与 modelSel 同一调用取数）
+- 验证范围：`npm test`（logic 段：settingsPatch 三处 deepEqual 同步 + 新键用例）+ build（UI 面覆盖度声明沿先例）
+
+- [ ] Step 1: 失败测试：logic.test settingsPatch 增 engineConcurrency 透传用例 + 三处全形 deepEqual 同步（评审问题2：白名单现状丢键）。
+- [ ] Step 2: 实现 settingsPatch 透传 + openSettings 双控件（并发 input min1 max4 + 默认模型只读行复用 hostDefault）。
+- [ ] Step 3: Run: 全绿 + build → checkpoint commit。
 
 - 目标：engineConcurrency 数字输入（写）+ agentDefaultModel 只读展示（读宿主接口）。
 - 涉及文件：Modify `src/handlers.mjs`、`src/client/components/actions.mjs`；Test `test/handlers.test.mjs`
