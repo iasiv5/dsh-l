@@ -33,11 +33,13 @@ test("host 冒烟①：buildRuntime 不抛 + 路由表关键键在位（M4/M2 �
   const restore = setupEnv();
   try {
     const rt = buildRuntime(stubCtx(), {});
-    for (const key of ["/dsh-l/roles", "/dsh-l/run/start", "/dsh-l/release/confirm", "/dsh-l/feishu/test", "/dsh-l/roles/delete", "/dsh-l/models", "/dsh-l/triage", "/dsh-l/settings", "/dsh-l/watch"]) {   // M7 §16-4：断言扩集
+    for (const key of ["/dsh-l/roles", "/dsh-l/run/start", "/dsh-l/release/confirm", "/dsh-l/feishu/test", "/dsh-l/roles/delete", "/dsh-l/models", "/dsh-l/triage", "/dsh-l/settings", "/dsh-l/watch", "/dsh-l/credential", "/dsh-l/credential/verify"]) {   // M7 §16-4：断言扩集（Task 7 增凭据端点）
       assert.ok(rt.table[key], "路由表缺 " + key);
     }
     assert.ok(rt.table["/dsh-l/roles"].GET && rt.table["/dsh-l/roles"].POST, "/dsh-l/roles 需 GET+POST");
     assert.ok(rt.table["/dsh-l/roles/delete"].POST, "/dsh-l/roles/delete 需 POST");
+    assert.ok(rt.table["/dsh-l/credential"].PUT && rt.table["/dsh-l/credential"].DELETE, "/dsh-l/credential 需 PUT+DELETE");
+    assert.ok(rt.table["/dsh-l/credential/verify"].POST, "/dsh-l/credential/verify 需 POST");
   } finally { restore(); }
 });
 test("host 冒烟②：模板解析探针（devflow-lite 可建跑；nope 同步 throw 404——R1-1 注入面锚）", () => {
@@ -89,6 +91,18 @@ echo '{"url":"https://x/pr/1","title":"T","state":"OPEN","headRefOid":"x"}'
 exit 0`;
 const waitFor = async (fn, timeout = 5000) => { const t0 = Date.now(); while (!fn()) { if (Date.now() - t0 > timeout) throw new Error("waitFor timeout"); await new Promise((r) => setTimeout(r, 10)); } };
 
+test("host 冒烟⑤：auth 路由形状锁（Task 7）——gates/credential 键在位 + credential.configured 经 store 生效", async () => {
+  const restore = setupEnv();
+  try {
+    const rt = buildRuntime(stubCtx(), {});
+    rt.store.setCredential({ token: "tk", source: "device-flow", scopes: ["repo", "read:org"], verifiedAt: "T0", healthy: true });
+    const st = await rt.table["/dsh-l/auth"].GET();   // 真实 github provider 注入（gh 探测为本地 spawn，无出网）
+    assert.deepEqual(["ghInstalled" in st.gates, "ghLogin" in st.gates, "credentialOk" in st.gates], [true, true, true]);
+    assert.equal(st.credential.configured, true);
+    assert.equal(st.credential.source, "device-flow");
+    assert.ok(typeof rt.table["/dsh-l/credential"].DELETE === "function");
+  } finally { restore(); }
+});
 test("host 冒烟③升格（M7 T1/评审 R-问题2/3）：rolePrompt 端到端锚——listRoles 闭包 → resolveRole → world.send", async () => {
   const restore = setupEnv();
   try {

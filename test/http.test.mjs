@@ -50,6 +50,14 @@ test("写方法：跨站拒绝；同源解析 JSON 体并传给处理器", async
   assert.deepEqual(seen, { a: 1 });
 });
 
+test("DELETE 分派：同源 JSON 体传给处理器（凭据端点依赖的通用契约）", async () => {
+  let seen = null;
+  const h = makeHttpHandler({ methods: { DELETE: async (b) => { seen = b; return { ok: 1 }; } }, trust: allow });
+  const r = res(); await h(req("DELETE", { body: { ghLogout: true }, headers: { origin: "http://127.0.0.1:3095" } }), r);
+  assert.equal(r.status, 200);
+  assert.deepEqual(seen, { ghLogout: true });
+});
+
 test("处理器返回 error → out.status 或 400；抛错 → 500", async () => {
   const e = res();
   await makeHttpHandler({ methods: { GET: async () => ({ error: "nope", status: 409 }) }, trust: allow })(req("GET"), e);

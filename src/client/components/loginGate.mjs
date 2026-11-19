@@ -1,16 +1,11 @@
 import { api } from "../api.mjs";
+import { renderConnectionCard } from "./connectionCard.mjs";
 
-// handlers 用错误串前缀携带细节，这里按前缀取词典文案。
-const errText = (t, message) => {
-  const m = String(message ?? "");
-  if (m.startsWith("gh-not-installed")) return t("auth.errGhNotInstalled");
-  if (m.startsWith("gh-not-authorized")) return t("auth.errGhNotAuthorized");
-  if (m.startsWith("token-invalid")) return t("auth.errTokenInvalid");
-  return t("errors.refreshFailed") + " (" + m + ")";
-};
-
+// 登录面板（Task 9 重写）：全面板三段式——品牌区（大标题金句）/ 三关门禁 + 凭据卡 / 脚注区。
+// 组件契约：renderLoginGate 签名不变（workbench 调用点零改动）；轮询节奏不变（install 2s / device 4s / authorizing 1.5s）；
+// DOM 保留 .gateWrap > article.gate > button.cta 类名链（scripts/ui-probe.cjs 视图判定锚）。
 // 作者化图标 = icon.svg 原样（蓝青双弧循环双箭头），衬底由 .gateMark 蓝调 plate 提供。
-const MARK = '<svg width="26" height="26" viewBox="0 0 36 36" fill="none" aria-hidden="true">'
+const MARK = '<svg width="27" height="27" viewBox="0 0 36 36" fill="none" aria-hidden="true">'
   + '<path d="M14.41 27.87A10.5 10.5 0 0 1 13.56 8.48" stroke="url(#dshl-mk-b)" stroke-width="4" stroke-linecap="round" fill="none"/>'
   + '<path d="M21.59 8.13A10.5 10.5 0 0 1 22.44 27.52" stroke="url(#dshl-mk-t)" stroke-width="4" stroke-linecap="round" fill="none"/>'
   + '<path d="M13.42 11.98 10.8 6.36 19.18 5.87Z" fill="url(#dshl-mk-b)" stroke="url(#dshl-mk-b)" stroke-width="1.5" stroke-linejoin="round"/>'
@@ -21,26 +16,95 @@ const MARK = '<svg width="26" height="26" viewBox="0 0 36 36" fill="none" aria-h
   + '<stop stop-color="#45E7A4"/><stop offset="1" stop-color="#05909D"/></linearGradient></defs></svg>';
 
 const svg = (markup) => { const s = document.createElement("span"); s.innerHTML = markup; return s.firstElementChild; };
-
-const pill = (t, key, okKey, missKey, ok) => {
-  const p = document.createElement("span");
-  p.className = "pill";
-  const dot = document.createElement("span");
-  dot.className = "dot " + (ok ? "ok" : "miss");
-  p.append(dot, document.createTextNode(t(key) + " · " + t(ok ? okKey : missKey)));
-  return p;
+const el = (tag, cls, text) => {
+  const n = document.createElement(tag);
+  if (cls) n.className = cls;
+  if (text !== undefined) n.textContent = text;
+  return n;
 };
 
-// 登录闸 = 一台状态机，每个状态只有一个主行动（CTA），全程零手动输入：
-//   未装 gh   → 「一键安装 gh CLI」（后台装到插件私有目录）
-//   已装未授权 → 「授权登录 GitHub」（设备流：授权码 + 浏览器验证，成功自动绑定）
-//   已授权    → 「{login} · 进入工作台」（一键绑定进入）
+const VERIFY_TTL_MS = 30 * 60 * 1000;   // R2Q3：打开面板时 verifiedAt 超时才静默校验（失败静默不阻塞渲染）
+
+// 登录门禁（GLOSSARY「门禁」）：三关全绿才放行进入工作台；授权方式并列双方法（设备流 / 访问令牌，随时互切）。
 export function renderLoginGate(shadow, { t, status, onConnected }) {
   let local = status ?? {};
   let timer = null;
   let dead = false;
+  let patOpen = false;        // 手动令牌表单（组件局部 UI 态，与服务器状态无关）
+  let confirmDelete = false;  // 删除确认浮层（R2Q2：gh logout 复选框按 ghWrittenByUs 门控）
+  let entered = false;        // bind 成功后防重入
 
   const stop = () => { if (timer) { clearTimeout(timer); timer = null; } };
+
+  const refresh = async () => {
+    try { local = await api.auth(); } catch {}
+    draw();
+    schedule();
+  };
+
+  const enter = async () => {
+    if (entered) return;
+    entered = true;
+    try {
+      await api.bind();
+      stop();
+      dead = true;
+      onConnected?.();
+    } catch {
+      entered = false;
+      await refresh();   // bind 失败（如 token-invalid）→ 状态刷新后凭据卡呈现 unhealthy
+    }
+  };
+
+  // R1-3：PUT 成功后按三关判定——全绿才自动 bind 进入；未全绿停留面板（CTA 切缺失门禁动作），轮询续走。
+  const afterPatSave = async () => {
+    patOpen = false;
+    await refresh();
+    if (local?.gates?.ghInstalled && local?.gates?.ghLogin && local?.gates?.credentialOk) await enter();
+  };
+
+  const on = {
+    install: async () => {
+      try {
+        await api.installGh();
+        local = { ...local, install: { phase: "installing" } };
+      } catch {}
+      draw();
+      schedule();
+    },
+    connect: async () => {
+      try {
+        const d = await api.deviceStart();
+        local = { ...local, device: d };
+        draw();
+        schedule();
+      } catch {}   // already-authorized 等守卫失败经状态刷新呈现
+      await refresh();
+    },
+    enter,
+    verify: async () => { await refresh(); },
+    togglePat: () => { patOpen = !patOpen; confirmDelete = false; draw(); },
+    cancelPat: () => { patOpen = false; draw(); },
+    switchToDevice: async () => { patOpen = false; await on.connect(); },
+    toggleDelete: () => { confirmDelete = !confirmDelete; patOpen = false; draw(); },
+    cancelDelete: () => { confirmDelete = false; draw(); },
+    deleteConfirmed: async (ghLogout) => {
+      confirmDelete = false;
+      try { await api.deleteCredential(ghLogout); } catch {}
+      patOpen = false;
+      await refresh();
+    },
+    patSave: async (token) => {
+      if (!token) return;
+      try {
+        await api.putCredential(token);
+        await afterPatSave();
+      } catch (err) {
+        await refresh();   // 失败细节经凭据卡/横幅呈现（credential-invalid / verify-failed 均为可重试态）
+        draw();
+      }
+    },
+  };
 
   const draw = () => {
     if (dead) return;
@@ -48,160 +112,26 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
     for (const el of [...shadow.children]) {
       if (el.classList?.contains("gateWrap")) el.remove();
     }
-    const wrap = document.createElement("div");
-    wrap.className = "gateWrap";
-    const gate = document.createElement("article");
-    gate.className = "gate";
+    const wrap = el("div", "gateWrap");
+    const panel = el("div", "gatePanel");
 
-    const head = document.createElement("div");
-    head.className = "gateHead";
-    const mark = document.createElement("div");
-    mark.className = "gateMark";
+    // ① 品牌区：品牌标 + 大标题（金句 B，无副标题——B6 范围事实）
+    const brand = el("header", "brandRow");
+    const mark = el("div", "gateMark");
     mark.append(svg(MARK));
-    const pills = document.createElement("div");
-    pills.className = "gateStatus";
-    pills.style.margin = "0";
-    pills.append(
-      pill(t, "auth.ghCli", "auth.ghInstalled", "auth.ghMissing", local.installed === true),
-      pill(t, "auth.credential", "auth.credReady", "auth.credMissing", local.tokenAvailable === true),
-    );
-    head.append(mark, pills);
-    gate.append(head);
+    const title = el("h3", "gateTitle", t("auth.loginTitle"));
+    brand.append(mark, title);
+    panel.append(brand);
 
-    const h = document.createElement("h3");
-    h.textContent = t("auth.loginTitle");
-    const intro = document.createElement("p");
-    intro.className = "intro";
-    intro.textContent = t("auth.loginIntro");
-    gate.append(h, intro);
+    // ② 授权卡（connectionCard full 形态，直接产出 article.gate；面板打开时超 TTL 静默校验一次）
+    renderConnectionCard(panel, { t, status: local, mode: "full", patOpen, confirmDelete, on });
 
-    const err = document.createElement("p");
-    err.className = "err";
-    err.setAttribute("role", "alert");
-    err.style.display = "none";
+    // ③ 脚注区
+    panel.append(el("footer", "gateFoot", t("cred.footNote")));
 
-    const installing = local.install?.phase === "installing";
-    const installFailed = local.install?.phase === "failed";
-    const hasGh = local.installed === true;
-    const hasToken = local.tokenAvailable === true;
-    const dv = local.device ?? {};
-    const pending = dv.phase === "pending";
-    const handing = dv.phase === "authorizing";
-
-    const cta = document.createElement("button");
-    cta.className = "cta";
-    cta.type = "button";
-
-    if (installing) {
-      cta.disabled = true;
-      cta.textContent = t("auth.installing");
-      gate.append(cta);
-    } else if (!hasGh) {
-      cta.textContent = installFailed ? t("auth.installRetry") : t("auth.installBtn");
-      cta.onclick = async () => {
-        cta.disabled = true;
-        try {
-          await api.installGh();
-          local = { ...local, install: { phase: "installing" } };
-        } catch (e) {
-          err.textContent = errText(t, e?.message);
-          err.style.display = "block";
-        }
-        draw();
-        schedule();
-      };
-      gate.append(cta);
-      const note = document.createElement("p");
-      note.className = "note";
-      note.textContent = t("auth.installNote");
-      gate.append(note);
-      if (installFailed) {
-        err.textContent = t("auth.installFailed") + " (" + (local.install?.error ?? "") + ")";
-        err.style.display = "block";
-      }
-    } else if (hasToken) {
-      cta.textContent = (local.viewerLogin ?? "GitHub") + " · " + t("auth.enterBtn");
-      cta.onclick = async () => {
-        cta.disabled = true;
-        cta.textContent = t("auth.entering");
-        try {
-          await api.bind();
-          stop();
-          onConnected?.();
-          return;
-        } catch (e) {
-          err.textContent = errText(t, e?.message);
-          err.style.display = "block";
-          draw();
-          schedule();
-        }
-      };
-      gate.append(cta);
-      const note = document.createElement("p");
-      note.className = "note";
-      note.textContent = t("auth.readyNote");
-      gate.append(note);
-    } else if (pending || handing) {
-      const codeBox = document.createElement("div");
-      codeBox.className = "gateCode";
-      const codeEl = document.createElement("b");
-      codeEl.textContent = dv.userCode ?? "····-····";
-      const copyBtn = document.createElement("button");
-      copyBtn.type = "button";
-      copyBtn.textContent = t("auth.copy");
-      copyBtn.onclick = () => navigator.clipboard?.writeText(dv.userCode ?? "").catch(() => {});
-      codeBox.append(codeEl, copyBtn);
-      const line = document.createElement("p");
-      line.className = "intro";
-      line.textContent = handing ? t("auth.deviceHanding") : t("auth.deviceWaiting");
-      const link = document.createElement("a");
-      link.className = "gateLink";
-      link.href = dv.verificationUri ?? "https://github.com/login/device";
-      link.target = "_blank";
-      link.rel = "noreferrer noopener";
-      link.textContent = dv.verificationUri ?? "https://github.com/login/device";
-      gate.append(codeBox, line, link);
-      const note = document.createElement("p");
-      note.className = "note";
-      note.textContent = t("auth.deviceNote");
-      gate.append(note);
-    } else {
-      cta.textContent = t("auth.deviceBtn");
-      cta.onclick = async () => {
-        cta.disabled = true;
-        try {
-          const d = await api.deviceStart();
-          local = { ...local, device: d };
-        } catch (e) {
-          err.textContent = errText(t, e?.message);
-          err.style.display = "block";
-        }
-        draw();
-        schedule();
-      };
-      gate.append(cta);
-      const note = document.createElement("p");
-      note.className = "note";
-      note.textContent = t("auth.deviceNote");
-      gate.append(note);
-      if (dv.phase === "expired") {
-        err.textContent = t("auth.deviceExpired");
-        err.style.display = "block";
-      } else if (dv.phase === "failed") {
-        err.textContent = t("auth.deviceFailed") + " (" + (dv.error ?? "") + ")";
-        err.style.display = "block";
-      }
-    }
-
-    gate.append(err);
-    if (!["pending", "authorizing"].includes(dv.phase ?? "") && !installing && !hasToken) {
-      const note = document.createElement("p");
-      note.className = "note";
-      note.textContent = t("auth.logoutHint");
-      gate.append(note);
-    }
-    wrap.append(gate);
+    wrap.append(panel);
     shadow.append(wrap);
+    renderConnectionCard(cardMount, { t, status: local, mode: "full", patOpen, confirmDelete, on });
   };
 
   const schedule = () => {
@@ -238,6 +168,13 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
       }, ph === "authorizing" ? 1500 : 4000);
     }
   };
+
+  // 打开面板时的主动静默校验（B10/R2Q3）：三关已过凭据校验但 verifiedAt 超时 → 校验一次刷新状态。
+  const c = local?.credential ?? {};
+  const verifiedAtMs = c.verifiedAt ? Date.parse(c.verifiedAt) : NaN;
+  if (local?.gates?.credentialOk && Number.isFinite(verifiedAtMs) && Date.now() - verifiedAtMs > VERIFY_TTL_MS) {
+    api.verifyCredential().then(refresh).catch(() => {});
+  }
 
   draw();
   schedule();

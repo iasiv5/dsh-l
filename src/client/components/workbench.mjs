@@ -4,6 +4,7 @@ import { api } from "../api.mjs";
 import { badge } from "../badge.mjs";
 import { renderRow } from "./candidateRow.mjs";
 import { renderLoginGate } from "./loginGate.mjs";
+import { renderConnectionCard } from "./connectionCard.mjs";
 import { renderKanban } from "./kanban.mjs";
 import { renderReview } from "./review.mjs";
 import { renderRolesTab } from "./rolesTab.mjs";
@@ -64,6 +65,77 @@ const CSS = [
   "@media (max-height:640px){.gateWrap{padding:12px}.gate{padding:16px 16px 10px}.gate h3{margin-top:10px;font-size:15px}.gate .intro{margin-top:4px}.gateStatus{margin-top:10px}.gate .cta{margin-top:12px;height:44px}.gate .note{margin-top:10px;padding-top:8px}}",
   ".gate .err{font-size:13px;line-height:1.5;display:none;margin:12px 0 0;padding:8px 12px;border-radius:8px;border:1px solid color-mix(in srgb,#d1242f 35%,transparent);background:color-mix(in srgb,#d1242f 9%,canvas)}",
   ".gate .note{margin:14px 0 0;padding:12px 0 0;border-top:1px solid color-mix(in srgb,currentColor 8%,transparent);font-size:12px;line-height:1.55;color:color-mix(in srgb,currentColor 52%,transparent)}",
+  // ── 凭据卡（Task 9）：全面板登录 + 收活紧凑卡共用视觉（theme 自适应沿用 canvas/canvastext color-mix 语言）──
+  ".gatePanel{width:min(560px,100%);margin:auto;display:flex;flex-direction:column}",
+  ".brandRow{display:flex;align-items:center;gap:14px}",
+  ".gateTitle{font-size:19px;font-weight:700;letter-spacing:-.01em;margin:0}",
+  ".gatePanel .gate{width:100%;margin:26px 0 0;padding:22px 24px 18px}",
+  ".gateFoot{margin-top:20px;padding:14px 2px 4px;border-top:1px solid color-mix(in srgb,currentColor 8%,transparent);font-size:12px;line-height:1.6;color:color-mix(in srgb,currentColor 52%,transparent)}",
+  ".credHead{display:flex;align-items:center;gap:12px}",
+  ".ghMark{width:38px;height:38px;flex:none;display:grid;place-items:center;border-radius:10px;color:inherit;background:color-mix(in srgb,currentColor 5%,transparent);border:1px solid color-mix(in srgb,currentColor 10%,transparent)}",
+  ".ghMark svg{display:block}",
+  ".credWho{flex:1;min-width:0}",
+  ".credWho b{display:block;font-size:14px;font-weight:600}",
+  ".credSub{margin-top:2px;font-size:12px;color:color-mix(in srgb,currentColor 52%,transparent)}",
+  ".badge{flex:none;display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;padding:3px 10px;border-radius:999px;border:1px solid color-mix(in srgb,currentColor 12%,transparent);background:color-mix(in srgb,currentColor 4%,transparent)}",
+  ".dot{width:7px;height:7px;border-radius:50%;flex:none}",
+  ".dot.ok{background:#2da44e}",
+  ".dot.warn{background:#d29922}",
+  ".dot.err{background:#d1242f}",
+  ".dot.wait{background:#d29922;animation:dot-breathe 1.6s ease-in-out infinite}",
+  "@keyframes dot-breathe{50%{opacity:.35}}",
+  "@media (prefers-reduced-motion:reduce){.dot.wait{animation:none}}",
+  ".recheck{flex:none;width:30px;height:30px;display:grid;place-items:center;border:1px solid color-mix(in srgb,currentColor 12%,transparent);border-radius:8px;background:transparent;color:inherit;cursor:pointer}",
+  ".recheck svg{transition:transform 400ms cubic-bezier(.22,1,.36,1)}",
+  ".recheck:hover svg{transform:rotate(140deg)}",
+  ".recheck:focus-visible{outline:2px solid color-mix(in srgb,#324DE2 60%,transparent);outline-offset:2px}",
+  ".gates{margin-top:16px;display:flex;flex-direction:column;gap:9px}",
+  ".gateRow{display:flex;align-items:center;gap:10px;min-height:24px;font-size:13px}",
+  ".gateRow .gName{flex:none;font-weight:550}",
+  ".gateRow .gSt{flex:1;min-width:0;color:color-mix(in srgb,currentColor 52%,transparent)}",
+  ".gateRow .gSt.is-bad{color:color-mix(in srgb,#d1242f 85%,currentColor)}",
+  ".kv{margin:18px 0 0;padding:14px 0 0;border-top:1px solid color-mix(in srgb,currentColor 8%,transparent);display:grid;grid-template-columns:64px 1fr;row-gap:10px;column-gap:12px;font-size:13px}",
+  ".kv dt{color:color-mix(in srgb,currentColor 52%,transparent)}",
+  ".kv dd{line-height:1.5;min-width:0;overflow-wrap:anywhere}",
+  ".chips{display:inline-flex;gap:6px;flex-wrap:wrap;vertical-align:-2px}",
+  ".chip{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;padding:1px 8px;border-radius:5px;border:1px solid color-mix(in srgb,currentColor 16%,transparent);background:color-mix(in srgb,currentColor 5%,transparent)}",
+  ".chip.is-miss{color:color-mix(in srgb,#d1242f 85%,currentColor);border-color:color-mix(in srgb,#d1242f 35%,transparent);background:color-mix(in srgb,#d1242f 9%,canvas)}",
+  ".okFrag{color:color-mix(in srgb,#2da44e 80%,currentColor)}",
+  ".badFrag{color:color-mix(in srgb,#d1242f 85%,currentColor)}",
+  ".connectZone{margin-top:18px;padding-top:14px;border-top:1px solid color-mix(in srgb,currentColor 8%,transparent);font-size:13.5px;line-height:1.55;color:color-mix(in srgb,currentColor 62%,transparent)}",
+  ".methodRow{display:flex;gap:10px;margin-top:10px}",
+  ".method{flex:1;height:40px;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;border:1px solid color-mix(in srgb,currentColor 20%,transparent);background:transparent;color:inherit}",
+  ".method:hover{background:color-mix(in srgb,currentColor 6%,transparent)}",
+  ".method:focus-visible{outline:2px solid color-mix(in srgb,#324DE2 70%,transparent);outline-offset:2px}",
+  ".methodHint{margin-top:8px;font-size:12px;color:color-mix(in srgb,currentColor 52%,transparent)}",
+  ".switchLink{border:none;background:transparent;padding:2px 4px;cursor:pointer;font-size:12.5px;text-decoration:underline;text-underline-offset:2px;color:color-mix(in srgb,currentColor 55%,transparent)}",
+  ".switchLink:hover{color:inherit}",
+  ".switchLink:focus-visible{outline:2px solid color-mix(in srgb,#324DE2 60%,transparent);outline-offset:1px}",
+  ".patForm{margin-top:18px;padding:14px 16px;border-radius:10px;border:1px dashed color-mix(in srgb,currentColor 20%,transparent);display:none;flex-direction:column;gap:10px}",
+  ".patForm.open{display:flex}",
+  ".patForm label{font-size:12.5px;font-weight:550}",
+  ".patInput{width:100%;height:36px;padding:0 12px;font-size:13px;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;border-radius:8px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);background:color-mix(in srgb,currentColor 4%,canvas);color:inherit}",
+  ".patInput::placeholder{color:color-mix(in srgb,currentColor 40%,transparent)}",
+  ".patInput:focus-visible{outline:2px solid color-mix(in srgb,#324DE2 60%,transparent);outline-offset:1px}",
+  ".patRow{display:flex;align-items:center;gap:12px}",
+  ".patSave{height:34px;padding:0 16px;border:none;border-radius:8px;cursor:pointer;background:canvastext;color:canvas;font-size:13px;font-weight:600}",
+  ".patSave:hover{background:color-mix(in srgb,canvastext 84%,canvas)}",
+  ".patSave:focus-visible{outline:2px solid color-mix(in srgb,#324DE2 70%,transparent);outline-offset:2px}",
+  ".patSave.is-danger{background:color-mix(in srgb,#d1242f 85%,currentColor);color:canvas}",
+  ".patCancel{border:none;background:transparent;color:color-mix(in srgb,currentColor 55%,transparent);font-size:12.5px;cursor:pointer}",
+  ".patCancel:hover{color:inherit}",
+  ".patHint{font-size:12px;line-height:1.5;color:color-mix(in srgb,currentColor 52%,transparent)}",
+  ".aux{margin-top:10px;display:flex;justify-content:flex-end;gap:4px;flex-wrap:wrap}",
+  ".auxAct{border:none;background:transparent;cursor:pointer;font-size:12.5px;padding:4px 8px;border-radius:6px;color:color-mix(in srgb,currentColor 62%,transparent);text-underline-offset:2px}",
+  ".auxAct:hover{color:inherit;background:color-mix(in srgb,currentColor 6%,transparent)}",
+  ".auxAct:focus-visible{outline:2px solid color-mix(in srgb,#324DE2 60%,transparent);outline-offset:1px}",
+  ".auxAct.is-danger{color:color-mix(in srgb,#d1242f 78%,currentColor)}",
+  ".warnBox{font-size:13px;line-height:1.5;margin-top:12px;padding:8px 12px;border-radius:8px;border:1px solid color-mix(in srgb,#d29922 40%,transparent);background:color-mix(in srgb,#d29922 10%,canvas)}",
+  ".credCompact{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;padding:10px 12px;border-radius:10px;border:1px solid color-mix(in srgb,currentColor 10%,transparent);background:color-mix(in srgb,currentColor 3%,transparent)}",
+  ".degradedBanner{margin:0 0 12px;padding:10px 14px;border-radius:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;border:1px solid color-mix(in srgb,#d1242f 32%,transparent);background:color-mix(in srgb,#d1242f 8%,canvas)}",
+  ".degradedBanner.is-limited{border-color:color-mix(in srgb,#d29922 40%,transparent);background:color-mix(in srgb,#d29922 10%,canvas)}",
+  ".bannerAct{border:1px solid color-mix(in srgb,currentColor 20%,transparent);border-radius:7px;background:transparent;color:inherit;font-size:12.5px;padding:4px 10px;cursor:pointer}",
+  ".bannerAct:focus-visible{outline:2px solid color-mix(in srgb,#324DE2 60%,transparent);outline-offset:1px}",
 ].join("\n");
 
 const el = (tag, cls, text) => {
@@ -76,6 +148,8 @@ const el = (tag, cls, text) => {
 export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
   let state = null;
   let authInfo = null;
+  let compactPat = false;       // Task 10：收活紧凑卡的内联换令牌表单开关
+  let compactDelete = false;    // Task 10：收活紧凑卡的内联删除确认开关
   let error = null;
   let notice = null;
   let busy = false;
@@ -129,7 +203,15 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
     extend?.header?.(header, { t, state, view });
     const account = state?.auth?.login || state?.auth?.account;
     if (account) {
+      // Task 10：页头健康点（绿=健康 / 黄=限流中 / 红=失效；未配置凭据不显点）
+      const credChip = state?.auth?.credential ?? {};
+      const limChip = credChip.rateLimitedUntil && new Date(credChip.rateLimitedUntil) > new Date();
       const who = el("span", "chip", t("auth.connected") + " " + account);
+      if (credChip.configured) {
+        const d = el("span", "dot " + (credChip.healthy === false ? "err" : limChip ? "warn" : "ok"));
+        d.style.marginRight = "5px"; d.style.verticalAlign = "middle";
+        who.prepend(d);
+      }
       who.title = t("auth.logoutHint");
       header.append(who);
       const out = el("button", null, t("auth.logout"));
@@ -167,6 +249,47 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
     // 板块一：收活 —— 已连接账号下的仓源概况与监看管理入口。
     const intake = el("section", "intake");
     intake.append(el("h3", null, t("sections.intake")));
+    // Task 10：连接受损横幅（B9/B10）——绑定态凭据已配置且（失效 ∨ 限流中）时呈现；不踢出、就地重校验（R2Q5）。
+    const credH = state?.auth?.credential ?? {};
+    const limNow = credH.rateLimitedUntil && new Date(credH.rateLimitedUntil) > new Date();
+    if (credH.configured && (credH.healthy === false || limNow)) {
+      const banner = el("div", "degradedBanner" + (credH.healthy === false ? "" : " is-limited"));
+      banner.append(el("span", "", credH.healthy === false ? t("cred.bannerUnhealthy") : t("cred.bannerLimited")));
+      const fix = el("button", "bannerAct", t("cred.bannerRecheck"));
+      fix.type = "button";
+      fix.onclick = async () => {
+        fix.disabled = true;
+        try { await api.verifyCredential(); } catch {}
+        await view.reload();
+      };
+      banner.append(fix);
+      intake.append(banner);
+    }
+    // Task 10：紧凑连接卡（connectionCard compact 形态）——换令牌/删除经内联表单与确认浮层完成。
+    const credMount = el("div");
+    intake.append(credMount);
+    renderConnectionCard(credMount, { t, status: authInfo, mode: "compact", patOpen: compactPat, confirmDelete: compactDelete,
+      on: {
+        verify: async () => { try { await api.verifyCredential(); } catch {} await view.reload(); },
+        togglePat: () => { compactPat = !compactPat; compactDelete = false; paint(); },
+        toggleDelete: () => { compactDelete = !compactDelete; compactPat = false; paint(); },
+        patSave: async (token) => {
+          if (!token) return;
+          try { await api.putCredential(token); } catch {}
+          compactPat = false;
+          await view.reload();
+        },
+        deleteConfirmed: async (ghLogout) => {
+          try { await api.deleteCredential(ghLogout); } catch {}
+          compactDelete = false;
+          await view.reload();
+        },
+        cancelPat: () => { compactPat = false; paint(); },
+        cancelDelete: () => { compactDelete = false; paint(); },
+        // 紧凑卡不发起设备流（登录面板专属入口）；switchToDevice 在此处退化为收起表单
+        switchToDevice: () => { compactPat = false; paint(); },
+        connect: () => {}, enter: () => {}, install: () => {},
+      } });
     const intakeChips = el("div", "chips");
     const watchRepos = state?.watch?.repos ?? [];
     const perRepo = state?.snapshots?.perRepo ?? {};

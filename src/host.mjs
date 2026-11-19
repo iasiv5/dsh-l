@@ -89,6 +89,9 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     store, provider: github,
     triage: makeTriage ? makeTriage(ctx, dir) : UNWIRED,
     credentials: ctx.credentials, tokenRef: config?.githubTokenRef ?? null,
+    // Task 7 注入面：自存凭据闭包（三级链第二级）与可覆写设备流 client_id（缺省 GitHub CLI 官方 App）
+    storedToken: async () => store.getCredential()?.token ?? null,
+    githubClientId: config?.githubClientId ?? null,
     execFile, fetch: globalThis.fetch, onSettingsChange, listCatalog, hostDefault,
     ghBin: join(dir, "bin", "gh"), ghTmp: join(dir, "tmp"), spawn: spawnCb,
     // M1 启动时读一次模板目录（内置 loop-v1 + workflows/*.json）；用户模板改动重启生效——design-v2 §3。
@@ -121,6 +124,8 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     "/dsh-l/auth/logout": { POST: handlers.postAuthLogout },
     "/dsh-l/auth/install-gh": { POST: handlers.postAuthInstallGh },
     "/dsh-l/auth/device": { GET: handlers.getAuthDevice, POST: handlers.postAuthDeviceStart },
+    "/dsh-l/credential": { PUT: handlers.putCredential, DELETE: handlers.deleteCredential },
+    "/dsh-l/credential/verify": { POST: handlers.postCredentialVerify },
     "/dsh-l/settings": { GET: handlers.getSettings, PUT: handlers.putSettings },
     "/dsh-l/models": { GET: handlers.getModels },
   };
