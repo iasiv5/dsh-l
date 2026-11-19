@@ -13,6 +13,13 @@ export function openSettings(shadow, { t, current, onSaved }) {
   const title = document.createElement("h3");
   title.textContent = t("settings.title");
   title.style.margin = "0";
+  // M8 T1/评审问题3：并发上限（1–4 实文双钉）；硬编码 zh-CN 字面量（D7 零新键直接后果——i18n 权衡已声明）
+  const concLabel = document.createElement("label");
+  concLabel.textContent = "并发上限（1–4）";
+  const concInput = document.createElement("input");
+  concInput.type = "number";
+  concInput.min = "1"; concInput.max = "4"; concInput.step = "1";
+  concInput.value = String(current?.engineConcurrency ?? 2);
   const label = document.createElement("label");
   label.textContent = t("settings.intervalMinutes");
   const input = document.createElement("input");
@@ -51,7 +58,13 @@ export function openSettings(shadow, { t, current, onSaved }) {
     modelSel.value = valueOf(initialModel);
   };
   fill([], null);
-  api.models().then((r) => fill(r.providers, r.hostDefault)).catch(() => {});
+  api.models().then((r) => {
+    fill(r.providers, r.hostDefault);
+    hostDefaultRow.textContent = "默认模型：" + (r.hostDefault ? r.hostDefault.provider + " / " + r.hostDefault.model : "（宿主未配置）");
+  }).catch(() => {});
+  const hostDefaultRow = document.createElement("div");
+  hostDefaultRow.style.cssText = "font-size:12px;opacity:.75";
+  hostDefaultRow.textContent = "默认模型：（加载中）";
   const modelLabel = document.createElement("label");
   modelLabel.textContent = t("settings.triageModel");
   const err = document.createElement("div");
@@ -64,7 +77,7 @@ export function openSettings(shadow, { t, current, onSaved }) {
     save.disabled = true;
     err.style.display = "none";
     try {
-      await api.putSettings(settingsPatch(current ?? {}, { intervalMinutes: Number(input.value), modelValue: modelSel.value }));
+      await api.putSettings(settingsPatch(current ?? {}, { intervalMinutes: Number(input.value), modelValue: modelSel.value, engineConcurrency: Number(concInput.value) }));
       close(); onSaved?.();
     } catch (e) {
       err.textContent = e.message;
@@ -101,7 +114,7 @@ export function openSettings(shadow, { t, current, onSaved }) {
     } catch (e) { feishuMsg.textContent = e.message; }
   }));
   feishuRow.append(feishuMsg);
-  dialog.append(title, label, input, modelLabel, modelSel, err, save, feishuLabel, feishuInput, feishuRow);
+  dialog.append(title, concLabel, concInput, label, input, modelLabel, modelSel, hostDefaultRow, err, save, feishuLabel, feishuInput, feishuRow);
   overlay.append(dialog);
   shadow.append(overlay);
   input.focus();

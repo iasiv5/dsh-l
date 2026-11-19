@@ -49,6 +49,10 @@ const modelValueOf = (sel) => (sel ? sel.provider + "\n" + sel.model : "");
 
 export function settingsPatch(initial, form) {
   const patch = { intervalMinutes: form.intervalMinutes };
+  // M8 T1/评审问题2：engineConcurrency 透传（未变不提交——与 triageModel 同款幂等语义）
+  if (form.engineConcurrency !== undefined && form.engineConcurrency !== initial.engineConcurrency) {
+    patch.engineConcurrency = form.engineConcurrency;
+  }
   if (form.modelValue === modelValueOf(initial.triageModel)) return patch;
   if (form.modelValue === "") return { ...patch, triageModel: null };
   const cut = form.modelValue.indexOf("\n");

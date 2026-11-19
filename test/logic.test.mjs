@@ -43,6 +43,9 @@ test("settingsPatch：下拉未变不提交 triageModel；改为跟随 → null�
   assert.deepEqual(settingsPatch(initial, { intervalMinutes: 10, modelValue: "" }), { intervalMinutes: 10, triageModel: null });
   assert.deepEqual(settingsPatch(initial, { intervalMinutes: 10, modelValue: "p2\nm2" }), { intervalMinutes: 10, triageModel: { provider: "p2", model: "m2" } });
   assert.deepEqual(settingsPatch({ intervalMinutes: 0, triageModel: null }, { intervalMinutes: 0, modelValue: "" }), { intervalMinutes: 0 });
+  // M7 T5/评审问题2：engineConcurrency 透传（M8 T1——白名单现状丢键 PUT 永不携带）
+  assert.deepEqual(settingsPatch({ intervalMinutes: 5, engineConcurrency: 2, triageModel: null }, { intervalMinutes: 5, modelValue: "", engineConcurrency: 3 }), { intervalMinutes: 5, engineConcurrency: 3 });   // initial triageModel=null：modelValue "" 属未变（提前 return，无 triageModel 键）
+  assert.deepEqual(settingsPatch({ intervalMinutes: 5, engineConcurrency: 2, triageModel: null }, { intervalMinutes: 5, modelValue: "", engineConcurrency: 2 }), { intervalMinutes: 5 });   // 全未变 → 空补丁（提前 return 路径无 triageModel 键）
 });
 
 test("stripCells：前环计数 + 环内模板节点全灰", () => {
