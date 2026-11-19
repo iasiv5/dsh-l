@@ -35,7 +35,7 @@ export async function pagedGet(path, { token, fetch: f = globalThis.fetch, budge
   let partial = false;
   let unchanged = true;   // 全部页都 304 才判 unchanged（列表尾部变更不会改 page1 的 etag，禁单页短路）
   for (let pageNo = 1; pageNo <= 10; pageNo++) {
-    if (budget && budget.remaining <= 0) { partial = true; break; }
+    if (budget && budget.remaining <= 0) { budget.exhausted = true; partial = true; break; }
     if (budget) budget.remaining -= 1;
     const url = API_BASE + path + (path.includes("?") ? "&" : "?") + "per_page=100&page=" + pageNo;
     const etag = pagedEtagCache.get(url) ?? null;

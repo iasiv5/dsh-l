@@ -10,6 +10,8 @@ const MANUAL_STAGES = new Set(["inbox", "triaged", "gating", "shipped", "closed"
 const VALIDITY = new Set(["high", "medium", "low"]);
 const URGENCY = new Set(["P0", "P1", "P2", "P3"]);
 const ACTION = new Set(["start", "feedback", "close", "hold"]);
+const REFRESH_BUDGET = 60;              // Task 6/R3Q1c：每次刷新的请求预算硬上限（跨仓共享，pagedGet 逐页扣减）
+const VERIFY_TTL_MS = 30 * 60 * 1000;   // B10/R2Q3：verifiedAt 超时才在摄取前静默校验（打开面板的校验由客户端触发）
 const fail = (error, status = 400) => ({ error, status });
 const validTriage = (r) => Boolean(r) && VALIDITY.has(r.validity) && URGENCY.has(r.urgency) && ACTION.has(r.action);
 const langOf = (v) => (v === "en" ? "en" : "zh-CN");
@@ -72,6 +74,7 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
   let ghInstallState = { phase: "idle" };            // idle|installing|done|failed(+version/error)
   let deviceState = { phase: "idle" };               // idle|pending|authorizing|authorized|expired|failed(+userCode/verificationUri/login/error)
   let viewerCache = null;                            // token→login 探测缓存（每进程一次；改绑极低频，可接受）
+  let refreshInFlight = false;                       // Task 6 单飞互斥：刷新进行中新触发直接拒绝（不排队）
   let rateLimitedUntil = null;                       // 最近一次限流恢复时刻（ISO，进程内存）——B9「限流中」横幅数据源；403/429 不伤凭据健康
   // credentialOk（Task 5/R1-4）：token 可解析 ∧ healthy ∧ verifiedAt ∧ scopesOk——device-start 守卫与 G3 闸共用此定义。
   const credentialOkFor = (tk) => {
@@ -92,7 +95,9 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
   };
   return {
     async getState() {
-      return { watch: store.getWatch(), snapshots: store.getSnapshots(), settings: store.getSettings(), candidates: store.listCandidates(), ingestLog: store.getIngestLog(), auth: store.getAuth(),
+      const c = store.getCredential();
+      return { watch: store.getWatch(), snapshots: store.getSnapshots(), settings: store.getSettings(), candidates: store.listCandidates(), ingestLog: store.getIngestLog(),
+        auth: { ...store.getAuth(), credential: { configured: Boolean(c.token || c.source || c.verifiedAt), healthy: c.healthy !== false, verifiedAt: c.verifiedAt ?? null, rateLimitedUntil } },
         runs: store.listRuns().map(summarizeRun), workflow: workflowCatalog };
     },
     async getAuth() {
@@ -259,33 +264,61 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
     },
     async postRefresh() {
       const gate = requireAuth(); if (gate) return gate;
-      const tk = await token();
-      const perRepo = {};
-      const merged = [];
-      let sweep = { closed: [], flagged: [] };
-      for (const repo of store.getWatch().repos) {
-        try {
-          const [issues, pulls] = await Promise.all([
-            provider.listOpenIssues({ repo, token: tk, fetch }),
-            provider.listOpenPulls({ repo, token: tk, fetch }),
-          ]);
-          merged.push(...issues, ...pulls);
-          perRepo[repo] = { issues: issues.length, pulls: pulls.length, fetchedAt: now().toISOString(), error: null };
-          // 仓库事实（任务包 repo 块）：失败不影响摄取本体，保留旧事实。
-          try { store.setRepoFacts(repo, await provider.getRepo({ repo, token: tk, fetch })); } catch {}
-          // 上游回收只对摄取成功的仓执行（失败仓的 open 集合未知，回收会误伤）。
-          const liveKeys = [...issues, ...pulls].map((c) => candidateKey(c.repo, c.type, c.number));
-          const s = store.sweepUpstream(repo, liveKeys);
-          sweep.closed.push(...s.closed); sweep.flagged.push(...s.flagged);
-        } catch (err) {
-          perRepo[repo] = { issues: 0, pulls: 0, fetchedAt: now().toISOString(), error: String(err?.message ?? err) };
+      if (refreshInFlight) return fail("refresh-in-progress", 409);   // Task 6 单飞：进行中新触发跳过不排队
+      refreshInFlight = true;
+      try {
+        const tk = await token();
+        // 摄取前静默校验（B10/R2Q3）：verifiedAt 超时或从未校验才打一次 verifyToken（ETag 生效，未变 304 免计费）。
+        const verifiedAtMs = store.getCredential().verifiedAt ? Date.parse(store.getCredential().verifiedAt) : NaN;
+        if (tk && (!Number.isFinite(verifiedAtMs) || Date.now() - verifiedAtMs > VERIFY_TTL_MS)) {
+          try {
+            const v = await provider.verifyToken(tk, { fetch });
+            store.setCredential({ scopes: v.scopes, verifiedAt: v.verifiedAt, healthy: true });
+            rateLimitedUntil = null;
+          } catch (err) {
+            const msg = String(err?.message ?? err);
+            if (msg === "token-invalid") { store.setCredential({ healthy: false }); return fail("credential-unhealthy", 409); }
+            if (msg.startsWith("rate-limited:")) return credentialErrorMap(err);
+            return fail("credential-verify-failed: " + msg, 409);   // 预校验网络失败不盲目摄取
+          }
         }
-      }
-      store.upsertCandidates(merged);
-      store.setSnapshots(perRepo);
-      const failedRepos = Object.entries(perRepo).filter(([, r]) => r.error).map(([repo]) => repo);
-      store.appendIngestLog({ total: merged.length, authenticated: tk !== null, failedRepos, closed: sweep.closed.length, flagged: sweep.flagged.length });
-      return { perRepo, total: merged.length, authenticated: tk !== null, sweep };
+        const budget = { remaining: REFRESH_BUDGET };   // R3Q1c：跨仓共享预算，pagedGet 逐页扣减、耗尽置 partial
+        const perRepo = {};
+        const merged = [];
+        let sweep = { closed: [], flagged: [] };
+        let credentialBroke = false;
+        for (const repo of store.getWatch().repos) {
+          try {
+            const [issues, pulls] = await Promise.all([
+              provider.listOpenIssues({ repo, token: tk, fetch, budget }),
+              provider.listOpenPulls({ repo, token: tk, fetch, budget }),
+            ]);
+            merged.push(...issues, ...pulls);
+            perRepo[repo] = { issues: issues.length, pulls: pulls.length, fetchedAt: now().toISOString(), error: null };
+            // 仓库事实（任务包 repo 块）：失败不影响摄取本体，保留旧事实。
+            try { store.setRepoFacts(repo, await provider.getRepo({ repo, token: tk, fetch })); } catch {}
+            // 上游回收只对摄取成功的仓执行（失败仓的 open 集合未知，回收会误伤）。
+            const liveKeys = [...issues, ...pulls].map((c) => candidateKey(c.repo, c.type, c.number));
+            const s = store.sweepUpstream(repo, liveKeys);
+            sweep.closed.push(...s.closed); sweep.flagged.push(...s.flagged);
+          } catch (err) {
+            const status = err?.status;
+            const msg = String(err?.message ?? err);
+            if (status === 401 || msg.includes("github api 401")) {
+              credentialBroke = true;   // B10 被动失效：401 才伤凭据健康；已获取的仓照常入库
+              store.setCredential({ healthy: false });
+            }
+            perRepo[repo] = { issues: 0, pulls: 0, fetchedAt: now().toISOString(), error: msg };
+          }
+        }
+        const partial = Boolean(budget.exhausted);
+        store.upsertCandidates(merged);
+        store.setSnapshots(perRepo);
+        const failedRepos = Object.entries(perRepo).filter(([, r]) => r.error).map(([repo]) => repo);
+        store.appendIngestLog({ total: merged.length, authenticated: tk !== null, failedRepos, closed: sweep.closed.length, flagged: sweep.flagged.length, partial });
+        if (credentialBroke) return { ...fail("credential-unhealthy", 409), perRepo, total: merged.length, partial };
+        return { perRepo, total: merged.length, authenticated: tk !== null, sweep, partial };
+      } finally { refreshInFlight = false; }
     },
     async getModels() {
       return { providers: await listCatalog(), hostDefault: hostDefault() };
@@ -300,7 +333,15 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
     },
     async getDiscover() {
       const gate = requireAuth(); if (gate) return gate;
-      return { repos: await provider.listUserRepos({ token: await token(), fetch }) };
+      try {
+        return { repos: await provider.listUserRepos({ token: await token(), fetch }) };
+      } catch (err) {
+        if (err?.status === 401 || String(err?.message ?? err).includes("github api 401")) {
+          store.setCredential({ healthy: false });   // B10/R1-14：discover 独立出网路径的被动失效
+          return fail("credential-unhealthy", 409);
+        }
+        throw err;
+      }
     },
     async postTriage(body) {
       const keys = body?.keys;

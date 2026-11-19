@@ -463,6 +463,93 @@ test("bind 遇 401：token-invalid 锚映射不变，且 healthy=false（被动�
   assert.equal(store.getCredential().healthy, false);
 });
 
+// ── Task 6：刷新配额卫生 ────────────────────────────────────────
+test("postRefresh 单飞：进行中新触发 409 refresh-in-progress", async () => {
+  const store = openStore(); login(store);
+  store.setWatch(["o/good"]);
+  let release;
+  const provider = { ...PROVIDER5({ token: "tk", viewerLogin: "o" }),
+    listOpenIssues: () => new Promise((res) => { release = () => res([]); }),
+    listOpenPulls: async () => [] };
+  const h = makeHandlers({ store, provider, triage: noTriage });
+  const first = h.postRefresh();
+  await new Promise((r) => setTimeout(r, 0));   // 让首个刷新进入 in-flight
+  // 无单飞实现时第二调用会与首个共享 pending promise 造成死锁——500ms 超时兜底，明确失败而非挂死
+  const second = await Promise.race([h.postRefresh(), new Promise((res) => setTimeout(() => res({ status: -1, error: "timeout" }), 500))]);
+  assert.equal(second.status, 409);
+  assert.equal(second.error, "refresh-in-progress");
+  release();
+  const r = await first;
+  assert.ok(r.perRepo);
+});
+
+test("postRefresh 预算：跨仓共享硬上限，耗尽置 partial 并写 ingestLog", async () => {
+  const store = openStore(); login(store);
+  const repos = Array.from({ length: 35 }, (_, i) => "a/r" + i);   // 每仓 issues+pulls 各 1 页 = 2 预算 → 35 仓需 70 > 60
+  store.setWatch(repos);
+  const burn = async ({ budget }) => {   // 桩模拟 provider 层预算消费契约（真实逐页扣减在 github.test pagedGet 用例覆盖）
+    if (budget && budget.remaining <= 0) { budget.exhausted = true; return []; }
+    if (budget) budget.remaining -= 1;
+    return [];
+  };
+  const h = makeHandlers({ store, provider: { ...PROVIDER5({ token: "tk", viewerLogin: "o" }), listOpenIssues: burn, listOpenPulls: burn }, triage: noTriage });
+  const r = await h.postRefresh();
+  assert.equal(r.partial, true);
+  assert.equal(store.getIngestLog().at(-1).partial, true);
+});
+
+test("postRefresh 401：被动失效置 healthy=false（材料保留），已获取仓照常入库，响应 credential-unhealthy", async () => {
+  const store = openStore(); login(store);
+  healthyCred(store, "tk");
+  store.setWatch(["o/good", "o/bad"]);
+  const provider = { ...PROVIDER5({ token: "tk", viewerLogin: "o" }),
+    listOpenIssues: async ({ repo }) => {
+      if (repo === "o/bad") { const e = new Error("github api 401 for /repos/o/bad/issues"); e.status = 401; throw e; }
+      return [{ repo, type: "issue", number: 1, title: "t", author: "a", labels: [], createdAt: "2026-11-01T00:00:00Z", updatedAt: "T", url: "U", meta: {}, pull: null, bodyExcerpt: "" }];
+    },
+    listOpenPulls: async () => [] };
+  const h = makeHandlers({ store, provider, triage: noTriage });
+  const r = await h.postRefresh();
+  assert.equal(r.status, 409);
+  assert.match(r.error, /^credential-unhealthy/);
+  assert.equal(store.getCredential().healthy, false);
+  assert.equal(store.getCredential().token, "tk");       // 凭据材料保留待重校验
+  assert.equal(store.listCandidates().length, 1);        // 已获取的仓照常入库
+});
+
+test("postRefresh 摄取前静默校验：超时校验一次，TTL 内不重复（stub 计数）", async () => {
+  const store = openStore(); login(store);
+  healthyCred(store, "tk");   // verifiedAt 在过去 → 首次刷新触发校验
+  let verifyCount = 0;
+  const provider = { ...PROVIDER5({ token: "tk", viewerLogin: "o" }),
+    verifyToken: async () => { verifyCount++; return { login: "o", scopes: ["repo", "read:org"], fineGrained: false, verifiedAt: new Date().toISOString() }; },
+    listOpenIssues: async () => [], listOpenPulls: async () => [] };
+  const h = makeHandlers({ store, provider, triage: noTriage });
+  await h.postRefresh();
+  assert.equal(verifyCount, 1);
+  await h.postRefresh();
+  assert.equal(verifyCount, 1);   // 刚校验过 → TTL 内跳过
+});
+
+test("getDiscover 401：被动失效置 healthy=false（B10 双路径收编 R1-14）", async () => {
+  const store = openStore(); login(store);
+  healthyCred(store, "tk");
+  const provider = { ...PROVIDER5({ token: "tk", viewerLogin: "o" }), listUserRepos: async () => { const e = new Error("github api 401 for /user/repos"); e.status = 401; throw e; } };
+  const h = makeHandlers({ store, provider, triage: noTriage });
+  const r = await h.getDiscover();
+  assert.equal(r.status, 409);
+  assert.match(r.error, /^credential-unhealthy/);
+  assert.equal(store.getCredential().healthy, false);
+});
+
+test("getState：auth 载荷带 credential 健康摘要（无网络探测）", async () => {
+  const store = openStore(); login(store);
+  healthyCred(store, "tk");
+  const h = makeHandlers({ store, provider: PROVIDER5({ token: "tk", viewerLogin: "o" }), triage: noTriage });
+  const st = await h.getState();
+  assert.deepEqual(st.auth.credential, { configured: true, healthy: true, verifiedAt: "2026-11-19T00:00:00.000Z", rateLimitedUntil: null });
+});
+
 // ---- Task 9：run 四路由 + postGate 别名（engine 真 makeEngine + fake workspace/executor）----
 const fakeRunWorkspace = () => ({ ensure: async () => ({ dir: "/ws", cloned: false }), dirOf: () => "/ws", sweep: async () => ({ removed: [] }) });
 const fakeRunExecutor = () => {
