@@ -1,41 +1,100 @@
-# DESIGN.md — DSH Loop Forge（dsh-l）
+---
+name: DSH Loop Forge (dsh-l)
+description: DSH 侧栏工作台插件——瓷面工作台：釉色随宿主主题的玻璃瓷面语言
+colors:
+  gate-indigo: "#324DE2"
+  arc-sky: "#69B9FF"
+  arc-mint: "#45E7A4"
+  arc-teal: "#05909D"
+  signal-ok: "#2da44e"
+  signal-warn: "#d29922"
+  signal-err: "#d1242f"
+  canvas: "canvas"
+  canvastext: "canvastext"
+typography:
+  title:
+    fontSize: "19px"
+    fontWeight: 700
+    letterSpacing: "-0.01em"
+  heading:
+    fontSize: "16px"
+    fontWeight: 650
+    letterSpacing: "-0.01em"
+  body:
+    fontSize: "13px"
+  label:
+    fontSize: "12px"
+    fontWeight: 500
+  code:
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+    fontSize: "11.5px"
+  display-code:
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace"
+    fontSize: "26px"
+    fontWeight: 700
+    letterSpacing: "0.08em"
+rounded:
+  chip: "5px"
+  sm: "8px"
+  md: "10px"
+  lg: "12px"
+  card: "14px"
+  pill: "999px"
+spacing:
+  sm: "6px"
+  md: "14px"
+  lg: "18px"
+  xl: "24px"
+components:
+  cta-primary:
+    backgroundColor: "{colors.canvastext}"
+    textColor: "{colors.canvas}"
+    rounded: "{rounded.md}"
+    height: "44px"
+    padding: "0 18px"
+  badge-pill:
+    backgroundColor: "color-mix(in srgb, currentColor 4%, transparent)"
+    textColor: "{colors.canvastext}"
+    rounded: "{rounded.pill}"
+    padding: "3px 10px"
+  chip-mono:
+    backgroundColor: "color-mix(in srgb, currentColor 5%, transparent)"
+    textColor: "{colors.canvastext}"
+    rounded: "{rounded.chip}"
+    padding: "1px 8px"
+  gate-card:
+    backgroundColor: "color-mix(in srgb, canvas 96%, transparent)"
+    textColor: "{colors.canvastext}"
+    rounded: "{rounded.card}"
+    padding: "22px 24px 18px"
+---
 
-登录门禁改造（2026-11-19）期间沉淀的设计系统记录。轻量起步：只记本次改造触及且必须长期一致的规范。
+# Design System: DSH Loop Forge（dsh-l）
 
-## 定位与模式
-
-- 工作台是 **Operate 模式**界面：可扫读性、一致性、平台惯例优先于表达；品牌感收在精确细节（品牌标、门禁行、健康点）。
-- 登录门禁面板是唯一的品牌表达场（全面板三段式），进入工作台后回归朴素 Operate 语言。
-
-## 主题与色彩纪律
-
-- **主题自适应**：颜色一律走 `canvas` / `canvastext` 系统关键字 + `color-mix()` 派生（表面/边框/文字三阶：52%、62% 透明度文字阶），**禁止硬编码浅色值**——主题由宿主切换，任何写死底色都会在另一主题下失效（2026-11-19 实录：color-scheme 只挂面板层导致深底黑字）。
-- 语义色允许少量固定值：ok `#2da44e`、warn `#d29922`、err `#d1242f`（点/片段）；文字级语义色用 `color-mix(in srgb, <语义色> 85%, currentColor)` 混入前景防主题翻车。
-- 主按钮（CTA）：单色反色（`canvastext` 底 + `canvas` 字），hover 混 84%；品牌蓝 `#324DE2` 只用于 focus ring、品牌标衬底与品牌标本身。
-
-## 组件规范
-
-- **卡片**：`.gate`（radius 14、1px 10% 边、深投影、gate-in 入场 220ms 为唯一动效时刻；reduced-motion 关闭）。卡片内不放子卡——门禁行/kv/表单都是卡内行。
-- **状态徽章**：pill 形，点色表意（ok 绿 / wait·warn 琥珀 / err 红），四态 + 限流态；琥珀点带呼吸动画（reduced-motion 关闭）。
-- **门禁行**：点 + 名称（550 字重）+ 状态文本（52% 阶；bad 用红混入）。行是纯状态，不内嵌动作按钮——每个状态只有一个主 CTA（ 单一主行动纪律）。
-- **凭据 kv**：dl 网格 64px 标签列；scope 用 mono chip（11.5px），缺失权限 chip 红框红字。
-- **辅助操作**：右对齐文字按钮（62% 阶），危险动作用红混入；破坏性操作（删除凭证）必须经确认浮层，gh auth logout 复选框按 `ghWrittenByUs` 门控。
-- **连接卡双形态**：登录面板 full / 收活 compact（徽章 + 最近校验 + 内联展开的表单与确认）。同一组件（connectionCard.mjs），状态→文案键映射集中在 deriveView。
-
-## 文案纪律
-
-- 全部 UI 文案走 zh-CN / en 双字典（i18n + locale-parity 守护）；`cred.*` 键在组件内**静态字面量引用**，禁动态拼接键名（i18n 动态前缀 WHITELIST 守护会红——连注释里出现该字面模式都会误红，注释措辞要避开）。
-- 大标题为产品金句：「连接代码库，让 Agent 自主交付」（用户选定，2026-11-20 删「你的」）；品牌区**只留大标题**，不加副标题/脚标。
-- 错误文案必须同时命名问题与恢复动作；限流文案必须声明「不影响凭据有效性，无需重新授权」。
-
-## 登录面板信息架构（视觉基准 docs/mock/login-panel-mock.html v3）
-
-1. 品牌区：`.gateMark` 蓝调衬底 + 双弧标 + `gateTitle`。
-2. 授权卡 `.gate`：卡头（ghMark + GitHub 仓库授权 + 徽章 + 重新校验圆钮）→ 三关门禁行 → 凭据 kv（已校验态）→ 双方法连接区（未配置态）→ 设备流码框 / PAT 表单 / 错误提示 → 主 CTA → 辅助操作 → 状态注脚。
-3. 脚注区：一句话安全说明（常显）。
-
-## 工程锚
-
-- `article.gate > button.cta` 是 ui-probe 视图判定锚，重构不得移除该类名链。
-- loginGate 只清理自己拥有的 `.gateWrap`；shadow `<style>` 归 workbench 所有。
-- 修改任何 UI 前先跑 `npm run build` + i18n/locale-parity 守护。
+<!-- impeccable:design-map -->
+Name: DSH Loop Forge (dsh-l)
+Colors: primary: gate-indigo #324DE2; tertiary: signal-ok #2da44e; tertiary: signal-warn #d29922; tertiary: signal-err #d1242f
+Fonts: ui-monospace (code, display-code)
+Spacing: sm 6px, md 14px, lg 18px, xl 24px
+Radius: chip 5px, sm 8px, md 10px, lg 12px, card 14px, pill 999px
+North Star: "瓷面工作台"
+Rules:
+- The Host-Theme Rule. 禁止硬编码任何浅色底值——主题由宿主切换，写死底色必在另一主题翻车（2026-11-19 实录：color-scheme 只挂面板层导致深底黑字）。语义色固定值只允许出现在点、片段、横幅的小面积上；文...
+- The One Voice Rule. 主 CTA 是唯一反色元素（`canvastext` 底 + `canvas` 字，hover 混 84%）；一屏之内反色只出现一次。
+- The Inherited Voice Rule. 不声明 font-family（mono 除外）——字体是宿主的，插件只定尺寸与字重。
+Elevation:
+- Gate card（0 32px 64px -24px rgb(0 0 0/.4), 0 4px 16px rgb(0 0 0/.14)）：登录卡与浮层级面板。
+- Work surface（0 18px 40px -20px rgb(0 0 0/.35)）：工作台内统一可读表面。
+- Brand plate（0 2px 6px rgb(50 77 226/.16), 0 8px 20px -8px rgb(50 77 226/.28)）：品牌标衬底的柔影，取图标主蓝染色。
+Don't:
+- Don't 硬编码浅色底值（The Host-Theme Rule）。
+- Don't 卡片内嵌子卡；门禁行内嵌动作按钮。
+- Don't 动态拼接 i18n 键名（动态前缀白名单守护会红，注释里出现该字面模式都会误红）。
+- Don't 一个状态出现两个主 CTA；mono 字体用于非代码/数据内容。
+- Don't 忘记 reduced-motion 降级（gate-in、dot-breathe 必须成对给 `@media (prefers-reduced-motion:reduce)` 关闭）。
+Do:
+- Do 全部 UI 文案走 zh-CN / en 双字典（i18n + locale-parity 守护）；`cred.*` 键在组件内静态字面量引用。
+- Do 错误文案同时命名问题与恢复动作；限流文案必须声明「不影响凭据有效性，无需重新授权」。
+- Do 修改任何 UI 前先 `npm run build` + 跑 i18n/locale-parity 守护。
+- Do 大标题用产品金句「连接代码库，让 Agent 自主交付」；品牌区只留大标题。
+Full: .impeccable/design-full.md (read a section when you need its detail)

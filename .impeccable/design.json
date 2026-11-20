@@ -1,0 +1,230 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-20T16:05:00+08:00",
+  "title": "Design System: DSH Loop Forge（dsh-l）",
+  "extensions": {
+    "colorMeta": {
+      "gate-indigo": {
+        "role": "primary",
+        "displayName": "门禁靛蓝",
+        "canonical": "#324DE2",
+        "tonalRamp": [
+          "#0b1145",
+          "#1c2591",
+          "#324DE2",
+          "#5d6ee9",
+          "#8790ef",
+          "#adb3f4",
+          "#d3d5f9",
+          "#eceefc"
+        ]
+      },
+      "signal-ok": {
+        "role": "tertiary",
+        "displayName": "信号绿",
+        "canonical": "#2da44e",
+        "tonalRamp": [
+          "#0f3d1e",
+          "#166a31",
+          "#2da44e",
+          "#54b871",
+          "#80cb97",
+          "#acdcbe",
+          "#d3ecdd",
+          "#eaf6ee"
+        ]
+      },
+      "signal-warn": {
+        "role": "tertiary",
+        "displayName": "琥珀待办",
+        "canonical": "#d29922",
+        "tonalRamp": [
+          "#4d3504",
+          "#8a5f0b",
+          "#d29922",
+          "#dcae54",
+          "#e6c48d",
+          "#f0d8bd",
+          "#f7e9d6",
+          "#fbf4e8"
+        ]
+      },
+      "signal-err": {
+        "role": "tertiary",
+        "displayName": "警报红",
+        "canonical": "#d1242f",
+        "tonalRamp": [
+          "#4a0e12",
+          "#8c1a20",
+          "#d1242f",
+          "#db5058",
+          "#e47d83",
+          "#edaaae",
+          "#f5d6d8",
+          "#fbecec"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "title": {
+        "displayName": "Title",
+        "purpose": "面板大标题金句，唯一 700 级。"
+      },
+      "display-code": {
+        "displayName": "Display Code",
+        "purpose": "设备流码框唯一大字，mono 26px。"
+      },
+      "code": {
+        "displayName": "Mono Chip",
+        "purpose": "scope chip / 数据 mono，绝不当装饰。"
+      }
+    },
+    "shadows": [
+      {
+        "name": "gate-card",
+        "value": "0 32px 64px -24px rgb(0 0 0/.4), 0 4px 16px rgb(0 0 0/.14)",
+        "purpose": "登录卡与浮层级面板的结构性浮起。"
+      },
+      {
+        "name": "work-surface",
+        "value": "0 18px 40px -20px rgb(0 0 0/.35)",
+        "purpose": "工作台统一可读表面。"
+      },
+      {
+        "name": "brand-plate",
+        "value": "0 2px 6px rgb(50 77 226/.16), 0 8px 20px -8px rgb(50 77 226/.28)",
+        "purpose": "品牌标衬底的门禁靛蓝柔影。"
+      }
+    ],
+    "motion": [
+      {
+        "name": "gate-in",
+        "value": "220ms cubic-bezier(.22,1,.36,1)",
+        "purpose": "卡片入场，系统唯一作者化动效时刻；reduced-motion 关闭。"
+      },
+      {
+        "name": "dot-breathe",
+        "value": "1.6s ease-in-out infinite (opacity 50%→.35)",
+        "purpose": "wait 状态点的呼吸。"
+      },
+      {
+        "name": "recheck-rotate",
+        "value": "400ms cubic-bezier(.22,1,.36,1) rotate(140deg)",
+        "purpose": "重新校验圆钮 hover 反馈。"
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "max-width:560px"
+      },
+      {
+        "name": "xs",
+        "value": "max-width:380px"
+      },
+      {
+        "name": "short",
+        "value": "max-height:640px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary CTA",
+      "kind": "button",
+      "refersTo": "cta-primary",
+      "description": "单一主行动按钮：反色瓷面钮，每状态全卡仅一枚。",
+      "html": "<button class=\"ds-cta-primary\">一键安装 gh CLI</button>",
+      "css": ".ds-cta-primary { width: 100%; height: 44px; padding: 0 18px; border: none; border-radius: 10px; background: canvastext; color: canvas; font-size: 14.5px; font-weight: 600; cursor: pointer; } .ds-cta-primary:hover { background: color-mix(in srgb, canvastext 84%, canvas); } .ds-cta-primary:focus-visible { outline: 2px solid color-mix(in srgb, #324DE2 70%, transparent); outline-offset: 2px; } .ds-cta-primary:disabled { opacity: .6; }"
+    },
+    {
+      "name": "Method Button",
+      "kind": "button",
+      "refersTo": "rounded.md",
+      "description": "双方法等分次级钮：透明底描边，hover 混底，窄屏竖排满宽。",
+      "html": "<button class=\"ds-method\">连接 GitHub</button>",
+      "css": ".ds-method { flex: 1; height: 40px; border-radius: 10px; font-size: 14px; font-weight: 600; border: 1px solid color-mix(in srgb, currentColor 20%, transparent); background: transparent; color: inherit; cursor: pointer; } .ds-method:hover { background: color-mix(in srgb, currentColor 6%, transparent); } .ds-method:focus-visible { outline: 2px solid color-mix(in srgb, #324DE2 70%, transparent); outline-offset: 2px; }"
+    },
+    {
+      "name": "Status Badge",
+      "kind": "chip",
+      "refersTo": "badge-pill",
+      "description": "状态徽章 pill：点色表意 ok/wait/err，wait 点呼吸。",
+      "html": "<span class=\"ds-badge\"><span class=\"ds-badge-dot ds-badge-dot--ok\"></span>已配置</span>",
+      "css": ".ds-badge { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 500; padding: 3px 10px; border-radius: 999px; border: 1px solid color-mix(in srgb, currentColor 12%, transparent); background: color-mix(in srgb, currentColor 4%, transparent); } .ds-badge-dot { width: 7px; height: 7px; border-radius: 50%; } .ds-badge-dot--ok { background: #2da44e; } .ds-badge-dot--wait { background: #d29922; animation: ds-breathe 1.6s ease-in-out infinite; } .ds-badge-dot--err { background: #d1242f; } @keyframes ds-breathe { 50% { opacity: .35; } } @media (prefers-reduced-motion: reduce) { .ds-badge-dot--wait { animation: none; } }"
+    },
+    {
+      "name": "Mono Chip",
+      "kind": "chip",
+      "refersTo": "chip-mono",
+      "description": "scope 权限 chip：mono 小字，缺失权限变红框红字。",
+      "html": "<span class=\"ds-chip\">read:org</span> <span class=\"ds-chip ds-chip--miss\">gist</span>",
+      "css": ".ds-chip { display: inline-block; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; padding: 1px 8px; border-radius: 5px; border: 1px solid color-mix(in srgb, currentColor 16%, transparent); background: color-mix(in srgb, currentColor 5%, transparent); } .ds-chip--miss { color: color-mix(in srgb, #d1242f 85%, currentColor); border-color: color-mix(in srgb, #d1242f 35%, transparent); background: color-mix(in srgb, #d1242f 9%, canvas); }"
+    },
+    {
+      "name": "Gate Card",
+      "kind": "card",
+      "refersTo": "gate-card",
+      "description": "瓷面玻璃卡：96% canvas 釉面 + blur + 深影 + gate-in 入场。",
+      "html": "<div class=\"ds-gate-card\"><b>GitHub 仓库授权</b><p style=\"margin:6px 0 0;font-size:12px;color:color-mix(in srgb,currentColor 52%,transparent)\">先安装 gh CLI，再连接 GitHub</p></div>",
+      "css": ".ds-gate-card { padding: 22px 24px 18px; border-radius: 14px; background: color-mix(in srgb, canvas 96%, transparent); backdrop-filter: blur(14px); border: 1px solid color-mix(in srgb, currentColor 10%, transparent); box-shadow: 0 32px 64px -24px rgb(0 0 0/.4), 0 4px 16px rgb(0 0 0/.14); animation: ds-gate-in 220ms cubic-bezier(.22,1,.36,1); font-size: 14px; font-weight: 600; } .ds-gate-card b { font-size: 16px; font-weight: 650; letter-spacing: -.01em; } @keyframes ds-gate-in { from { transform: translateY(8px); opacity: .6; } } @media (prefers-reduced-motion: reduce) { .ds-gate-card { animation: none; } }"
+    },
+    {
+      "name": "Mono Input",
+      "kind": "input",
+      "refersTo": "rounded.sm",
+      "description": "令牌输入框：mono、4% 混底、靛蓝 focus ring。",
+      "html": "<input class=\"ds-mono-input\" placeholder=\"ghp_···· 或 github_pat_····\">",
+      "css": ".ds-mono-input { width: 100%; height: 36px; padding: 0 12px; font-size: 13px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; border-radius: 8px; border: 1px solid color-mix(in srgb, currentColor 18%, transparent); background: color-mix(in srgb, currentColor 4%, canvas); color: inherit; box-sizing: border-box; } .ds-mono-input::placeholder { color: color-mix(in srgb, currentColor 40%, transparent); } .ds-mono-input:focus-visible { outline: 2px solid color-mix(in srgb, #324DE2 60%, transparent); outline-offset: 1px; }"
+    },
+    {
+      "name": "Aux Text Link",
+      "kind": "button",
+      "refersTo": "rounded.chip",
+      "description": "辅助文字按钮：右对齐低阶字，hover 归位；危险变体红混字。",
+      "html": "<button class=\"ds-aux\">重新校验</button> <button class=\"ds-aux ds-aux--danger\">删除凭证</button>",
+      "css": ".ds-aux { border: none; background: transparent; cursor: pointer; font-size: 12.5px; padding: 4px 8px; border-radius: 6px; color: color-mix(in srgb, currentColor 62%, transparent); } .ds-aux:hover { color: inherit; background: color-mix(in srgb, currentColor 6%, transparent); } .ds-aux:focus-visible { outline: 2px solid color-mix(in srgb, #324DE2 60%, transparent); outline-offset: 1px; } .ds-aux--danger { color: color-mix(in srgb, #d1242f 78%, currentColor); }"
+    }
+  ],
+  "narrative": {
+    "northStar": "瓷面工作台",
+    "overview": "面板如瓷：半透 canvas 釉面（96% 混透明）+ backdrop-filter 玻璃底 + 深影托起，自成温润体感；釉色不私有——颜色一律走宿主系统关键字 canvas / canvastext 经 color-mix() 派生，宿主换主题即整器换釉。门禁靛蓝 #324DE2 是唯一的印款色，只出现在品牌标、品牌衬底与 focus ring 上，占比极低，稀缺即识别。工作台是 Operate 模式界面：可扫读性、一致性、平台惯例优先于表达；登录门禁面板是唯一的品牌表达场，进入工作台后回归朴素 Operate 语言，但材质语言全线贯通。",
+    "keyCharacteristics": [
+      "主题自适应釉面：无任何硬编码浅色底，主题由宿主切换",
+      "每个状态只有一个主 CTA（单一主行动纪律）",
+      "状态语义三点色：ok 绿 / wait·warn 琥珀（呼吸）/ err 红",
+      "玻璃瓷面 + 深影浮起的混合深度语言",
+      "动效只有一次作者化时刻（gate-in 220ms），reduced-motion 全关"
+    ],
+    "rules": [
+      {
+        "name": "The Host-Theme Rule",
+        "body": "禁止硬编码任何浅色底值——主题由宿主切换，写死底色必在另一主题翻车。语义色固定值只允许出现在点、片段、横幅的小面积上；文字级语义色必须 color-mix 85% 混入前景。",
+        "section": "colors"
+      },
+      {
+        "name": "The One Voice Rule",
+        "body": "主 CTA 是唯一反色元素（canvastext 底 + canvas 字，hover 混 84%）；一屏之内反色只出现一次。",
+        "section": "colors"
+      },
+      {
+        "name": "The Inherited Voice Rule",
+        "body": "不声明 font-family（mono 除外）——字体是宿主的，插件只定尺寸与字重。",
+        "section": "typography"
+      }
+    ],
+    "dos": [
+      "Do 全部 UI 文案走 zh-CN / en 双字典（i18n + locale-parity 守护）；cred.* 键在组件内静态字面量引用。",
+      "Do 错误文案同时命名问题与恢复动作；限流文案必须声明「不影响凭据有效性，无需重新授权」。",
+      "Do 修改任何 UI 前先 npm run build + 跑 i18n/locale-parity 守护。",
+      "Do 大标题用产品金句「连接代码库，让 Agent 自主交付」；品牌区只留大标题。"
+    ],
+    "donts": [
+      "Don't 硬编码浅色底值（The Host-Theme Rule）。",
+      "Don't 卡片内嵌子卡；门禁行内嵌动作按钮。",
+      "Don't 动态拼接 i18n 键名（动态前缀白名单守护会红）。",
+      "Don't 一个状态出现两个主 CTA；mono 字体用于非代码/数据内容。",
+      "Don't 忘记 reduced-motion 降级。"
+    ]
+  }
+}
