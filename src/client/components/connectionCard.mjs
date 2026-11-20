@@ -21,8 +21,20 @@ const agoText = (iso, t) => {
   return Math.floor(sec / 60) + " " + t("cred.checkedAgoSuffix");
 };
 
+// 服务端错误前缀 → 用户文案（静态字面量键映射；评审问题 3：PAT/删除失败态的可见呈现）。
+const errKeyFor = (t, msg) => {
+  const m = String(msg ?? "");
+  if (m.startsWith("credential-format")) return t("cred.errFormat");
+  if (m.startsWith("credential-invalid")) return t("cred.errInvalid");
+  if (m.startsWith("credential-verify-failed")) return t("cred.errVerifyFailed");
+  if (m.startsWith("token-invalid")) return t("cred.errTokenInvalid");
+  if (m.startsWith("rate-limited:")) return t("cred.errRateLimited");
+  if (m.startsWith("gh-not-ours")) return t("cred.errGhNotOurs");
+  return m ? m : null;
+};
+
 // 手动令牌表单（full/compact 两形态共用；patSave 上抛原始输入，校验在服务端）
-const buildPatForm = (on, act) => {
+const buildPatForm = (t, on, act) => {
   const form = el("div", "patForm open");
   form.append(el("label", "", t("cred.patTitle")));
   const switchLine = el("p", "patHint");
@@ -47,7 +59,7 @@ const buildPatForm = (on, act) => {
 };
 
 // 删除确认浮层（R2Q2：gh auth logout 复选框按 ghWrittenByUs 门控——非工作台所建则置灰）
-const buildDeleteConfirm = (status, on, act) => {
+const buildDeleteConfirm = (t, status, on, act) => {
   const box = el("div", "patForm open");
   box.setAttribute("role", "alert");
   box.append(el("label", "", t("cred.deleteConfirmTitle")));
@@ -156,7 +168,7 @@ const deriveView = (t, status, ui) => {
 };
 
 // full 形态：loopforge 凭证卡信息架构（徽章 + 门禁行 + kv + 双方法 + 主 CTA + 辅助操作）。
-export function renderConnectionCard(parent, { t, status, mode = "full", patOpen = false, confirmDelete = false, on = {} }) {
+export function renderConnectionCard(parent, { t, status, mode = "full", patOpen = false, confirmDelete = false, patError = null, deleteError = null, on = {} }) {
   const v = deriveView(t, status, { patOpen, confirmDelete });
   const act = (name, fn) => (e) => { e.preventDefault(); fn?.(); };
 
@@ -167,19 +179,21 @@ export function renderConnectionCard(parent, { t, status, mode = "full", patOpen
     const badge = el("span", "badge"); badge.append(dot(v.badge[1] === "ok" ? "ok" : v.badge[1] === "err" ? "err" : "wait"), el("span", "", v.badge[0]));
     wrap.append(badge);
     wrap.append(el("span", "", t("cred.kvChecked") + ": " + (v.checked || t("cred.checkedNever"))));
-    const re = el("button", "auxAct", limited ? t("cred.bannerRecheck") : t("cred.recheck"));
+    const re = el("button", "auxAct", v.limited ? t("cred.bannerRecheck") : t("cred.recheck"));
     re.type = "button"; re.onclick = act("recheck", on.verify);
     wrap.append(re);
-    if (verified) {
-      const p = el("button", "auxAct", ok ? t("cred.patReplace") : t("cred.patBtn"));
+    if (v.verified) {
+      const p = el("button", "auxAct", v.ok ? t("cred.patReplace") : t("cred.patBtn"));
       p.type = "button"; p.onclick = act("pat", on.togglePat);
       const d = el("button", "auxAct is-danger", t("cred.deleteBtn"));
       d.type = "button"; d.onclick = act("delete", on.toggleDelete);
       wrap.append(p, d);
     }
     parent.append(wrap);
-    if (patOpen) parent.append(buildPatForm(on, act));
-    if (confirmDelete) parent.append(buildDeleteConfirm(status, on, act));
+    if (patOpen) parent.append(buildPatForm(t, on, act));
+    if (patError && patOpen) parent.append(el("p", "errForm", errKeyFor(t, patError)));
+    if (confirmDelete) parent.append(buildDeleteConfirm(t, status, on, act));
+    if (deleteError && confirmDelete) parent.append(el("p", "errForm", errKeyFor(t, deleteError)));
     return;
   }
 
@@ -268,8 +282,9 @@ export function renderConnectionCard(parent, { t, status, mode = "full", patOpen
     card.append(line);
   }
 
-  // 手动令牌表单（与 compact 共用构建器）
-  if (patOpen) card.append(buildPatForm(on, act));
+  // 手动令牌表单（与 compact 共用构建器）+ 失败态错误行（评审问题 3）
+  if (patOpen) card.append(buildPatForm(t, on, act));
+  if (patError && patOpen) card.append(el("p", "errForm", errKeyFor(t, patError)));
 
   // 错误 / 限流提示条
   if (v.errText) card.append(el("p", "err", v.errText));
@@ -296,8 +311,9 @@ export function renderConnectionCard(parent, { t, status, mode = "full", patOpen
     card.append(auxBox);
   }
 
-  // 删除确认浮层（与 compact 共用构建器；gh logout 门控见 buildDeleteConfirm）
-  if (ui.confirmDelete) card.append(buildDeleteConfirm(status, on, act));
+  // 删除确认浮层（与 compact 共用构建器；gh logout 门控见 buildDeleteConfirm）+ 失败态错误行
+  if (confirmDelete) card.append(buildDeleteConfirm(t, status, on, act));
+  if (deleteError && confirmDelete) card.append(el("p", "errForm", errKeyFor(t, deleteError)));
 
   // 状态注脚（就绪态无注脚——B6 范围事实；mock ready notes:[]）
   for (const note of v.notes) card.append(el("p", "note", note));

@@ -32,6 +32,8 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
   let dead = false;
   let patOpen = false;        // 手动令牌表单（组件局部 UI 态，与服务器状态无关）
   let confirmDelete = false;  // 删除确认浮层（R2Q2：gh logout 复选框按 ghWrittenByUs 门控）
+  let patError = null;        // PAT 保存失败的服务端错误串（评审问题 3：失败态可见呈现）
+  let deleteError = null;     // 删除凭证失败的服务端错误串（gh-not-ours 等）
   let entered = false;        // bind 成功后防重入
 
   const stop = () => { if (timer) { clearTimeout(timer); timer = null; } };
@@ -83,24 +85,32 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
     },
     enter,
     verify: async () => { await refresh(); },
-    togglePat: () => { patOpen = !patOpen; confirmDelete = false; draw(); },
-    cancelPat: () => { patOpen = false; draw(); },
-    switchToDevice: async () => { patOpen = false; await on.connect(); },
-    toggleDelete: () => { confirmDelete = !confirmDelete; patOpen = false; draw(); },
-    cancelDelete: () => { confirmDelete = false; draw(); },
+    togglePat: () => { patOpen = !patOpen; confirmDelete = false; patError = null; draw(); },
+    cancelPat: () => { patOpen = false; patError = null; draw(); },
+    switchToDevice: async () => { patOpen = false; patError = null; await on.connect(); },
+    toggleDelete: () => { confirmDelete = !confirmDelete; patOpen = false; deleteError = null; draw(); },
+    cancelDelete: () => { confirmDelete = false; deleteError = null; draw(); },
     deleteConfirmed: async (ghLogout) => {
-      confirmDelete = false;
-      try { await api.deleteCredential(ghLogout); } catch {}
-      patOpen = false;
-      await refresh();
+      try {
+        await api.deleteCredential(ghLogout);
+        deleteError = null;
+        patOpen = false;
+        await refresh();   // 成功：凭据/绑定已变，刷新进入新状态（未配置面板或工作台）
+      } catch (e) {
+        deleteError = e?.message ?? String(e);   // gh-not-ours：清除已执行但 gh 未动——浮层就地呈现，不 refresh（避免整面板重置吞掉提示）
+        confirmDelete = true;
+        draw();
+      }
     },
     patSave: async (token) => {
       if (!token) return;
       try {
         await api.putCredential(token);
+        patError = null;
         await afterPatSave();
       } catch (err) {
-        await refresh();   // 失败细节经凭据卡/横幅呈现（credential-invalid / verify-failed 均为可重试态）
+        patError = err?.message ?? String(err);   // credential-format/invalid/verify-failed → 表单下错误行
+        await refresh();
         draw();
       }
     },
@@ -124,14 +134,13 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
     panel.append(brand);
 
     // ② 授权卡（connectionCard full 形态，直接产出 article.gate；面板打开时超 TTL 静默校验一次）
-    renderConnectionCard(panel, { t, status: local, mode: "full", patOpen, confirmDelete, on });
+    renderConnectionCard(panel, { t, status: local, mode: "full", patOpen, confirmDelete, patError, deleteError, on });
 
     // ③ 脚注区
     panel.append(el("footer", "gateFoot", t("cred.footNote")));
 
     wrap.append(panel);
     shadow.append(wrap);
-    renderConnectionCard(cardMount, { t, status: local, mode: "full", patOpen, confirmDelete, on });
   };
 
   const schedule = () => {

@@ -125,6 +125,7 @@ const CSS = [
   ".patCancel{border:none;background:transparent;color:color-mix(in srgb,currentColor 55%,transparent);font-size:12.5px;cursor:pointer}",
   ".patCancel:hover{color:inherit}",
   ".patHint{font-size:12px;line-height:1.5;color:color-mix(in srgb,currentColor 52%,transparent)}",
+  ".errForm{font-size:12.5px;line-height:1.5;margin:2px 0 0;padding:8px 12px;border-radius:8px;border:1px solid color-mix(in srgb,#d1242f 32%,transparent);background:color-mix(in srgb,#d1242f 8%,canvas)}",
   ".aux{margin-top:10px;display:flex;justify-content:flex-end;gap:4px;flex-wrap:wrap}",
   ".auxAct{border:none;background:transparent;cursor:pointer;font-size:12.5px;padding:4px 8px;border-radius:6px;color:color-mix(in srgb,currentColor 62%,transparent);text-underline-offset:2px}",
   ".auxAct:hover{color:inherit;background:color-mix(in srgb,currentColor 6%,transparent)}",
@@ -150,6 +151,8 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
   let authInfo = null;
   let compactPat = false;       // Task 10：收活紧凑卡的内联换令牌表单开关
   let compactDelete = false;    // Task 10：收活紧凑卡的内联删除确认开关
+  let compactPatError = null;   // 评审问题 3：紧凑卡 PAT 失败呈现
+  let compactDeleteError = null;// 评审问题 3：紧凑卡删除失败呈现（gh-not-ours 等）
   let error = null;
   let notice = null;
   let busy = false;
@@ -268,26 +271,37 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
     // Task 10：紧凑连接卡（connectionCard compact 形态）——换令牌/删除经内联表单与确认浮层完成。
     const credMount = el("div");
     intake.append(credMount);
-    renderConnectionCard(credMount, { t, status: authInfo, mode: "compact", patOpen: compactPat, confirmDelete: compactDelete,
+    renderConnectionCard(credMount, { t, status: authInfo, mode: "compact", patOpen: compactPat, confirmDelete: compactDelete, patError: compactPatError, deleteError: compactDeleteError,
       on: {
         verify: async () => { try { await api.verifyCredential(); } catch {} await view.reload(); },
-        togglePat: () => { compactPat = !compactPat; compactDelete = false; paint(); },
-        toggleDelete: () => { compactDelete = !compactDelete; compactPat = false; paint(); },
+        togglePat: () => { compactPat = !compactPat; compactDelete = false; compactPatError = null; paint(); },
+        toggleDelete: () => { compactDelete = !compactDelete; compactPat = false; compactDeleteError = null; paint(); },
         patSave: async (token) => {
           if (!token) return;
-          try { await api.putCredential(token); } catch {}
-          compactPat = false;
+          try {
+            await api.putCredential(token);
+            compactPatError = null;
+            compactPat = false;
+          } catch (e) {
+            compactPatError = e?.message ?? String(e);   // 失败态可见呈现（评审问题 3：不再静默关表单）
+          }
           await view.reload();
         },
         deleteConfirmed: async (ghLogout) => {
-          try { await api.deleteCredential(ghLogout); } catch {}
-          compactDelete = false;
+          try {
+            await api.deleteCredential(ghLogout);
+            compactDeleteError = null;
+            compactDelete = false;
+          } catch (e) {
+            compactDeleteError = e?.message ?? String(e);   // gh-not-ours：gh 未动的事实必须可见
+            compactDelete = true;
+          }
           await view.reload();
         },
-        cancelPat: () => { compactPat = false; paint(); },
-        cancelDelete: () => { compactDelete = false; paint(); },
+        cancelPat: () => { compactPat = false; compactPatError = null; paint(); },
+        cancelDelete: () => { compactDelete = false; compactDeleteError = null; paint(); },
         // 紧凑卡不发起设备流（登录面板专属入口）；switchToDevice 在此处退化为收起表单
-        switchToDevice: () => { compactPat = false; paint(); },
+        switchToDevice: () => { compactPat = false; compactPatError = null; paint(); },
         connect: () => {}, enter: () => {}, install: () => {},
       } });
     const intakeChips = el("div", "chips");

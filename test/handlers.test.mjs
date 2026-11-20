@@ -20,7 +20,7 @@ const PROVIDER = (mode = {}) => ({
   },
   ghAvailable: async () => mode.gh !== false,
   getViewer: async () => {
-    if (!mode.viewerLogin) throw new Error("github api 401 for /user");
+    if (!mode.viewerLogin) throw Object.assign(new Error("github api 401 for /user"), { status: 401 });
     return { login: mode.viewerLogin };
   },
   listOpenIssues: async ({ repo }) => {
@@ -422,21 +422,22 @@ test("DELETE credential：ours 可带 gh logout；not-ours 409 但清除已执�
   assert.deepEqual(r3, { cleared: true, ghLogoutDone: false });
 });
 
-test("device 流成功：verifyToken 替换 getViewer，凭据块落 verifiedAt/实读 scopes/ghWrittenAt（R1-2）", async () => {
+test("device 流成功：verifyToken 替换 getViewer，凭据块落 verifiedAt/实读 scopes/ghWrittenAt（R1-2）；clientId 覆写全链透传（评审问题 5）", async () => {
   const store = openStore();
   const seen = [];
   const provider = {
     ...PROVIDER5({ token: "tk2", viewerLogin: "iasiv5" }),
-    deviceCodeStart: async () => ({ deviceCode: "DC", userCode: "ABCD-1234", verificationUri: "https://github.com/login/device", expiresAt: Date.now() + 60000, interval: 0 }),
-    deviceCodePoll: async () => ({ token: "tk2" }),
+    deviceCodeStart: async (opts) => { seen.push(["start", opts.clientId]); return { deviceCode: "DC", userCode: "ABCD-1234", verificationUri: "https://github.com/login/device", expiresAt: Date.now() + 60000, interval: 0 }; },
+    deviceCodePoll: async (opts) => { seen.push(["poll", opts.clientId]); return { token: "tk2" }; },
     getViewer: async () => { seen.push("getViewer"); return { login: "x" }; },
     verifyToken: async (tk) => { seen.push("verify:" + tk); return { login: "iasiv5", scopes: ["repo", "read:org"], fineGrained: false, verifiedAt: "2026-11-19T00:00:02.000Z" }; },
   };
-  const h = makeHandlers({ store, provider, triage: noTriage });
+  const h = makeHandlers({ store, provider, triage: noTriage, githubClientId: "my-client-id" });
   await h.postAuthDeviceStart();
   await new Promise((res) => setTimeout(res, 20));   // interval:0 → 立即轮询完成后台循环
   assert.equal((await h.getAuthDevice()).phase, "authorized");
-  assert.deepEqual(seen.filter((s) => s.startsWith("verify")), ["verify:tk2"]);
+  assert.deepEqual(seen.filter((s) => Array.isArray(s)), [["start", "my-client-id"], ["poll", "my-client-id"]]);   // 两端口径一致
+  assert.deepEqual(seen.filter((s) => typeof s === "string" && s.startsWith("verify")), ["verify:tk2"]);
   assert.equal(seen.includes("getViewer"), false);   // 设备流路径不再调 getViewer
   const c = store.getCredential();
   assert.equal(c.source, "device-flow");

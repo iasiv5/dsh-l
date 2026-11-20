@@ -319,6 +319,24 @@ test("ghLoginWithToken：token 走 stdin；spawn ENOENT 换下一候选；非零
   await assert.rejects(github.ghLoginWithToken({ token: "tk", spawn: spawnFail, candidates: ["gh"] }), /failed \(1\)/);
 });
 
+test("ghLogout：stdin 关闭纪律（stdio ignore），候选序失败换下一个，全败抛真实错误", async () => {
+  const { EventEmitter } = await import("node:events");
+  const mkChild = (code) => {
+    const child = new EventEmitter();
+    queueMicrotask(() => child.emit("close", code));
+    return child;
+  };
+  const seen = [];
+  const spawnOk = (cmd, args, opts) => { seen.push({ cmd, args, opts }); return mkChild(0); };
+  assert.deepEqual(await github.ghLogout({ spawn: spawnOk, candidates: ["gh"] }), { ok: true });
+  assert.equal(seen[0].args.join(" "), "auth logout --hostname github.com");
+  assert.equal(seen[0].opts.stdio[0], "ignore", "stdin 必须关闭（多账号交互确认场景防挂起——评审问题 4）");
+  const spawnFallback = (cmd, args, opts) => { seen.push({ cmd, args, opts }); return mkChild(cmd === "gh" ? 1 : 0); };
+  assert.deepEqual(await github.ghLogout({ spawn: spawnFallback, candidates: ["gh", "/custom/gh"] }), { ok: true });
+  assert.equal(seen.at(-1).cmd, "/custom/gh");
+  await assert.rejects(github.ghLogout({ spawn: () => mkChild(1), candidates: ["gh"] }), /gh auth logout failed/);
+});
+
 test("ghInstall：latest release → 下载 → tar 解包 → 移动 destFile（全链 stub）", async () => {
   const fsMod = await import("node:fs");
   const pathMod = await import("node:path");

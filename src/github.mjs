@@ -99,9 +99,9 @@ export async function listUserRepos({ token, fetch, budget }) {
 }
 
 export async function getViewer({ token, fetch: f = globalThis.fetch }) {
-  // 收活绑定校验：GET /user 拿 token 真实身份；失效/无权会 401 抛错，由调用方映射为绑定失败。
+  // 收活绑定校验：GET /user 拿 token 真实身份；失效/无权会 401 抛错（挂 err.status，判据禁字符串匹配），由调用方映射为绑定失败。
   const res = await f(API_BASE + "/user", { headers: headers(token) });
-  if (!res.ok) throw new Error("github api " + res.status + " for /user");
+  if (!res.ok) throw Object.assign(new Error("github api " + res.status + " for /user"), { status: res.status });
   const v = await res.json();
   return { login: v.login ?? "" };
 }
@@ -163,12 +163,13 @@ export async function verifyToken(token, { fetch: f = globalThis.fetch } = {}) {
   return { login: entry.login, scopes, fineGrained: scopes.length === 0, verifiedAt: new Date().toISOString() };
 }
 
-// gh 登出（Task 5）：删除凭证的显式选项专用——stdin 由调用方管理；非零退出/异常上抛，调用方记录不回滚。
+// gh 登出（Task 5）：删除凭证的显式选项专用——stdin 经 stdio ignore 关闭（多账号交互确认场景防挂起，评审问题 4）；
+// 非零退出/异常上抛，调用方记录不回滚。
 export async function ghLogout({ spawn, candidates = ["gh"] }) {
   let lastErr = null;
   for (const gh of candidates) {
     try {
-      const child = spawn(gh, ["auth", "logout", "--hostname", "github.com"]);
+      const child = spawn(gh, ["auth", "logout", "--hostname", "github.com"], { stdio: ["ignore", "ignore", "pipe"] });
       const code = await new Promise((resolve, reject) => {
         child.on?.("error", reject);
         child.on?.("close", (c) => resolve(c));

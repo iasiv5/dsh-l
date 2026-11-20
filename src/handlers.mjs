@@ -136,9 +136,8 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       try {
         viewer = await provider.getViewer({ token: tk, fetch });
       } catch (err) {
-        const msg = String(err?.message ?? err);
-        if (msg.includes("401")) store.setCredential({ healthy: false });   // 被动失效（B10）：401 才伤凭据健康
-        return fail("token-invalid (" + msg + ")", 409);
+        if (err?.status === 401) store.setCredential({ healthy: false });   // 被动失效（B10）：401 才伤凭据健康（err.status 判据）
+        return fail("token-invalid (" + String(err?.message ?? err) + ")", 409);
       }
       const login = String(viewer.login ?? "");
       if (account && account.toLowerCase() !== login.toLowerCase()) return fail("account-mismatch: " + login, 409);
@@ -185,7 +184,7 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
           await new Promise((r) => setTimeout(r, wait * 1000));
           if (deviceState.phase !== "pending") return;
           let out;
-          try { out = await provider.deviceCodePoll({ deviceCode: d.deviceCode, fetch }); } catch { continue; }
+          try { out = await provider.deviceCodePoll({ deviceCode: d.deviceCode, fetch, clientId: githubClientId }); } catch { continue; }
           if (out.token) {
             deviceState = { phase: "authorizing", userCode: deviceState.userCode, verificationUri: deviceState.verificationUri };
             try {
@@ -302,13 +301,11 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
             const s = store.sweepUpstream(repo, liveKeys);
             sweep.closed.push(...s.closed); sweep.flagged.push(...s.flagged);
           } catch (err) {
-            const status = err?.status;
-            const msg = String(err?.message ?? err);
-            if (status === 401 || msg.includes("github api 401")) {
+            if (err?.status === 401) {
               credentialBroke = true;   // B10 被动失效：401 才伤凭据健康；已获取的仓照常入库
               store.setCredential({ healthy: false });
             }
-            perRepo[repo] = { issues: 0, pulls: 0, fetchedAt: now().toISOString(), error: msg };
+            perRepo[repo] = { issues: 0, pulls: 0, fetchedAt: now().toISOString(), error: String(err?.message ?? err) };
           }
         }
         const partial = Boolean(budget.exhausted);
@@ -336,7 +333,7 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       try {
         return { repos: await provider.listUserRepos({ token: await token(), fetch }) };
       } catch (err) {
-        if (err?.status === 401 || String(err?.message ?? err).includes("github api 401")) {
+        if (err?.status === 401) {
           store.setCredential({ healthy: false });   // B10/R1-14：discover 独立出网路径的被动失效
           return fail("credential-unhealthy", 409);
         }
