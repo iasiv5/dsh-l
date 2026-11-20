@@ -182,6 +182,8 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
   let compactPatError = null;   // 评审问题 3：紧凑卡 PAT 失败呈现
   let compactDeleteError = null;// 评审问题 3：紧凑卡删除失败呈现（gh-not-ours 等）
   let credMountEl = null;       // 评审问题（执行产出）：紧凑卡开关用定向重渲染，避免整台 paint() 全量重建引发宿主重排竞态
+  let reloadRunning = false;    // view.reload 并发合并（用户报告回归钉：连点换令牌/删除时的 paint 重入 churn）
+  let reloadQueued = false;
   const rerenderCompact = () => {
     if (!credMountEl) { paint(); return; }
     renderConnectionCard(credMountEl, { t: makeT(getLang()), status: authInfo, mode: "compact", patOpen: compactPat, confirmDelete: compactDelete, patError: compactPatError, deleteError: compactDeleteError, on: compactOn });
@@ -403,10 +405,18 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
   };
 
   view.reload = async () => {
-    const [s, a] = await Promise.allSettled([api.state(), api.auth()]);
-    if (s.status === "fulfilled") { state = s.value; error = null; } else { error = s.reason?.message ?? String(s.reason); }
-    authInfo = a.status === "fulfilled" ? a.value : null;
-    paint();
+    // 并发合并（用户报告回归钉）：连续点击触发的多次 reload 收敛为一次收尾重跑，防 paint 重入 churn
+    if (reloadRunning) { reloadQueued = true; return; }
+    reloadRunning = true;
+    try {
+      do {
+        reloadQueued = false;
+        const [s, a] = await Promise.allSettled([api.state(), api.auth()]);
+        if (s.status === "fulfilled") { state = s.value; error = null; } else { error = s.reason?.message ?? String(s.reason); }
+        authInfo = a.status === "fulfilled" ? a.value : null;
+        paint();
+      } while (reloadQueued);
+    } finally { reloadRunning = false; }
   };
   view.refresh = async () => {
     busy = true; paint();

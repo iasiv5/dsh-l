@@ -210,6 +210,26 @@ test("renderLoginGate：点击连接 GitHub → deviceStart → 码框渲染 + �
   }
 });
 
+test("connectionCard compact：定向重渲染幂等——多次点击不堆叠（用户报告回归钉）", () => {
+  const mount = new FakeElement("div");
+  let patOpen = false, confirmDelete = false;
+  const render = () => renderConnectionCard(mount, { t, status: READY, mode: "compact", patOpen, confirmDelete, patError: null, deleteError: null, on: {} });
+  render();                                   // 初始
+  assert.equal(byClass(mount, "credCompact").length, 1);
+  patOpen = true; render();                   // 点更换令牌 → 表单开
+  assert.equal(byClass(mount, "credCompact").length, 1, "重渲染不堆叠紧凑卡");
+  assert.equal(byClass(mount, "patForm").length, 1);
+  patOpen = false; confirmDelete = true; render();   // 关表单 → 开删除确认
+  assert.equal(byClass(mount, "credCompact").length, 1);
+  const formsLeft = byClass(mount, "patForm");       // 确认浮层复用 patForm 类：剩下的唯一元素应为确认浮层（PAT 表单已关）
+  assert.equal(formsLeft.length, 1);
+  assert.ok(!formsLeft[0].textContent.includes(t("cred.patTitle")));
+  assert.equal(byClass(mount, "patForm.open").length + byClass(mount, "patForm").length >= 1, true);
+  confirmDelete = true; render(); render(); render();   // 连点删除凭证多次
+  assert.equal(byClass(mount, "patForm").length, 1, "删除确认浮层不堆叠");   // 确认框复用 patForm 类：3 次重渲染后仍只有一个
+  assert.equal(byClass(mount, "credCompact").length, 1);
+});
+
 test("renderLoginGate：初次 draw 不抛、结构三段在位；authorized 即 onConnected（不轮询）", async () => {
   const timers = [];
   const realSetTimeout = globalThis.setTimeout;

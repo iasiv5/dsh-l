@@ -175,6 +175,7 @@ export function renderConnectionCard(parent, { t, status, mode = "full", patOpen
   const act = (name, fn) => (e) => { e.preventDefault(); fn?.(); };
 
   if (mode === "compact") {
+    parent.textContent = "";   // 幂等替换：定向重渲染必须先清挂载点，否则多次点击会堆叠卡片/表单（用户报告回归钉）
     const wrap = el("div", "credCompact");
     wrap.append(dot(v.gates[2]?.[0] === "ok" ? "ok" : v.gates[2]?.[0] === "bad" ? "warn" : "wait"));
     wrap.append(el("b", "", t("cred.compactTitle")));
