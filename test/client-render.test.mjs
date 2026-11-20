@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 
 // ── 最小 DOM stub ──────────────────────────────────────────────
 class FakeElement {
-  constructor(tag) { this.tagName = tag; this.children = []; this.attrs = {}; this._text = ""; this.onclick = null; this.type = ""; this.disabled = false; this.checked = false; this.value = ""; this.style = {}; }
+  constructor(tag) { this.tagName = tag; this.children = []; this.attrs = {}; this._text = ""; this.onclick = null; this.type = ""; this.disabled = false; this.checked = false; this.style = {}; this._parent = null; }
   get classList() {
     const raw = String(this.attrs.class ?? "");
     return {
@@ -26,9 +26,9 @@ class FakeElement {
   set innerHTML(v) { this._text = String(v); this.children = []; this._html = String(v); }
   get innerHTML() { return this._html ?? ""; }
   get firstElementChild() { return this.children[0] ?? null; }
-  append(...ns) { for (const n of ns) { if (n == null) continue; this.children.push(n); } }
-  prepend(n) { if (n != null) this.children.unshift(n); }
-  remove() {}
+  append(...ns) { for (const n of ns) { if (n == null) continue; n._parent = this; this.children.push(n); } }
+  prepend(n) { if (n != null) { n._parent = this; this.children.unshift(n); } }
+  remove() { if (this._parent) this._parent.children = this._parent.children.filter((c) => c !== this); }
   setAttribute(k, v) { this.attrs[k] = v; }
   getAttribute(k) { return this.attrs[k] ?? null; }
   set title(v) { this.attrs.title = v; }
@@ -148,6 +148,64 @@ test("renderLoginGate：installing 轮询中三关全绿 → 自动续走 bind+o
     assert.ok(connected >= 1, "三关全绿自动续走 bind+onConnected");
   } finally {
     api.auth = origAuth; api.bind = origBind;
+    globalThis.setTimeout = realSetTimeout; globalThis.clearTimeout = realClearTimeout;
+  }
+});
+
+test("renderLoginGate：gh 登录未校验态挂载即静默校验 → CTA 变进入工作台（用户反馈修复）", async () => {
+  const timers = [];
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
+  const realClearTimeout = globalThis.clearTimeout;
+  globalThis.clearTimeout = () => {};
+  const { renderLoginGate } = await import("../src/client/components/loginGate.mjs");
+  const { api } = await import("../src/client/api.mjs");
+  const origAuth = api.auth, origVerify = api.verifyCredential, origBind = api.bind;
+  const UNVERIFIED = { gates: { ghInstalled: true, ghLogin: true, credentialOk: false }, viewerLogin: "iasiv5", credential: { configured: false, source: null, scopes: null, verifiedAt: null, healthy: true, ghWrittenByUs: false, rateLimitedUntil: null }, install: { phase: "idle" }, device: { phase: "idle" } };
+  let verifyCalled = 0;
+  api.verifyCredential = async () => { verifyCalled++; return { login: "iasiv5", scopes: ["repo", "read:org"], fineGrained: false, verifiedAt: new Date().toISOString() }; };
+  api.auth = async () => READY;   // 校验成功后 refresh 拉到 ready
+  api.bind = async () => ({ account: "iasiv5" });
+  try {
+    const shadow = shadowOf();
+    renderLoginGate(shadow, { t, status: UNVERIFIED, onConnected: () => {} });
+    for (let i = 0; i < 6; i++) await new Promise((r) => realSetTimeout(r, 0));   // 排空 promise 链
+    assert.equal(verifyCalled, 1, "挂载即补校验一次");
+    const cta = byClass(shadow, "cta")[0];
+    assert.ok(cta && cta.textContent.includes(t("auth.enterBtn")), "校验成功后 CTA=进入工作台，不再是连接 GitHub");
+  } finally {
+    api.verifyCredential = origVerify; api.auth = origAuth; api.bind = origBind;
+    globalThis.setTimeout = realSetTimeout; globalThis.clearTimeout = realClearTimeout;
+  }
+});
+
+test("renderLoginGate：点击连接 GitHub → deviceStart → 码框渲染 + 轮询挂载（用户报告坏掉路径复现）", async () => {
+  const timers = [];
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
+  const realClearTimeout = globalThis.clearTimeout;
+  globalThis.clearTimeout = () => {};
+  const { renderLoginGate } = await import("../src/client/components/loginGate.mjs");
+  const { api } = await import("../src/client/api.mjs");
+  const origAuth = api.auth, origDeviceStart = api.deviceStart, origDeviceStatus = api.deviceStatus;
+  const UNVERIFIED = { gates: { ghInstalled: true, ghLogin: true, credentialOk: false }, viewerLogin: "iasiv5", credential: { configured: false, source: null, scopes: null, verifiedAt: null, healthy: true, ghWrittenByUs: false, rateLimitedUntil: null }, install: { phase: "idle" }, device: { phase: "idle" } };
+  const PENDING_DEVICE = { phase: "pending", userCode: "ABCD-1234", verificationUri: "https://github.com/login/device", expiresAt: new Date(Date.now() + 600000).toISOString() };
+  api.deviceStart = async () => PENDING_DEVICE;
+  api.deviceStatus = async () => PENDING_DEVICE;
+  api.auth = async () => ({ ...UNVERIFIED, device: PENDING_DEVICE });
+  try {
+    const shadow = shadowOf();
+    assert.doesNotThrow(() => renderLoginGate(shadow, { t, status: UNVERIFIED, onConnected: () => {} }));
+    const cta = byClass(shadow, "cta")[0];
+    assert.ok(cta && cta.textContent.includes(t("cred.connectBtn")));
+    timers.length = 0;
+    assert.doesNotThrow(() => cta.onclick({ preventDefault() {} }));   // 点击连接 GitHub：用户报告「页面坏掉」的路径
+    for (let i = 0; i < 8; i++) await new Promise((r) => realSetTimeout(r, 0));
+    assert.ok(byClass(shadow, "gateCode")[0], "pending 码框渲染");
+    assert.ok(byClass(shadow, "switchLink").length >= 1, "互切链接在");
+    assert.ok(timers.length >= 1, "轮询 timer 挂上（界面不会静止坏死）");
+  } finally {
+    api.deviceStart = origDeviceStart; api.deviceStatus = origDeviceStatus; api.auth = origAuth;
     globalThis.setTimeout = realSetTimeout; globalThis.clearTimeout = realClearTimeout;
   }
 });

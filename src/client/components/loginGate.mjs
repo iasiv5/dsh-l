@@ -183,10 +183,17 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
     }
   };
 
-  // 打开面板时的主动静默校验（B10/R2Q3）：三关已过凭据校验但 verifiedAt 超时 → 校验一次刷新状态。
-  const c = local?.credential ?? {};
-  const verifiedAtMs = c.verifiedAt ? Date.parse(c.verifiedAt) : NaN;
-  if (local?.gates?.credentialOk && Number.isFinite(verifiedAtMs) && Date.now() - verifiedAtMs > VERIFY_TTL_MS) {
+  // 打开面板时的主动静默校验（B10/R2Q3 + gh-fallback 补验）：
+  // ① 已校验但 verifiedAt 超时 → 重校验刷新；② gh 登录态在场但从未校验（存量 gh-fallback 用户）→ 挂载即补校验一次，
+  // 成功后 G3 转绿、CTA 自动切换为「进入工作台」——不再要求 gh 登录用户显式走一遍面板授权。
+  const c0 = local?.credential ?? {};
+  const g0 = local?.gates ?? {};
+  const verifiedAtMs = c0.verifiedAt ? Date.parse(c0.verifiedAt) : NaN;
+  const deviceActive = local?.device?.phase === "pending" || local?.device?.phase === "authorizing";
+  const needVerify =
+    (g0.credentialOk && Number.isFinite(verifiedAtMs) && Date.now() - verifiedAtMs > VERIFY_TTL_MS) ||
+    (g0.ghLogin && !g0.credentialOk && !deviceActive);
+  if (needVerify && !deviceActive) {
     api.verifyCredential().then(refresh).catch(() => {});
   }
 

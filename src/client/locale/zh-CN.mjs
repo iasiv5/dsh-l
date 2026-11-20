@@ -8,7 +8,7 @@ export const zhCN = {
   intake: { repos: "个监看仓", none: "还没有监看任何仓库" },
   auth: {
     loading: "正在连接工作台…",
-    loginTitle: "连接你的代码库，让 Agent 自主交付",   // 金句 B（2026-11-19 用户选定），品牌区只留大标题
+    loginTitle: "连接代码库，让 Agent 自主交付",   // 金句 B 修订（2026-11-20 用户删「你的」），品牌区只留大标题
     deviceNote: "无需手动输入用户名——授权完成后自动进入工作台。",
     deviceExpired: "授权码已过期，请重新发起授权",
     deviceFailed: "授权失败",

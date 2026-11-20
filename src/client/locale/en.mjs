@@ -8,7 +8,7 @@ export const en = {
   intake: { repos: "watched repos", none: "No repositories watched yet" },
   auth: {
     loading: "Connecting the workbench…",
-    loginTitle: "Connect your code repositories and let agents deliver autonomously",
+    loginTitle: "Connect code repositories and let agents deliver autonomously",
     deviceNote: "No username typing required — you enter the workbench automatically once authorized.",
     deviceExpired: "The device code expired. Start the authorization again.",
     deviceFailed: "Authorization failed",
