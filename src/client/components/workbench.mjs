@@ -138,6 +138,8 @@ const CSS = [
   ".warnBox{font-size:13px;line-height:1.5;margin-top:12px;padding:8px 12px;border-radius:8px;border:1px solid color-mix(in srgb,#d29922 40%,transparent);background:color-mix(in srgb,#d29922 10%,canvas)}",
   ".credCompact{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:12.5px;padding:10px 12px;border-radius:10px;border:1px solid color-mix(in srgb,currentColor 10%,transparent);background:color-mix(in srgb,currentColor 3%,transparent)}",
   ".degradedBanner{margin:0 0 12px;padding:10px 14px;border-radius:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;border:1px solid color-mix(in srgb,#d1242f 32%,transparent);background:color-mix(in srgb,#d1242f 8%,canvas)}",
+  // ── 工作台统一可读表面（用户反馈：内容直接浮在宿主壁纸上不可读）——玻璃面板语言与登录卡一致 ──
+  ".workSurface{box-sizing:border-box;margin:12px;padding:12px 16px 14px;border-radius:14px;background:color-mix(in srgb,canvas 90%,transparent);backdrop-filter:blur(12px);border:1px solid color-mix(in srgb,currentColor 10%,transparent);box-shadow:0 18px 40px -20px rgb(0 0 0/.35)}",
   ".degradedBanner.is-limited{border-color:color-mix(in srgb,#d29922 40%,transparent);background:color-mix(in srgb,#d29922 10%,canvas)}",
   ".bannerAct{border:1px solid color-mix(in srgb,currentColor 20%,transparent);border-radius:7px;background:transparent;color:inherit;font-size:12.5px;padding:4px 10px;cursor:pointer}",
   ".bannerAct:focus-visible{outline:2px solid color-mix(in srgb,#324DE2 60%,transparent);outline-offset:1px}",
@@ -179,6 +181,43 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
   let compactDelete = false;    // Task 10：收活紧凑卡的内联删除确认开关
   let compactPatError = null;   // 评审问题 3：紧凑卡 PAT 失败呈现
   let compactDeleteError = null;// 评审问题 3：紧凑卡删除失败呈现（gh-not-ours 等）
+  let credMountEl = null;       // 评审问题（执行产出）：紧凑卡开关用定向重渲染，避免整台 paint() 全量重建引发宿主重排竞态
+  const rerenderCompact = () => {
+    if (!credMountEl) { paint(); return; }
+    renderConnectionCard(credMountEl, { t: makeT(getLang()), status: authInfo, mode: "compact", patOpen: compactPat, confirmDelete: compactDelete, patError: compactPatError, deleteError: compactDeleteError, on: compactOn });
+  };
+  const compactOn = {
+    verify: async () => { try { await api.verifyCredential(); } catch {} await view.reload(); },
+    togglePat: () => { compactPat = !compactPat; compactDelete = false; compactPatError = null; rerenderCompact(); },
+    toggleDelete: () => { compactDelete = !compactDelete; compactPat = false; compactDeleteError = null; rerenderCompact(); },
+    patSave: async (token) => {
+      if (!token) return;
+      try {
+        await api.putCredential(token);
+        compactPatError = null;
+        compactPat = false;
+      } catch (e) {
+        compactPatError = e?.message ?? String(e);   // 失败态可见呈现（评审问题 3：不再静默关表单）
+      }
+      await view.reload();
+    },
+    deleteConfirmed: async (ghLogout) => {
+      try {
+        await api.deleteCredential(ghLogout);
+        compactDeleteError = null;
+        compactDelete = false;
+      } catch (e) {
+        compactDeleteError = e?.message ?? String(e);   // gh-not-ours：gh 未动的事实必须可见
+        compactDelete = true;
+      }
+      await view.reload();
+    },
+    cancelPat: () => { compactPat = false; compactPatError = null; rerenderCompact(); },
+    cancelDelete: () => { compactDelete = false; compactDeleteError = null; rerenderCompact(); },
+    // 紧凑卡不发起设备流（登录面板专属入口）；switchToDevice 在此处退化为收起表单
+    switchToDevice: () => { compactPat = false; compactPatError = null; rerenderCompact(); },
+    connect: () => {}, enter: () => {}, install: () => {},
+  };
   let compactVerifiedAt = 0;    // 评审 S6：compact 挂载的 TTL 静默校验节流（Task 10「Task 9 同款」）
   let error = null;
   let notice = null;
@@ -305,41 +344,9 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
         api.verifyCredential().then(() => view.reload()).catch(() => {});
       }
     }
-    const credMount = el("div");
-    intake.append(credMount);
-    renderConnectionCard(credMount, { t, status: authInfo, mode: "compact", patOpen: compactPat, confirmDelete: compactDelete, patError: compactPatError, deleteError: compactDeleteError,
-      on: {
-        verify: async () => { try { await api.verifyCredential(); } catch {} await view.reload(); },
-        togglePat: () => { compactPat = !compactPat; compactDelete = false; compactPatError = null; paint(); },
-        toggleDelete: () => { compactDelete = !compactDelete; compactPat = false; compactDeleteError = null; paint(); },
-        patSave: async (token) => {
-          if (!token) return;
-          try {
-            await api.putCredential(token);
-            compactPatError = null;
-            compactPat = false;
-          } catch (e) {
-            compactPatError = e?.message ?? String(e);   // 失败态可见呈现（评审问题 3：不再静默关表单）
-          }
-          await view.reload();
-        },
-        deleteConfirmed: async (ghLogout) => {
-          try {
-            await api.deleteCredential(ghLogout);
-            compactDeleteError = null;
-            compactDelete = false;
-          } catch (e) {
-            compactDeleteError = e?.message ?? String(e);   // gh-not-ours：gh 未动的事实必须可见
-            compactDelete = true;
-          }
-          await view.reload();
-        },
-        cancelPat: () => { compactPat = false; compactPatError = null; paint(); },
-        cancelDelete: () => { compactDelete = false; compactDeleteError = null; paint(); },
-        // 紧凑卡不发起设备流（登录面板专属入口）；switchToDevice 在此处退化为收起表单
-        switchToDevice: () => { compactPat = false; compactPatError = null; paint(); },
-        connect: () => {}, enter: () => {}, install: () => {},
-      } });
+    credMountEl = el("div");
+    intake.append(credMountEl);
+    renderConnectionCard(credMountEl, { t, status: authInfo, mode: "compact", patOpen: compactPat, confirmDelete: compactDelete, patError: compactPatError, deleteError: compactDeleteError, on: compactOn });
     const intakeChips = el("div", "chips");
     const watchRepos = state?.watch?.repos ?? [];
     const perRepo = state?.snapshots?.perRepo ?? {};
@@ -389,7 +396,10 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
     intake.style.display = activeTab === "list" ? "" : "none";
     triage.style.display = activeTab === "list" ? "" : "none";
     main.append(intake, triage, boardWrap, reviewWrap, rolesWrap);
-    shadow.append(style, header, tabsBar, main);
+    // 统一可读表面（用户反馈）：header/tabs/main 收进玻璃面板，不再直接浮在宿主壁纸上。
+    const surface = el("div", "workSurface");
+    surface.append(header, tabsBar, main);
+    shadow.append(style, surface);
   };
 
   view.reload = async () => {
