@@ -138,17 +138,14 @@ test("token 解析顺序：配置引用 → gh → null；非法引用名跳过"
   assert.equal(await github.resolveToken({ credentials: cred(null), tokenRef: null, execFile: noGh }), null);
 });
 
-test("token 三级链：配置引用 → 工作台自存(storedToken) → gh → null", async () => {
+test("token 两级链（gh-as-source 2026-11-20）：配置引用 → gh auth token → null；storedToken 位已删除", async () => {
   const cred = (v) => ({ resolve: async (ref) => (ref === "GH_TOKEN" && v ? { value: v, source: "env" } : undefined) });
   const gh = (out) => async () => ({ stdout: out });
   const noGh = async () => { throw new Error("no gh"); };
-  const stored = (v) => async () => v;
-  assert.equal(await github.resolveToken({ credentials: cred("ck"), tokenRef: "GH_TOKEN", storedToken: stored("sk"), execFile: gh("gk") }), "ck");   // 引用最优先
-  assert.equal(await github.resolveToken({ credentials: cred(null), tokenRef: "GH_TOKEN", storedToken: stored("sk"), execFile: gh("gk") }), "sk");   // stored 次之
-  assert.equal(await github.resolveToken({ credentials: cred(null), tokenRef: "GH_TOKEN", storedToken: stored(""), execFile: gh("gk") }), "gk");   // stored 空串 → gh 兜底
-  assert.equal(await github.resolveToken({ credentials: cred(null), tokenRef: "GH_TOKEN", storedToken: stored("sk"), execFile: noGh }), "sk");   // 无 gh 时 stored 兜住
-  assert.equal(await github.resolveToken({ credentials: cred(null), tokenRef: "GH_TOKEN", storedToken: async () => { throw new Error("boom"); }, execFile: gh("gk") }), "gk");   // stored 抛错不炸
-  assert.equal(await github.resolveToken({ credentials: cred(null), tokenRef: null, storedToken: stored(null), execFile: noGh }), null);
+  assert.equal(await github.resolveToken({ credentials: cred("ck"), tokenRef: "GH_TOKEN", execFile: gh("gk") }), "ck");   // 引用最优先
+  assert.equal(await github.resolveToken({ credentials: cred(null), tokenRef: "GH_TOKEN", execFile: gh(" gk ") }), "gk");   // gh 次之（trim）
+  assert.equal(await github.resolveToken({ credentials: cred(null), tokenRef: null, execFile: noGh }), null);   // 双空 → null
+  assert.equal(await github.resolveToken({ credentials: cred(null), tokenRef: null, execFile: gh("") }), null);   // gh 空串 → null
 });
 
 test("getViewer：GET /user 拿 token 身份；401 抛错", async () => {
@@ -161,21 +158,23 @@ test("getViewer：GET /user 拿 token 身份；401 抛错", async () => {
   await assert.rejects(github.getViewer({ token: "bad", fetch: f401 }), /github api 401 for \/user/);
 });
 
-test("ghAvailable：--version 探测，异常按未安装", async () => {
-  const ok = async () => ({ stdout: "gh version 2.45.0" });
+test("ghAvailable：--version 探测 + 版本解析，异常按未安装（gh-as-source：返回对象）", async () => {
+  const ok = async () => ({ stdout: "gh version 2.45.0 (2025-07-18)\nhttps://github.com/cli/cli/releases/tag/v2.45.0" });
   const boom = async () => { throw new Error("spawn gh ENOENT"); };
-  assert.equal(await github.ghAvailable({ execFile: ok }), true);
-  assert.equal(await github.ghAvailable({ execFile: boom }), false);
+  assert.deepEqual(await github.ghAvailable({ execFile: ok }), { installed: true, version: "2.45.0" });
+  assert.deepEqual(await github.ghAvailable({ execFile: boom }), { installed: false, version: null });
+  const noVersion = async () => ({ stdout: "gh (devel)" });   // 非 release 构建无版本号 → installed 但 version null
+  assert.deepEqual(await github.ghAvailable({ execFile: noVersion }), { installed: true, version: null });
 });
 
 
 test("resolveToken/ghAvailable 支持 ghPath 兜底（插件私有 bin）", async () => {
   const onlyPath = async (cmd) => { if (cmd === "/custom/gh") return { stdout: "gk" }; throw new Error("no"); };
   assert.equal(await github.resolveToken({ credentials: null, tokenRef: null, execFile: onlyPath, ghPath: "/custom/gh" }), "gk");
-  const pathOk = async (cmd) => { if (cmd === "gh") return { stdout: "v" }; throw new Error("no"); };
-  assert.equal(await github.ghAvailable({ execFile: pathOk, ghPath: "/custom/gh" }), true);
+  const pathOk = async (cmd) => { if (cmd === "gh") return { stdout: "gh version 2.0.0" }; throw new Error("no"); };
+  assert.deepEqual(await github.ghAvailable({ execFile: pathOk, ghPath: "/custom/gh" }), { installed: true, version: "2.0.0" });
   const noneOk = async () => { throw new Error("no"); };
-  assert.equal(await github.ghAvailable({ execFile: noneOk, ghPath: "/custom/gh" }), false);
+  assert.deepEqual(await github.ghAvailable({ execFile: noneOk, ghPath: "/custom/gh" }), { installed: false, version: null });
 });
 
 test("deviceCodeStart：POST /login/device/code 映射 user_code/verification_uri/interval", async () => {

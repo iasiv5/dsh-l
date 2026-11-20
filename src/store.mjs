@@ -18,14 +18,13 @@ export const candidateKey = (repo, type, number) => repo + "#" + type + "#" + nu
 export const makeRunId = (now = () => new Date()) =>
   "run-" + now().getTime() + "-" + randomBytes(2).toString("hex");
 
-// credential 凭据块（登录门禁改造 Task 1）：工作台自持的 GitHub 主机级访问凭证。
-// 时间字段统一 ISO 8601 字符串（与 auth 块同构）；healthy=false 表示被动失效（401），凭据材料保留待重校验。
+// credential 凭据元数据块（gh-as-source，2026-11-20）：token 只存 gh 凭据库，本块永不落 token 材料。
+// 时间字段统一 ISO 8601 字符串（与 auth 块同构）；healthy=false 表示被动失效（401），待重校验。
 export const EMPTY_CREDENTIAL = {
-  token: null, source: null, scopes: null, verifiedAt: null, healthy: true, ghWrittenAt: null,
+  source: null, scopes: null, verifiedAt: null, healthy: true, ghWrittenAt: null,
 };
 const normalizeCredential = (base, patch = {}) => {
   const c = { ...base };
-  if ("token" in patch) c.token = typeof patch.token === "string" && patch.token !== "" ? patch.token : null;
   if ("source" in patch) c.source = patch.source === "device-flow" || patch.source === "manual-pat" ? patch.source : null;
   if ("scopes" in patch) c.scopes = Array.isArray(patch.scopes) ? patch.scopes.filter((x) => typeof x === "string") : null;
   if ("verifiedAt" in patch) c.verifiedAt = typeof patch.verifiedAt === "string" && patch.verifiedAt !== "" ? patch.verifiedAt : null;
@@ -35,7 +34,7 @@ const normalizeCredential = (base, patch = {}) => {
 };
 
 const emptyDoc = (now) => ({
-  version: 2,
+  version: 3,
   runs: {},           // 执行层（design-v2 §2）：runId → run（锁模板快照 + 节点状态机）
   roles: {},          // 角色注册表（design-v2 §14.1，M4）：roleId → {name, description, prompt, executionPolicy, model?}；内置角色在 workflows/roles.mjs，不进 store
   watch: { repos: [...DEFAULT_WATCH_REPOS], updatedAt: now().toISOString() },
@@ -45,7 +44,7 @@ const emptyDoc = (now) => ({
   ingestLog: [],      // 每次摄取一条（上限 50，FIFO）——「刷新有历史可回溯」的载体
   settings: { intervalMinutes: 0, triageModel: null, engineConcurrency: 2, workspaceRetentionDays: 7 },
   auth: { account: null, login: null, verifiedAt: null },  // 收活绑定：工作台级 GitHub 账号连接；退出=清空（不动本机 gh 登录态）
-  credential: { ...EMPTY_CREDENTIAL },  // 凭据（GLOSSARY「凭据」）：token + 来源/权限/校验健康；gh 凭据库副本只是执行环镜像
+  credential: { ...EMPTY_CREDENTIAL },  // 凭据元数据（GLOSSARY「凭据」，gh-as-source）：来源/权限/校验健康；token 只存 gh 凭据库
 });
 
 export function createStore({ filePath, now = () => new Date() }) {
@@ -64,13 +63,17 @@ export function createStore({ filePath, now = () => new Date() }) {
   };
   // 迁移块置放：const persist 定义之后、const need 之前——persist 为 const 声明，留在上面旧迁移区
   // 会因 TDZ 调不到 persist()（评审 R1 采纳·方案①：迁移落盘，一次性、幂等）。
-  if (doc.version !== 2) {
-    doc.version = 2;
+  // v3（gh-as-source，2026-11-20）：credential 去 token 材料——token 在场即整体复位 EMPTY（材料不可信即弃；
+  // 保留 ghWrittenAt 会令删除框预勾「同时 gh auth logout」，而 gh 库中该令牌可能已不存在/已换账号，误登出风险）。
+  // v2 时代的 runs 与 candidates 回填原样保留（v1 旧档直跳 v3 仍获同等回填，评审 Q2e）。
+  if (doc.version !== 3) {
+    doc.version = 3;
     doc.runs ??= {};
     for (const c of Object.values(doc.candidates)) {
       c.currentRunId ??= null; c.release ??= null; c.delivery ??= null;
     }
-    persist();   // v2 起「打开旧档」会重写 store.json（原子写不变）——相对 v1 先例的行为变更；此后不再触发。
+    if (doc.credential?.token != null) doc.credential = { ...EMPTY_CREDENTIAL };
+    persist();   // 打开旧档会重写 store.json（原子写不变）；此后不再触发。
   }
   doc.runs ??= {};   // 评审 F4：version 2 手改档缺 runs 块的无条件回填
   doc.roles ??= {};   // 评审 P6/R5：version 2 手改档缺 roles 块的无条件回填

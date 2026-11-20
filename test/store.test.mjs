@@ -94,21 +94,20 @@ test("auth 绑定：set/get/clear + 旧档迁移补空 auth", () => {
 });
 
 // ── credential 凭据块（登录门禁改造 Task 1）─────────────────────────
-test("credential 默认空档：未初始化返回空档形状", () => {
+test("credential 默认空档：未初始化返回空档形状（gh-as-source：无 token 字段）", () => {
   const s = open();
-  assert.deepEqual(s.getCredential(), { token: null, source: null, scopes: null, verifiedAt: null, healthy: true, ghWrittenAt: null });
+  assert.deepEqual(s.getCredential(), { source: null, scopes: null, verifiedAt: null, healthy: true, ghWrittenAt: null });
 });
 
-test("credential setCredential：patch 部分合并 + 字段规整", () => {
+test("credential setCredential：patch 部分合并 + 字段规整（token 材料拒收）", () => {
   const s = open();
-  s.setCredential({ token: "ghp_t", source: "device-flow", scopes: ["repo", "read:org"], verifiedAt: "2026-11-19T00:00:00.000Z", healthy: true, ghWrittenAt: "2026-11-19T00:00:01.000Z" });
-  assert.equal(s.getCredential().token, "ghp_t");
+  s.setCredential({ source: "device-flow", scopes: ["repo", "read:org"], verifiedAt: "2026-11-19T00:00:00.000Z", healthy: true, ghWrittenAt: "2026-11-19T00:00:01.000Z" });
   assert.equal(s.getCredential().source, "device-flow");
   assert.deepEqual(s.getCredential().scopes, ["repo", "read:org"]);
   assert.equal(s.getCredential().ghWrittenAt, "2026-11-19T00:00:01.000Z");
   s.setCredential({ healthy: false });   // 部分合并：其余字段不丢
   assert.equal(s.getCredential().healthy, false);
-  assert.equal(s.getCredential().token, "ghp_t");
+  assert.equal(s.getCredential().source, "device-flow");
   s.setCredential({ scopes: "repo" });   // scopes 非数组 → null
   assert.equal(s.getCredential().scopes, null);
   s.setCredential({ scopes: [1, "repo", null] });   // 数组内非字符串剔除
@@ -116,24 +115,43 @@ test("credential setCredential：patch 部分合并 + 字段规整", () => {
   s.setCredential({ bogus: "x", verifiedAt: "2026-11-20T00:00:00.000Z" });   // 未知字段拒收
   assert.equal(s.getCredential().bogus, undefined);
   assert.equal(s.getCredential().verifiedAt, "2026-11-20T00:00:00.000Z");
-  s.setCredential({ token: "", source: "nope", ghWrittenAt: "" });   // 空串/非法枚举 → null
-  assert.equal(s.getCredential().token, null);
+  s.setCredential({ token: "ghp_should_never_persist", source: "nope", ghWrittenAt: "" });   // token 键整体忽略（gh-as-source）；空串/非法枚举 → null
+  assert.equal(s.getCredential().token, undefined);
   assert.equal(s.getCredential().source, null);
   assert.equal(s.getCredential().ghWrittenAt, null);
 });
 
 test("credential clearCredential：全字段复位", () => {
   const s = open();
-  s.setCredential({ token: "t", source: "manual-pat", scopes: ["repo"], verifiedAt: "2026-11-19T00:00:00.000Z", healthy: false, ghWrittenAt: "2026-11-19T00:00:00.000Z" });
+  s.setCredential({ source: "manual-pat", scopes: ["repo"], verifiedAt: "2026-11-19T00:00:00.000Z", healthy: false, ghWrittenAt: "2026-11-19T00:00:00.000Z" });
   s.clearCredential();
-  assert.deepEqual(s.getCredential(), { token: null, source: null, scopes: null, verifiedAt: null, healthy: true, ghWrittenAt: null });
+  assert.deepEqual(s.getCredential(), { source: null, scopes: null, verifiedAt: null, healthy: true, ghWrittenAt: null });
+});
+
+test("store v3 迁移（gh-as-source）：v2 档含 credential.token → 整体复位 EMPTY 且落盘无 token；v1 档直跳 v3 仍获 runs/candidates 回填", () => {
+  const dir = mkdtempSync(join(tmpdir(), "dsh-l-"));
+  // v2 档：token 在场 → 全部簿记同弃（保留 ghWrittenAt 会预勾 gh logout，误登出风险，评审 Q2 定谳）
+  const p2 = join(dir, "v2.json");
+  writeFileSync(p2, JSON.stringify({ version: 2, watch: { repos: [], updatedAt: "T" }, candidates: {}, snapshots: {}, settings: { intervalMinutes: 0, triageModel: null }, auth: { account: "a", login: "a", verifiedAt: "T" }, credential: { token: "gho_legacy", source: "device-flow", scopes: ["repo"], verifiedAt: "2026-11-01T00:00:00Z", healthy: true, ghWrittenAt: "2026-11-01T00:00:01Z" } }));
+  const s2 = createStore({ filePath: p2 });
+  assert.deepEqual(s2.getCredential(), { source: null, scopes: null, verifiedAt: null, healthy: true, ghWrittenAt: null });
+  const persisted = JSON.parse(readFileSync(p2, "utf8"));
+  assert.equal(persisted.version, 3);
+  assert.equal(persisted.credential.token, undefined);   // 落盘无 token 字段
+  assert.equal(createStore({ filePath: p2 }).getCredential().verifiedAt, null);   // 重开不复活
+  // v1 档：直跳 v3 仍获 v2 时代的回填（runs + candidates 三字段）
+  const p1 = join(dir, "v1.json");
+  writeFileSync(p1, JSON.stringify({ version: 1, watch: { repos: [], updatedAt: "T" }, candidates: { k: { repo: "o/r", type: "issue", number: 1 } }, snapshots: {}, settings: { intervalMinutes: 0, triageModel: null }, credential: { token: "gho_old" } }));
+  const s1 = createStore({ filePath: p1 });
+  assert.equal(s1.getCredential().token, undefined);
+  assert.ok(s1.getCandidate("k").currentRunId === null && s1.getCandidate("k").release === null && s1.getCandidate("k").delivery === null);
 });
 
 test("credential 旧档迁移：无 credential 块的存量档补空结构", () => {
   const filePath = join(mkdtempSync(join(tmpdir(), "dsh-l-")), "store.json");
   writeFileSync(filePath, JSON.stringify({ version: 2, watch: { repos: [], updatedAt: "T" }, candidates: {}, snapshots: {}, settings: { intervalMinutes: 0, triageModel: null }, auth: { account: "iasiv5", login: "iasiv5", verifiedAt: "T" } }));
   const s = createStore({ filePath });
-  assert.equal(s.getCredential().token, null);
+  assert.equal(s.getCredential().token, undefined);
   assert.equal(s.getCredential().healthy, true);
   assert.equal(createStore({ filePath }).getCredential().healthy, true);   // 重开读回
 });
@@ -179,14 +197,14 @@ test("v1 旧档迁移：version 2 + runs 空 + 候选补新字段", () => {
   writeFileSync(file, JSON.stringify(v1));
   const s = createStore({ filePath: file });
   const doc = JSON.parse(readFileSync(file, "utf8"));
-  assert.equal(doc.version, 2);
+  assert.equal(doc.version, 3);   // v3（gh-as-source）：v1 直跳 v3，回填同等
   assert.deepEqual(doc.runs, {});
   const c = s.getCandidate("a/b#issue#1");
   assert.equal(c.currentRunId, null);
   assert.equal(c.release, null);
   assert.equal(c.delivery, null);
   const s2 = createStore({ filePath: file });   // 二次打开：迁移幂等（评审 R1 采纳）
-  assert.equal(JSON.parse(readFileSync(file, "utf8")).version, 2);
+  assert.equal(JSON.parse(readFileSync(file, "utf8")).version, 3);
   assert.equal(s2.getCandidate("a/b#issue#1").currentRunId, null);
 });
 test("新候选与新档自带 v2 字段", () => {

@@ -58,19 +58,19 @@ store API（后续任务的接口契约）：getWatch()/setWatch(repos)、upsert
 
 ## 3. GitHub provider（github.mjs）
 
-- resolveToken({ credentials, tokenRef, storedToken, execFile, ghPath })：三级链——① credentials 引用覆写（config.githubTokenRef，若配置）→ ② 工作台自存凭据（storedToken 闭包经 makeHandlers 注入，读 store.credential.token）→ ③ gh auth token（execFile，本机登录态）→ null。storedToken 空串/抛错视为未提供。
+- resolveToken({ credentials, tokenRef, execFile, ghPath })：两级链（gh-as-source，2026-11-20）——① credentials 引用覆写（config.githubTokenRef，若配置）→ ② gh auth token（execFile，本机登录态）→ null。工作台不存 token 材料（store 版本 3 迁移剥离）。
 - verifyToken(token, { fetch })：GET /user 一次同时取身份与 X-OAuth-Scopes（scopes 逗号分割去空白；空数组 = 细粒度 PAT，fineGrained:true）；ETag 条件请求（If-None-Match，304 免计费），缓存 key=token sha256 前 16 位、LRU 8；限流分型——403 且（Remaining:0 ∨ body abuse/secondary 特征 ∨ Retry-After）或 429 → throw `rate-limited:<秒>`（Retry-After 优先，否则 X-RateLimit-Reset-now 下限 60），仅 401 → throw `token-invalid`；scopesOk(scopes) = 含 repo ∨ 空数组（细粒度）。
 - listOpenIssues({ repo, token, fetch, budget }) / listOpenPulls({…})：GET issues/pulls?state=open&per_page=100（分页至 <100；issues 剔除含 pull_request 字段的行）。pagedGet 底座（Task 4，评审执行期 R1-1 回放式修复）：ETag 键=完整请求 URL（path+query+page，禁单页键防末页覆写），缓存条目 {etag, page}、LRU 64；304 时**回放该页上轮内容**（items 恒为该仓当前 open 集——liveKeys/perRepo/discover 全链零分支自然正确，无误回收面），回放页按页长 <100 终止翻页；unchanged 置位=全部页均 304（供上层标记）；budget={remaining} 跨仓共享、逐页扣减、耗尽置 partial；错误对象挂 err.status（401 判据禁字符串匹配）。
 - listUserRepos({ token, fetch, budget })：GET /user/repos?affiliation=owner,collaborator,organization_member&sort=pushed（原 discoverRepos 改名扩面；read:org 分句经查证对本端点不适用）。
 - getRepo({ repo, token, fetch })：GET /repos/{repo}，取 defaultBranch（default_branch）与 cloneUrl（ssh_url）——任务包 repo 块的数据源；字段缺失回退 main + SSH 惯例地址。
 - getViewer({ token, fetch })：GET /user 取 login——bind 身份比对仍用（锚定错误消息形状）；凭据校验统一走 verifyToken。
-- ghAvailable({ execFile, ghPath }) / resolveToken({…, ghPath })：gh 探测与调用走候选序列——系统 PATH 的 gh 优先，插件私有安装（数据目录 bin/gh）兜底。
+- ghAvailable({ execFile, ghPath }) / resolveToken({…, ghPath })：gh 探测与调用走候选序列——系统 PATH 的 gh 优先，插件私有安装（数据目录 bin/gh）兜底。ghAvailable 返回 { installed, version }（`gh version X.Y.Z` 解析），版本进 gates.ghVersion 供门禁行展示。
 - deviceCodeStart({ fetch, clientId }) / deviceCodePoll({ deviceCode, fetch, clientId })：GitHub OAuth 设备流（clientId 缺省 GitHub CLI 官方公开常量，config.githubClientId 可覆写；scope=repo read:org）——pending/slow_down 的节奏由 handlers 控制。
-- ghLoginWithToken({ token, spawn, candidates })：设备流/手动令牌成果经 stdin 管道移交 gh 自身凭据库（gh auth login --with-token），不进参数与日志；工作台自存副本落 credential 块（0600，见 §9）。spawn ENOENT 换下一候选，非零退出即真实失败。
+- ghLoginWithToken({ token, spawn, candidates })：设备流/手动令牌成果经 stdin 管道移交 gh 自身凭据库（gh auth login --with-token），不进参数与日志；gh 是唯一令牌居所，工作台 credential 块只落元数据（source/scopes/verifiedAt/ghWrittenAt，见 §9）。spawn ENOENT 换下一候选，非零退出即真实失败（PAT 路径 502 gh-handoff-failed，不落库）。
 - ghLogout({ spawn, candidates })：gh auth logout --hostname github.com——删除凭证的显式选项专用；非零退出上抛，调用方记录不回滚。
 - ghInstall({ fetch, execFile, destFile, tmpDir })：gh CLI 一键后台安装——取 cli/cli latest release 的 linux 二进制（amd64/arm64），下载解包装入插件数据目录 bin/gh（无 root、不动系统 PATH）。
 - 域名白名单硬编码 https://api.github.com；token 只进 Authorization 头，不落日志。
-- 额度账：自存凭据后摄取路径全量 ETag 化（304 免计费）+ 每次刷新预算 60 请求硬上限；git 数据面（clone/push）走 gh 凭据 helper 不占 REST 额度。
+- 额度账：凭据在 gh 后摄取路径全量 ETag 化（304 免计费）+ 每次刷新预算 60 请求硬上限；git 数据面（clone/push）走 gh 凭据 helper 不占 REST 额度。
 
 ## 4. Host 路由
 
@@ -78,12 +78,12 @@ store API（后续任务的接口契约）：getWatch()/setWatch(repos)、upsert
 |---|---|---|---|
 | GET | /dsh-l/health | — | 健康与构建指纹（ok / name / build / dataDir） |
 | GET | /dsh-l/state | — | watch + snapshots + candidates 摘要 + settings + ingestLog + auth 绑定 + credential 健康摘要（configured/healthy/verifiedAt/rateLimitedUntil，无网络探测） |
-| GET | /dsh-l/auth | — | 门禁状态（Task 5 重塑）：gates {ghInstalled, ghLogin, credentialOk} + viewerLogin + credential {configured, source, scopes, verifiedAt, healthy, ghWrittenByUs, rateLimitedUntil} + install/device 进行时；gh/token 探测有进程内缓存，2s 轮询零额外 GitHub 请求 |
+| GET | /dsh-l/auth | — | 门禁状态（Task 5 重塑）：gates {ghInstalled, ghLogin, credentialOk, ghVersion} + viewerLogin + credential {configured, source, scopes, verifiedAt, healthy, ghWrittenByUs, rateLimitedUntil} + install/device 进行时；gh/token 探测有进程内缓存，2s 轮询零额外 GitHub 请求 |
 | POST | /dsh-l/auth/bind | {account} | 绑定校验：token 就绪 → GET /user 比对身份（大小写不敏感）→ 成功落 auth 并回显，同时凭据块持久化实读 scopes/verifiedAt（401 时 healthy=false）；失败 409 区分 gh-not-installed / gh-not-authorized / token-invalid (…) / account-mismatch: <login>；非法用户名 400 |
 | POST | /dsh-l/auth/logout | — | 工作台级退出：只清 auth 绑定（watch/候选/设置/凭据全保留），不动本机 gh 登录态 |
 | POST | /dsh-l/auth/install-gh | — | 一键后台安装 gh CLI（官方 release → 插件数据目录 bin/gh）；立即返回，进度经 GET /dsh-l/auth 轮询（install.phase: idle/installing/done/failed） |
-| GET/POST | /dsh-l/auth/device | — | 设备流授权：POST 出 user_code + verification_uri 并后台轮询（authorizing→authorized：verifyToken 一次取 login+实读 scopes，凭据落库含 ghWrittenAt 并自动绑定；expired/failed 带原因）；守卫收窄（R1-4 主人签核）：仅「token 可解析 ∧ credentialOk」409 already-authorized，非就绪态可发起（重授权即同槽覆盖） |
-| PUT | /dsh-l/credential | {token} | 手动令牌（verify-before-save）：长度/空白守卫 → verifyToken 校验 → 通过落库（source=manual-pat，scopes/verifiedAt 同写，gh 可用时移交并打 ghWrittenAt，viewerCache 失效）→ 200 {login, scopes, fineGrained}；失败 409 credential-format / credential-invalid / rate-limited:* / credential-verify-failed:*（不落库） |
+| GET/POST | /dsh-l/auth/device | — | 设备流授权：POST 出 user_code + verification_uri 并后台轮询（authorizing→authorized：verifyToken 一次取 login+实读 scopes，元数据落库含 ghWrittenAt 并自动绑定；expired/failed 带原因）；守卫：gh 未装 409 gh-not-installed（gh-as-source，token 终点站在场才发起）；仅「token 可解析 ∧ credentialOk」409 already-authorized（R1-4 主人签核），非就绪态可发起（重授权即同槽覆盖） |
+| PUT | /dsh-l/credential | {token} | 手动令牌（verify-before-handoff，gh-as-source）：长度/空白守卫 → gh 未装 409 gh-not-installed → verifyToken 校验 → 强制移交 gh 凭据库（失败 502 gh-handoff-failed:*，不落库）→ 元数据落库（source=manual-pat，scopes/verifiedAt 同写，ghWrittenAt 打标，viewerCache 失效；**token 不落 store**）→ 200 {login, scopes, fineGrained}；失败 409 credential-format / credential-invalid / rate-limited:* / credential-verify-failed:*（不落库） |
 | POST | /dsh-l/credential/verify | — | 重新校验当前凭据：无凭据 409 credential-missing；成功刷新 scopes/verifiedAt/healthy；token-invalid 409 并置 healthy=false；rate-limited:* 409 置 rateLimitedUntil（不伤健康）；其余 409 credential-verify-failed:* |
 | DELETE | /dsh-l/credential | {ghLogout} | 删除凭证：清凭据块 + 解绑 + viewerCache 失效；ghLogout=true 且 ghWrittenAt 在场 → gh auth logout（gh-not-ours 409 当 gh 登录非工作台所建，清除仍执行） |
 | POST | /dsh-l/refresh | — | **须先绑定账号，否则 401 auth-required**；单飞互斥（进行中 409 refresh-in-progress）；摄取前 verifiedAt 超 VERIFY_TTL_MS=30min 静默校验（token-invalid → 409 credential-unhealthy）；跨仓共享 60 请求预算（耗尽置 partial）；任一仓/discover 401 → healthy=false + 409 credential-unhealthy（已获取仓照常入库）；每次摄取追加 ingestLog（含 partial） |
@@ -155,10 +155,10 @@ inbox →（分诊）→ triaged →（人工安排）→ gating →（G1 放行
 
 ## 9. 安全
 
-- 凭据：dsh-l 自存于工作台数据目录 store.json（0600 原子写，含 token/source/scopes/verifiedAt/healthy/ghWrittenAt）；gh 凭据库中的副本只是执行环克隆/推送用的镜像，resolveToken 三级链保证 credentials 引用覆写优先。除 credential 块外任何结构不含凭据材料。
+- 凭据（gh-as-source，2026-11-20 翻案）：token 只存 gh 凭据库；工作台 store.json credential 块（0600 原子写）只落元数据 source/scopes/verifiedAt/healthy/ghWrittenAt，永不落 token 材料（store 版本 3 迁移剥离旧档 token 并整体复位）。resolveToken 两级链保证 credentials 引用覆写优先。除 credential 块外任何结构不含凭据材料。
 - 退出语义：logout 只清工作台绑定（凭据块保留），绝不调用 gh auth logout；删除凭证是独立显式动作——清凭据块 + 解绑，「同时退出本机 gh 登录」复选框仅在 ghWrittenAt 标记（gh 登录为工作台设备流所建）存在时可勾，否则置灰；gh 登录态永不默默代作主。收活闸门（refresh/watch/discover 未绑定一律 401）在服务端强制，UI 只是呈现。
 - 出网：api.github.com（API 与 gh release 查询）+ github.com（设备流 /login/device/code、/login/oauth/access_token 与 gh 安装包下载）；未来飞书通道仅 open.feishu.cn webhook。
-- 设备流 token：经 stdin 管道移交 gh 凭据库；工作台自存副本存 credential 块（0600）。登录状态机的安装/授权进行时状态在进程内存，宿主重启自动回到 idle（登录门禁按 getAuth 重新判定，无残留半态）。
+- 设备流 token：经 stdin 管道移交 gh 凭据库（唯一居所）；工作台 credential 块只落元数据。登录状态机的安装/授权进行时状态在进程内存，宿主重启自动回到 idle（登录门禁按 getAuth 重新判定，无残留半态）。
 - 限流纪律：403 abuse/429 分型为 rate-limited（带恢复时刻，UI 呈现「限流中」），不误伤凭据健康；仅 401 置 healthy=false（被动失效，凭据材料保留待重校验）。
 - 写操作全部经人工手势（按钮），无自动写 GitHub。
 

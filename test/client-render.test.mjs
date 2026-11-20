@@ -66,11 +66,11 @@ test("connectionCard full：ready 态渲染不抛，CTA=进入工作台，kv 门
   assert.equal(byClass(mount, "auxAct").length, 3);
 });
 
-test("connectionCard full：fresh 态单门禁行收敛 + 安装 CTA + 注脚；pending 态码框 + 互切（2026-11-20 简报）", () => {
+test("connectionCard full：fresh 态单门禁行收敛 + 安装 CTA + 注脚；pending 态码框 + 互切（2026-11-20 简报 + round-2）", () => {
   const mount = new FakeElement("div");
   renderConnectionCard(mount, { t, status: FRESH, mode: "full", on: {} });
-  assert.equal(byClass(mount, "method").length, 2);   // 骨架常驻；显隐单独钉
-  assert.equal(byClass(mount, "connectZone")[0].style.display, "none");   // gh 未装：双方法区不出现
+  assert.equal(byClass(mount, "method").length, 0);   // 双方法区已删（round-2 单主行动，评审 Q4）
+  assert.equal(byClass(mount, "connectZone").length, 0);
   const rows = byClass(mount, "gateRow");
   assert.equal(rows.length, 3);
   assert.notEqual(rows[0].style.display, "none");   // 只留 gh CLI 一行
@@ -91,10 +91,25 @@ test("connectionCard full：陈旧 verifiedAt 幽灵态收敛——kv/aux/双方
   renderConnectionCard(mount, { t, status: GHOST, mode: "full", on: {} });
   assert.equal(byClass(mount, "kv")[0].style.display, "none");
   assert.equal(byClass(mount, "aux")[0].style.display, "none");
-  assert.equal(byClass(mount, "connectZone")[0].style.display, "none");
+  assert.equal(byClass(mount, "connectZone").length, 0);   // 双方法区已删（round-2）
   assert.ok(byClass(mount, "badge")[0].textContent.includes(t("cred.badgeUnset")));
   assert.ok(byClass(mount, "credSub")[0].textContent.includes(t("cred.subNoGh")));
   assert.ok(byClass(mount, "cta")[0].textContent.includes(t("cred.installCta")));
+});
+
+test("connectionCard round-2（gh-as-source）：gate1 版本展示 + CTA 分派收窄 + PAT 唯一入口在 aux", () => {
+  const mk = (status) => { const m = new FakeElement("div"); renderConnectionCard(m, { t, status, mode: "full", on: {} }); return m; };
+  const baseCred = (over = {}) => ({ configured: false, source: null, scopes: null, verifiedAt: null, healthy: true, ghWrittenByUs: false, rateLimitedUntil: null, ...over });
+  const GH = { gates: { ghInstalled: true, ghLogin: false, credentialOk: false, ghVersion: "2.105.0" }, viewerLogin: null, credential: baseCred(), install: { phase: "idle" }, device: { phase: "idle" } };
+  const m1 = mk(GH);
+  assert.ok(byClass(m1, "gateRow")[0].textContent.includes("v2.105.0"));   // gate1 带版本
+  assert.ok(byClass(m1, "cta")[0].textContent.includes(t("cred.connectBtn")));   // 未就绪 → 连接 GitHub
+  const aux1 = byClass(m1, "auxAct").filter((n) => n.textContent.includes(t("cred.patBtn")));
+  assert.equal(aux1.length, 1);   // gh 已装未登录：PAT 唯一入口在 aux
+  const BROKEN = { ...GH, viewerLogin: "o", gates: { ghInstalled: true, ghLogin: true, credentialOk: false, ghVersion: "2.105.0" }, credential: baseCred({ configured: true, source: "device-flow", scopes: ["repo"], verifiedAt: "2026-11-01T00:00:00Z", healthy: false, ghWrittenByUs: true }) };
+  assert.ok(byClass(mk(BROKEN), "cta")[0].textContent.includes(t("cred.reauthCta")));   // 曾就绪后失效 → 重新授权
+  const SCOPEMISS = { ...GH, viewerLogin: "o", gates: { ghInstalled: true, ghLogin: true, credentialOk: false, ghVersion: "2.105.0" }, credential: baseCred({ configured: true, source: "manual-pat", scopes: ["gist"], verifiedAt: "2026-11-01T00:00:00Z", healthy: true }) };
+  assert.ok(byClass(mk(SCOPEMISS), "cta")[0].textContent.includes(t("cred.connectBtn")));   // scope 未达（从未就绪）→ 连接 GitHub（评审 Q1 收窄）
 });
 
 test("connectionCard full：setConnectError 就地呈现 device-start 错误映射（2026-11-20 静默失败修复）", () => {

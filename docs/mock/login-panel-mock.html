@@ -138,18 +138,7 @@
   .bad-frag { color: var(--err); }
 
   /* 连接区（双方法并列：设备流 / 访问令牌，对齐 loopforge 向导双 tab 结构） */
-  .connect { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 13.5px; line-height: 1.55; color: var(--text-2); }
-  .methodRow { display: flex; gap: 10px; margin-top: 10px; }
-  .method {
-    flex: 1; height: 40px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer;
-    border: 1px solid var(--border-strong);
-    background: transparent; color: var(--text);
-  }
-  .method.primary { background: var(--cta-bg); color: var(--cta-text); border: none; }
-  .method.primary:hover { background: color-mix(in srgb, var(--cta-bg) 86%, var(--accent)); }
-  .method:not(.primary):hover { background: var(--surface-2); }
-  .method:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent); outline-offset: 2px; }
-  .methodHint { margin-top: 8px; font-size: 12px; color: var(--text-3); }
+  .patHint { font-size: 12px; line-height: 1.5; color: var(--text-3); }
   .switchLink { border: none; background: transparent; padding: 2px 4px; cursor: pointer; font-size: 12.5px; text-decoration: underline; text-underline-offset: 2px; color: var(--text-3); }
   .switchLink:hover { color: var(--text); }
   .switchLink:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 1px; }
@@ -306,15 +295,7 @@
           <dt>用于</dt><dd>摄取候选、发现仓库、执行环克隆与交付推送。</dd>
         </dl>
 
-        <!-- 连接区（双方法并列） -->
-        <div class="connect hidden" id="connectZone">
-          <p>两种方式任选其一，无需都做。</p>
-          <div class="methodRow">
-            <button class="method primary" id="mDevice" type="button">连接 GitHub</button>
-            <button class="method" id="mPat" type="button">使用访问令牌</button>
-          </div>
-          <p class="methodHint">设备流免复制令牌 · 访问令牌适合无浏览器环境</p>
-        </div>
+        <!-- 连接区已删（round-2 单主行动：CTA 为唯一设备流入口，PAT 唯一入口在 aux） -->
 
         <!-- 设备流码框 -->
         <div class="codeBox hidden" id="codeBox">
@@ -332,7 +313,7 @@
             <button class="save" type="button">校验并保存</button>
             <button class="cancel" type="button" id="patCancel">取消</button>
           </div>
-          <p class="patHint">校验通过才会保存；classic 令牌需含 repo、read:org，细粒度令牌按仓库授权。保存后与设备流凭据同槽覆盖。</p>
+          <p class="patHint">校验通过并移交 gh 凭据库后才会保存（gh 未装时无法保存）；classic 令牌需含 repo、read:org，细粒度令牌按仓库授权。保存后与设备流凭据同槽覆盖。</p>
         </div>
 
         <!-- 错误 / 提示条 -->
@@ -401,7 +382,7 @@ const STATES = {
     gates: [
       ["bad", "未安装", null],
     ],
-    kv: false, connect: false, code: false, foot: false,
+    kv: false, code: false, foot: false,
     cta: ["一键安装 gh CLI", false, () => setState("installing")],
     aux: [],
     notes: [
@@ -415,7 +396,7 @@ const STATES = {
     gates: [
       ["wait", "正在后台安装…", null],
     ],
-    kv: false, connect: false, code: false, foot: false,
+    kv: false, code: false, foot: false,
     cta: ["正在后台安装 gh CLI…", true, null],
     aux: [],
     notes: ["安装完成后本页自动继续，可随时离开；不改动系统 PATH 与已有环境。"],
@@ -428,7 +409,7 @@ const STATES = {
       ["wait", "等待你在 GitHub 确认授权", null],
       ["wait", "授权后自动校验", null],
     ],
-    kv: false, connect: false, code: true, foot: false,
+    kv: false, code: true, foot: false,
     cta: null,
     aux: [],
     notes: ["授权成功后自动移交 gh 凭据库、校验凭据并进入工作台，全程无需手动输入用户名。"],
@@ -446,7 +427,7 @@ const STATES = {
       scopes: [["repo", false], ["read:org", true]],
       checked: '<span class="ok-frag">令牌有效</span> · 5 分钟前',
     },
-    connect: false, code: false, foot: true,
+    code: false, foot: true,
     cta: ["iasiv5 · 进入工作台", false, null],
     aux: [["auxPat", "更换访问令牌"], ["auxReverify", "重新校验"], ["auxDelete", "删除凭证"]],
     notes: [],
@@ -459,7 +440,7 @@ const STATES = {
       ["ok", "已登录（iasiv5）", null],
       ["bad", "未提供工作台凭据", null],
     ],
-    kv: false, connect: false, code: false, pat: true, foot: false,
+    kv: false, code: false, pat: true, foot: false,
     cta: null,
     aux: [],
     notes: [],
@@ -474,7 +455,7 @@ const STATES = {
     ],
     kv: true,
     kvOverrides: {},
-    connect: false, code: false, foot: true,
+    code: false, foot: true,
     cta: ["iasiv5 · 进入工作台", false, null],
     aux: [["auxPat", "更换访问令牌"], ["auxReverify", "重新校验"], ["auxDelete", "删除凭证"]],
     notes: [],
@@ -489,7 +470,7 @@ const STATES = {
     ],
     kv: true,
     kvOverrides: { checked: '<span class="ok-frag">凭据有效</span> · 上次校验 12 分钟前' },
-    connect: false, code: false, foot: true,
+    code: false, foot: true,
     warn: "GitHub 主限流中：候选摄取暂停约 8 分钟后自动恢复。限流不影响凭据有效性，无需重新授权。",
     cta: ["iasiv5 · 进入工作台", false, null],
     aux: [["auxReverify", "稍后重试校验"], ["auxPat", "更换访问令牌"], ["auxDelete", "删除凭证"]],
@@ -524,7 +505,6 @@ function setState(name) {
   renderGates(s.gates);
   // kv
   $("kv").classList.toggle("hidden", !s.kv);
-  $("connectZone").classList.toggle("hidden", !s.connect);
   $("gateFoot").classList.toggle("hidden", !s.foot);   // 脚注随凭据在场（2026-11-20 简报）
   if (s.kv) {
     const o = s.kvOverrides || {};
@@ -571,8 +551,6 @@ document.querySelectorAll(".toolbar [data-t]").forEach((b) => b.onclick = () => 
 });
 $("tagline").onchange = (e) => { $("title").textContent = e.target.value; };
 $("patCancel").onclick = () => setState("scopemiss");
-$("mDevice").onclick = () => setState("device");
-$("mPat").onclick = () => setState("pat");
 $("switchToPat").onclick = () => setState("pat");
 $("switchToDevice").onclick = () => setState("device");
 $("auxDelete").onclick = () => { /* mock：不动作 */ };

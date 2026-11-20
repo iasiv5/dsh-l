@@ -185,26 +185,26 @@ export async function ghLogout({ spawn, candidates = ["gh"] }) {
 const ghCandidates = (ghPath) => ["gh", ...(ghPath ? [ghPath] : [])];
 
 export async function ghAvailable({ execFile, ghPath }) {
+  // gh-as-source（2026-11-20）：返回 { installed, version }——版本供门禁 gate1 展示（`gh version X.Y.Z` 首个匹配）。
   for (const gh of ghCandidates(ghPath)) {
-    try { await execFile(gh, ["--version"]); return true; } catch {}
+    try {
+      const out = await execFile(gh, ["--version"]);
+      const m = /gh version (\S+)/.exec(String(out?.stdout ?? ""));
+      return { installed: true, version: m ? m[1].replace(/^v/, "") : null };
+    } catch {}
   }
-  return false;
+  return { installed: false, version: null };
 }
 
-export async function resolveToken({ credentials, tokenRef, storedToken, execFile, ghPath }) {
+export async function resolveToken({ credentials, tokenRef, execFile, ghPath }) {
+  // 两级链（gh-as-source 2026-11-20）：credentials 引用覆写 → gh auth token；自存凭据位已删除（token 只存 gh 凭据库）。
   if (typeof tokenRef === "string" && REF_PATTERN.test(tokenRef)) {
     try {
       const hit = await credentials?.resolve?.(tokenRef);
       if (typeof hit?.value === "string" && hit.value !== "") return hit.value;
     } catch {}
   }
-  // 工作台自存凭据（登录门禁改造 Task 2）：引用覆写之后、gh 登录态兜底之前；空串/抛错视为未提供。
-  if (typeof storedToken === "function") {
-    try {
-      const own = await storedToken();
-      if (typeof own === "string" && own !== "") return own;
-    } catch {}
-  }
+  // gh 兜底（链第二级）：逐候选 `gh auth token`，空串视为未提供。
   for (const gh of ghCandidates(ghPath)) {
     try {
       const out = String((await execFile(gh, ["auth", "token"])).stdout).trim();

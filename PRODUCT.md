@@ -28,15 +28,15 @@ DSH Loop Forge（dsh-l）：DeepSeek Harness 的侧栏工作台插件。把你�
 
 - 载体：DSH web 宿主侧栏——main slot 主栏整页 + sidebar.panellist（order: 30，排在全部官方条目之后），无独立 URL 路由。
 - 使用节律：每日开工时打开侧栏看候选、分诊、拍板、开工；退出账号即回到登录门禁（监看配置保留，重连即恢复）。
-- 首开策略【已确认 2026-11-20】：首次打开先过登录门禁（gh CLI 安装 → gh 登录 → 凭据校验，三关强制；gh 未装态页面只给「安装 gh CLI」一条路，装完双方法任选——设备流 / 访问令牌），全绿后进入「收活」：预勾选 12 个自研插件仓（iasiv5/ 下 dsh-skins、dsh-quota-watch、dsh-stock-kanban、dsh-onetree-log、dsh-obmc-web、dsh-copilot-auth、skills、dsh-m、dsh-send-later、dsh-skip-browser-auth、dsh-surf、dsh-agent-autoloop），首开即有真实候选；repo 选择器随时勾选/取消。
-- 机器环境：凭据与 gh 登录态都在本机（工作台自存副本 0600 + gh 凭据库副本）；宿主重启清空进程内登录状态机，无残留半态。
+- 首开策略【已确认 2026-11-20】：首次打开先过登录门禁（gh CLI 安装 → gh 登录 → 凭据校验，三关强制；gh 未装态页面只给「安装 gh CLI」一条路；装好后 CTA「连接 GitHub」为唯一设备流入口，「使用访问令牌」在辅助行——round-2 单主行动），全绿后进入「收活」：预勾选 12 个自研插件仓（iasiv5/ 下 dsh-skins、dsh-quota-watch、dsh-stock-kanban、dsh-onetree-log、dsh-obmc-web、dsh-copilot-auth、skills、dsh-m、dsh-send-later、dsh-skip-browser-auth、dsh-surf、dsh-agent-autoloop），首开即有真实候选；repo 选择器随时勾选/取消。
+- 机器环境：token 只存 gh 凭据库（系统级 0600），工作台 store 仅元数据；宿主重启清空进程内登录状态机，无残留半态。
 
 ## Capabilities and Constraints
 
 - 三道闸门（G1 开工前 / G2 交付前 / G3 发版前）永远人工放行；G3 永久人工（npm 发版不可撤）。落点：G1=环首 gate 节点、G2=环内交付前 gate 节点、G3=环外收尾闸（放行=人工确认已发版留痕，dsh-l 不代跑发版）。
 - 分诊结果是建议，v1 绝不自动触发任何下游动作。
 - 收活闸门：未绑定 GitHub 账号前，仓库勾选与摄取一律 401 拒绝；进入工作台前另有三关强制门禁，全绿才放行。退出只解绑工作台，不动本机 gh 登录态。
-- GitHub only（v1）；provider 接口预留 GitLab 适配位。凭据自持（2026-11-19 翻案）：授权 token 由工作台存于数据目录 store.json（0600），副本移交 gh 凭据库供执行环；resolveToken 链 = credentials 引用覆写 → 自存 → gh 兜底。登录面板双方法并列（设备流 / 访问令牌 verify-before-save）；凭据可重新校验、更换、删除（gh logout 需显式勾选且限工作台自建登录）。限流（403/429）不误伤凭据健康、仅 401 置失效；摄取全量 ETag + 每刷新 60 请求预算。
+- GitHub only（v1）；provider 接口预留 GitLab 适配位。gh-as-source（2026-11-20 翻案，替代 2026-11-19 自持案）：授权 token 只存 gh 凭据库，工作台 store.json credential 块只落元数据（source/scopes/verifiedAt/healthy/ghWrittenAt，store 版本 3 迁移剥离旧 token）；resolveToken 链 = credentials 引用覆写 → gh auth token。授权路径：CTA「连接 GitHub」设备流（gh 未装 409 拒绝发起）/ 辅助行「使用访问令牌」（verify-before-handoff：校验 → 强制移交 gh → 元数据落库，移交失败 502 不落库）；凭据可重新校验、更换、删除（gh logout 需显式勾选且限工作台自建登录）。限流（403/429）不误伤凭据健康、仅 401 置失效；摄取全量 ETag + 每刷新 60 请求预算。
 - 中英双语：接宿主 locale 服务 + zh-CN / en 双字典，无私有语言开关；分诊理由语言跟随界面语言。
 - 任务包 schema（v2）是工作台与执行引擎的交接契约：emit 对齐 agent-autoloop 事件语义（ADR-0001），role/workflow 块对齐 LoopForge 纯模型层（ADR-0002）。工作流模板=内置只读 + 数据目录 workflows/*.json 用户模板；run 锁模板快照；gate 是硬类型节点，不可配置为可跳过。
 - npm dsh-l 已由 iasiv5 占位 0.0.1；面板 label 用解析式注册（label 随 lang 解析，歸藏设计同款）。

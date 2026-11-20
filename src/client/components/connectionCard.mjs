@@ -49,6 +49,8 @@ const errKeyFor = (t, msg) => {
   if (m.startsWith("credential-verify-failed")) return t("cred.errVerifyFailed");
   if (m.startsWith("token-invalid")) return t("cred.errTokenInvalid");
   if (m.startsWith("rate-limited:")) return t("cred.errRateLimited");
+  if (m.startsWith("gh-not-installed")) return t("cred.errGhMissing");   // gh-as-source 守卫（设备流/PAT 共用）
+  if (m.startsWith("gh-handoff-failed")) return t("cred.errHandoff");
   if (m.startsWith("device-start-failed")) return t("cred.errDeviceStart");
   if (m.startsWith("gh-not-ours")) return t("cred.errGhNotOurs");
   if (m.startsWith("credential-missing")) return t("cred.errMissing");
@@ -72,11 +74,12 @@ const deriveView = (t, status, ui) => {
   const verified = Boolean(c.verifiedAt);
   const login = status?.viewerLogin ?? null;
   const scopes = Array.isArray(c.scopes) ? c.scopes : null;
+  const ghVersion = typeof g.ghVersion === "string" && g.ghVersion ? g.ghVersion : null;   // gh-as-source：gate1 版本展示（gates.ghVersion）
 
   const gates = [];
   if (installing) gates.push(["wait", t("cred.g1Wait")]);
   else if (!hasGh) gates.push(["bad", t("cred.g1Bad")]);
-  else gates.push(["ok", t("cred.g1Ok")]);
+  else gates.push(["ok", t("cred.g1Ok") + (ghVersion ? " · v" + ghVersion : "")]);
   if (pending) gates.push(["wait", t("cred.g3WaitDevice")]);
   else if (!hasToken && !hasGh) gates.push(["wait", t("cred.g2Wait")]);
   else if (!hasToken) gates.push(["bad", t("cred.g2Bad")]);
@@ -105,7 +108,7 @@ const deriveView = (t, status, ui) => {
     else if (!hasGh) cta = { label: t("cred.installCta"), disabled: false, action: "install" };
     else if (ok) cta = { label: (login ?? "GitHub") + " · " + t("auth.enterBtn"), disabled: false, action: "enter" };
     else if (limited) cta = { label: (login ?? "GitHub") + " · " + t("cred.enterBtn"), disabled: false, action: "enter" };
-    else if (c.healthy === false || (verified && !ok)) cta = { label: t("cred.reauthCta"), disabled: false, action: "connect" };
+    else if (hasToken && c.healthy === false) cta = { label: t("cred.reauthCta"), disabled: false, action: "connect" };   // 「重新授权」仅限曾就绪后失效（评审 Q1 收窄）；scope 未达/幽灵态归末位 connectBtn
     else cta = { label: t("cred.connectBtn"), disabled: false, action: "connect" };
   }
 
@@ -133,10 +136,14 @@ const deriveView = (t, status, ui) => {
   if (authorizing) notes.push(t("cred.g3WaitHanding"));
 
   const aux = [];
-  if (!pending && !ui.patOpen && !ui.confirmDelete && (ok || limited || (verified && hasGh))) {
-    aux.push(limited ? ["recheck", t("cred.bannerRecheck")] : ["recheck", t("cred.recheck")]);
-    aux.push(["pat", ok ? t("cred.patReplace") : t("cred.patBtn")]);
-    aux.push(["delete", t("cred.deleteBtn")]);
+  if (!pending && !ui.patOpen && !ui.confirmDelete) {
+    if (ok || limited || (verified && hasGh)) {
+      aux.push(limited ? ["recheck", t("cred.bannerRecheck")] : ["recheck", t("cred.recheck")]);
+      aux.push(["pat", ok ? t("cred.patReplace") : t("cred.patBtn")]);
+      aux.push(["delete", t("cred.deleteBtn")]);
+    } else if (hasGh) {
+      aux.push(["pat", t("cred.patBtn")]);   // gh 已装未登录：PAT 唯一入口在 aux（双方法区已删，round-2 单主行动）
+    }
   }
 
   return { badge, sub, gates, cta, limited, ok, hasGh, hasToken, pending, authorizing, installing, verified, login, errText, warnText, notes, aux, showKv, sourceText, chips, checked };
@@ -290,15 +297,6 @@ export function renderConnectionCard(parent, { t, status = null, mode = "full", 
   kv.append(el("dt", "", t("cred.kvSource")), kvSource, el("dt", "", t("cred.kvScopes")), kvChipsBox, el("dt", "", t("cred.kvChecked")), kvChecked, el("dt", "", t("cred.kvUsed")), el("dd", "", t("cred.kvUsedValue")));
   card.append(kv);
 
-  const connectZone = el("div", "connectZone");
-  connectZone.append(el("p", "", t("cred.connectLine")));
-  const methodRow = el("div", "methodRow");
-  const mDevice = el("button", "method primary", t("cred.connectBtn")); mDevice.type = "button";
-  const mPat = el("button", "method", t("cred.patBtn")); mPat.type = "button";
-  methodRow.append(mDevice, mPat);
-  connectZone.append(methodRow, el("p", "methodHint", t("cred.methodHint")));
-  card.append(connectZone);
-
   const codeBox = el("div", "gateCode");
   const codeText = el("b", "", "····-····");
   const copyBtn = el("button", "", t("cred.copy")); copyBtn.type = "button";
@@ -376,8 +374,6 @@ export function renderConnectionCard(parent, { t, status = null, mode = "full", 
   const setConfirmDelete = (v) => { confirmDelete = v; if (v) patOpen = false; if (!v) deleteError = null; apply(); };
   const applyPatError = (msg) => { patError = msg; if (msg != null) patOpen = true; apply(); };
   const applyDeleteError = (msg) => { deleteError = msg; if (msg != null) confirmDelete = true; apply(); };
-  mDevice.onclick = (e) => { e.preventDefault(); on.connect?.(); };
-  mPat.onclick = (e) => { e.preventDefault(); setPatOpen(true); };
   deviceSwitch.onclick = (e) => { e.preventDefault(); setPatOpen(true); };
   patSwitchBtn.onclick = (e) => { e.preventDefault(); setPatOpen(false); on.switchToDevice?.(); };
   patCancelBtn.onclick = (e) => { e.preventDefault(); setPatOpen(false); on.cancelPat?.(); };
@@ -421,7 +417,6 @@ export function renderConnectionCard(parent, { t, status = null, mode = "full", 
       for (const [text, miss] of v.chips) kvChips.append(el("span", "chip" + (miss ? " is-miss" : ""), text));
       kvChecked.textContent = v.checked;
     }
-    connectZone.style.display = (v.hasGh && !v.ok && !v.pending && !patOpen && !confirmDelete) ? "" : "none";   // gh 未装：双方法区不出现，唯一出路是安装（2026-11-20 简报）
     codeBox.style.display = v.pending ? "" : "none";
     deviceLine.style.display = v.pending ? "" : "none";
     if (v.pending) {

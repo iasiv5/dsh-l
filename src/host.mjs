@@ -89,8 +89,7 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     store, provider: github,
     triage: makeTriage ? makeTriage(ctx, dir) : UNWIRED,
     credentials: ctx.credentials, tokenRef: config?.githubTokenRef ?? null,
-    // Task 7 注入面：自存凭据闭包（三级链第二级）与可覆写设备流 client_id（缺省 GitHub CLI 官方 App）
-    storedToken: async () => store.getCredential()?.token ?? null,
+    // 可覆写设备流 client_id（缺省 GitHub CLI 官方 App）；gh-as-source 后无自存凭据闭包（token 只存 gh 凭据库）
     githubClientId: config?.githubClientId ?? null,
     execFile, fetch: globalThis.fetch, onSettingsChange, listCatalog, hostDefault,
     ghBin: join(dir, "bin", "gh"), ghTmp: join(dir, "tmp"), spawn: spawnCb,
