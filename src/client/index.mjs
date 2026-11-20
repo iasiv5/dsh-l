@@ -1,7 +1,12 @@
 import { makeT, createLangSource } from "./i18n.mjs";
 import { badge } from "./badge.mjs";
+import { installKeyboardPrototypeShim } from "./keyboard-shim.mjs";
 import { mountWorkbench } from "./components/workbench.mjs";
 import { installActions } from "./components/actions.mjs";
+
+// 鲁棒性 shim（尽早安装，幂等）：补齐合成键盘事件的 W3C 未知按键语义，
+// 覆盖宿主 ui-primitives/shortcuts 对缺 key 合成 keydown 的崩溃缺口（用户 Edge 实测反馈）。
+installKeyboardPrototypeShim();
 
 const React = require("react");
 const h = React.createElement;
