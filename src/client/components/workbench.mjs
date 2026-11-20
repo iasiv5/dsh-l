@@ -68,7 +68,9 @@ const CSS = [
   ".gate .err{font-size:13px;line-height:1.5;display:none;margin:12px 0 0;padding:8px 12px;border-radius:8px;border:1px solid color-mix(in srgb,#d1242f 35%,transparent);background:color-mix(in srgb,#d1242f 9%,canvas)}",
   ".gate .note{margin:14px 0 0;padding:12px 0 0;border-top:1px solid color-mix(in srgb,currentColor 8%,transparent);font-size:12px;line-height:1.55;color:color-mix(in srgb,currentColor 52%,transparent)}",
   // ── 凭据卡（Task 9）：全面板登录 + 收活紧凑卡共用视觉（theme 自适应沿用 canvas/canvastext color-mix 语言）──
-  ".gatePanel{width:min(560px,100%);margin:auto;display:flex;flex-direction:column}",
+  ".gatePanel{width:min(560px,100%);max-width:100%;margin:auto;display:flex;flex-direction:column}",
+  // box-sizing 只圈新卡片子树（shadow 内无全局重置，content-box 下 width:100%+padding 横向溢出——手机截图实录）
+  ".gatePanel .gate,.gatePanel .gate *,.credCompact,.credCompact *{box-sizing:border-box}",
   ".brandRow{display:flex;align-items:center;gap:14px}",
   ".gateTitle{font-size:19px;font-weight:700;letter-spacing:-.01em;margin:0}",
   ".gatePanel .gate{width:100%;margin:26px 0 0;padding:22px 24px 18px}",
@@ -139,6 +141,28 @@ const CSS = [
   ".degradedBanner.is-limited{border-color:color-mix(in srgb,#d29922 40%,transparent);background:color-mix(in srgb,#d29922 10%,canvas)}",
   ".bannerAct{border:1px solid color-mix(in srgb,currentColor 20%,transparent);border-radius:7px;background:transparent;color:inherit;font-size:12.5px;padding:4px 10px;cursor:pointer}",
   ".bannerAct:focus-visible{outline:2px solid color-mix(in srgb,#324DE2 60%,transparent);outline-offset:1px}",
+  // ── 窄屏/手机自适应（≤560px 主断点；≤380px 二级收紧）：冗余 padding 收敛、卡头换行、双方法竖排 ──
+  ".credHead{display:flex;align-items:center;gap:12px;flex-wrap:wrap}",
+  ".credWho{flex:1 1 160px;min-width:0}",
+  "@media (max-width:560px){",
+    ".gateWrap{padding:16px 12px}",
+    ".gatePanel .gate{padding:18px 16px 14px;border-radius:12px}",
+    ".brandRow{gap:11px}",
+    ".gateTitle{font-size:17px}",
+    ".credHead{gap:10px}",
+    ".badge{margin-left:auto}",
+    ".methodRow{flex-direction:column}",
+    ".method{width:100%}",
+    ".kv{grid-template-columns:56px 1fr;column-gap:10px;font-size:12.5px}",
+    ".credCompact{font-size:12px;gap:8px}",
+  "}",
+  "@media (max-width:380px){",
+    ".gateTitle{font-size:16px}",
+    ".gatePanel .gate{padding:16px 14px 12px}",
+    ".credHead{gap:9px}",
+    ".ghMark{width:34px;height:34px}",
+    ".gateTitle{font-size:15.5px}",
+  "}",
 ].join("\n");
 
 const el = (tag, cls, text) => {
