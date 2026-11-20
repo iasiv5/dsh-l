@@ -585,6 +585,30 @@ test("postRefresh 304 集成回归（评审 R1-1）：未变化仓二轮刷新�
   assert.equal(secondRound[0].inm, 'W/"e"');
 });
 
+test("getAuth gh 探测 30s 进程缓存（评审 S4）：重复轮询不重探；install 完成即失效", async () => {
+  const store = openStore();
+  let probes = 0;
+  const provider = { ...PROVIDER5({ token: "tk", viewerLogin: "o" }), ghAvailable: async () => { probes++; return true; } };
+  const h = makeHandlers({ store, provider, triage: noTriage });
+  await h.getAuth();
+  await h.getAuth();
+  await h.getAuth();
+  assert.equal(probes, 1);   // 30s 内只探一次
+  let release;
+  const installer = {
+    ...provider,
+    ghAvailable: async () => { probes++; return false; },
+    ghInstall: () => new Promise((res) => { release = () => res({ version: "2.99.0" }); }),
+  };
+  const h2 = makeHandlers({ store, provider: installer, triage: noTriage, ghBin: "/tmp/gh", ghTmp: "/tmp/ghtmp" });
+  await h2.postAuthInstallGh();
+  await h2.getAuth();          // installing 期间（缓存被 install 开始后首探刷新）
+  release();
+  await new Promise((r) => setTimeout(r, 0));
+  await h2.getAuth();          // done 后缓存失效 → 重探
+  assert.ok(probes >= 3);
+});
+
 // ---- Task 9：run 四路由 + postGate 别名（engine 真 makeEngine + fake workspace/executor）----
 const fakeRunWorkspace = () => ({ ensure: async () => ({ dir: "/ws", cloned: false }), dirOf: () => "/ws", sweep: async () => ({ removed: [] }) });
 const fakeRunExecutor = () => {

@@ -75,6 +75,14 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
   let deviceState = { phase: "idle" };               // idle|pending|authorizing|authorized|expired|failed(+userCode/verificationUri/login/error)
   let viewerCache = null;                            // token→login 探测缓存（每进程一次；改绑极低频，可接受）
   let refreshInFlight = false;                       // Task 6 单飞互斥：刷新进行中新触发直接拒绝（不排队）
+  let ghProbeCache = { at: 0, val: null };           // 评审 S4：gh 安装探测 30s 进程缓存（计划 Task 5 明文）——2s 轮询不反复 spawn；install 完成时失效
+  const GH_PROBE_TTL_MS = 30_000;
+  const ghInstalled = async () => {
+    if (ghProbeCache.val !== null && Date.now() - ghProbeCache.at < GH_PROBE_TTL_MS) return ghProbeCache.val;
+    const val = (await provider.ghAvailable({ execFile, ghPath: ghBin })) === true;
+    ghProbeCache = { at: Date.now(), val };
+    return val;
+  };
   let rateLimitedUntil = null;                       // 最近一次限流恢复时刻（ISO，进程内存）——B9「限流中」横幅数据源；403/429 不伤凭据健康
   // credentialOk（Task 5/R1-4）：token 可解析 ∧ healthy ∧ verifiedAt ∧ scopesOk——device-start 守卫与 G3 闸共用此定义。
   const credentialOkFor = (tk) => {
@@ -102,7 +110,7 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
     },
     async getAuth() {
       // 门禁重塑（Task 5）：三关布尔 + 凭据卡详情。account 保留供客户端回显绑定态；token 在手仍顺带探身份（缓存）。
-      const installed = await provider.ghAvailable({ execFile, ghPath: ghBin });
+      const installed = await ghInstalled();
       const tk = await token();
       if (tk && viewerCache === null) {
         try { viewerCache = (await provider.getViewer({ token: tk, fetch })).login ?? null; } catch { viewerCache = null; }
@@ -160,7 +168,7 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       if (ghInstallState.phase === "installing") return { started: true, phase: "installing" };
       ghInstallState = { phase: "installing" };
       provider.ghInstall({ fetch, execFile, destFile: ghBin, tmpDir: ghTmp })
-        .then((r) => { ghInstallState = { phase: "done", version: r.version }; })
+        .then((r) => { ghInstallState = { phase: "done", version: r.version }; ghProbeCache = { at: 0, val: null }; })   // 装完即失效探测缓存（S4）
         .catch((err) => { ghInstallState = { phase: "failed", error: String(err?.message ?? err).slice(0, 200) }; });
       return { started: true, phase: "installing" };
     },

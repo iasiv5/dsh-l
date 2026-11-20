@@ -148,6 +148,11 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
     if (local?.install?.phase === "installing") {
       timer = setTimeout(async () => {
         try { local = await api.auth(); } catch {}
+        // 评审 S5（计划 Task 9 明文）：安装轮询中检测三关全绿 → 自动续走 bind+onConnected
+        if (entered !== true && local?.gates?.ghInstalled && local?.gates?.ghLogin && local?.gates?.credentialOk) {
+          await enter();
+          return;
+        }
         draw();
         schedule();
       }, 2000);

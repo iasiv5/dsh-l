@@ -5,6 +5,8 @@ import { badge } from "../badge.mjs";
 import { renderRow } from "./candidateRow.mjs";
 import { renderLoginGate } from "./loginGate.mjs";
 import { renderConnectionCard } from "./connectionCard.mjs";
+
+const VERIFY_TTL_MS = 30 * 60 * 1000;   // R2Q3/S6：compact 挂载静默校验节流窗（与 loginGate 同值）
 import { renderKanban } from "./kanban.mjs";
 import { renderReview } from "./review.mjs";
 import { renderRolesTab } from "./rolesTab.mjs";
@@ -153,6 +155,7 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
   let compactDelete = false;    // Task 10：收活紧凑卡的内联删除确认开关
   let compactPatError = null;   // 评审问题 3：紧凑卡 PAT 失败呈现
   let compactDeleteError = null;// 评审问题 3：紧凑卡删除失败呈现（gh-not-ours 等）
+  let compactVerifiedAt = 0;    // 评审 S6：compact 挂载的 TTL 静默校验节流（Task 10「Task 9 同款」）
   let error = null;
   let notice = null;
   let busy = false;
@@ -269,6 +272,15 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
       intake.append(banner);
     }
     // Task 10：紧凑连接卡（connectionCard compact 形态）——换令牌/删除经内联表单与确认浮层完成。
+    // 评审 S6：verifiedAt 超 TTL（Task 9 同款 30min）挂载时静默校验一次（paint 重建经节流不重复发起）。
+    {
+      const credS6 = authInfo?.credential ?? {};
+      const vMs = credS6.verifiedAt ? Date.parse(credS6.verifiedAt) : NaN;
+      if (authInfo?.gates?.credentialOk && Number.isFinite(vMs) && Date.now() - vMs > VERIFY_TTL_MS && Date.now() - compactVerifiedAt > VERIFY_TTL_MS) {
+        compactVerifiedAt = Date.now();
+        api.verifyCredential().then(() => view.reload()).catch(() => {});
+      }
+    }
     const credMount = el("div");
     intake.append(credMount);
     renderConnectionCard(credMount, { t, status: authInfo, mode: "compact", patOpen: compactPat, confirmDelete: compactDelete, patError: compactPatError, deleteError: compactDeleteError,

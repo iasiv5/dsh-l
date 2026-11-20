@@ -30,6 +30,8 @@ const errKeyFor = (t, msg) => {
   if (m.startsWith("token-invalid")) return t("cred.errTokenInvalid");
   if (m.startsWith("rate-limited:")) return t("cred.errRateLimited");
   if (m.startsWith("gh-not-ours")) return t("cred.errGhNotOurs");
+  if (m.startsWith("credential-missing")) return t("cred.errMissing");
+  if (m.startsWith("credential-unhealthy")) return t("cred.errUnhealthy");
   return m ? m : null;
 };
 

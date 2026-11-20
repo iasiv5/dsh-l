@@ -127,6 +127,31 @@ test("connectionCard：PAT 失败态呈现（credential-format/invalid/verify-fa
   assert.ok(byClass(compact, "errForm").length >= 1, "compact 侧同样呈现");
 });
 
+test("renderLoginGate：installing 轮询中三关全绿 → 自动续走 bind+onConnected（评审 S5）", async () => {
+  const timers = [];
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
+  const realClearTimeout = globalThis.clearTimeout;
+  globalThis.clearTimeout = () => {};
+  const { renderLoginGate } = await import("../src/client/components/loginGate.mjs");
+  const { api } = await import("../src/client/api.mjs");
+  const origAuth = api.auth, origBind = api.bind;
+  const INSTALLING = { ...FRESH, install: { phase: "installing" } };
+  api.auth = async () => READY;   // 轮询返回三关全绿（安装完成）
+  api.bind = async () => ({ account: "iasiv5" });
+  try {
+    const shadow = shadowOf();
+    let connected = 0;
+    renderLoginGate(shadow, { t, status: INSTALLING, onConnected: () => { connected++; } });
+    assert.ok(timers.length >= 1, "installing 轮询已挂");
+    await timers[0].fn();   // 2s 到点：auth 返回 ready → 自动 enter
+    assert.ok(connected >= 1, "三关全绿自动续走 bind+onConnected");
+  } finally {
+    api.auth = origAuth; api.bind = origBind;
+    globalThis.setTimeout = realSetTimeout; globalThis.clearTimeout = realClearTimeout;
+  }
+});
+
 test("renderLoginGate：初次 draw 不抛、结构三段在位；authorized 即 onConnected（不轮询）", async () => {
   const timers = [];
   const realSetTimeout = globalThis.setTimeout;
