@@ -236,6 +236,28 @@ test("renderLoginGate：gh 登录未校验态挂载即静默校验 → CTA 变�
   }
 });
 
+test("renderLoginGate：挂载即见残留 authorized（进程内残留）→ 不触发 onConnected（2026-11-20 一跳一跳缺陷防线）", async () => {
+  const timers = [];
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
+  const realClearTimeout = globalThis.clearTimeout;
+  globalThis.clearTimeout = () => {};
+  const { renderLoginGate } = await import("../src/client/components/loginGate.mjs");
+  const { api } = await import("../src/client/api.mjs");
+  const origAuth = api.auth;
+  api.auth = async () => ({ ...READY, device: { phase: "authorized", login: "iasiv5" } });
+  let connected = 0;
+  try {
+    const shadow = new FakeElement("shadow-root"); shadow.host = new FakeElement("div");
+    renderLoginGate(shadow, { t, status: { ...READY, device: { phase: "authorized", login: "iasiv5" } }, onConnected: () => { connected++; } });
+    for (let i = 0; i < 6; i++) await new Promise((r) => realSetTimeout(r, 0));
+    assert.equal(connected, 0);   // 挂载即 authorized = 进程内残留态，不得自动续走（否则门禁↔reload 循环）
+  } finally {
+    api.auth = origAuth;
+    globalThis.setTimeout = realSetTimeout; globalThis.clearTimeout = realClearTimeout;
+  }
+});
+
 test("renderLoginGate：点击连接 GitHub → deviceStart → 码框渲染 + 轮询挂载（用户报告路径复现）", async () => {
   const timers = [];
   const realSetTimeout = globalThis.setTimeout;

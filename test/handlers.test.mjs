@@ -299,6 +299,30 @@ test("postAuthLogout：只清绑定，watch/设置保留；refresh 重新 401", 
   assert.equal(store.getSettings().intervalMinutes, 0);
 });
 
+test("postAuthLogout/deleteCredential：残留 authorized 设备态复位 idle（2026-11-20 一跳一跳缺陷根治——否则门禁重挂即 onConnected→reload 循环）", async () => {
+  const mkDevice = () => makeHandlers({
+    store: openStore(), provider: PROVIDER({ token: "tk", viewerLogin: "o" }), triage: noTriage,
+    // 预置残留：先经 postAuthDeviceStart 造出 authorized？直接断言不可达——改为先 start（mock 流）再手动置 authorized。
+  });
+  // 用真实路径造 authorized：start → 手动置 authorized（模拟轮询完成）
+  const store = openStore();
+  const provider = { ...PROVIDER({ token: "tk", viewerLogin: "o" }), deviceCodeStart: async () => ({ deviceCode: "DC", userCode: "U", verificationUri: "V", expiresAt: Date.now() + 60000, interval: 0 }), deviceCodePoll: async () => ({ token: "tk" }), verifyToken: async () => ({ login: "o", scopes: ["repo", "read:org"], fineGrained: false, verifiedAt: "T1" }), ghLoginWithToken: async () => ({ ok: true }) };
+  const h1 = makeHandlers({ store, provider, triage: noTriage });
+  await h1.postAuthDeviceStart();
+  await new Promise((r) => setTimeout(r, 10));
+  const st1 = await h1.getAuth();
+  assert.equal(st1.device.phase, "authorized");
+  assert.deepEqual(await h1.postAuthLogout(), { ok: true });   // 退出：authorized 残留必须清（缺陷根治）
+  assert.equal((await h1.getAuth()).device.phase, "idle");
+  // DELETE 路径：authorized + 删除凭证 → 同样复位 idle
+  const store2 = openStore();
+  const h2 = makeHandlers({ store: store2, provider, triage: noTriage });
+  await h2.postAuthDeviceStart();
+  await new Promise((r) => setTimeout(r, 10));
+  await h2.deleteCredential({});
+  assert.equal((await h2.getAuth()).device.phase, "idle");
+});
+
 // ── Task 5：门禁 getAuth 重塑 + 凭据端点（verify/PUT/DELETE）────────
 const PROVIDER5 = (mode = {}) => ({
   ...PROVIDER(mode),

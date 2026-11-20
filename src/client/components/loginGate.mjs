@@ -123,7 +123,7 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
   const sync = (s) => { cardHandle?.update(s); syncFoot(s); };
   syncFoot(local);
 
-  const schedule = () => {
+  const schedule = (initial = false) => {
     stop();
     if (local?.install?.phase === "installing") {
       timer = setTimeout(async () => {
@@ -140,6 +140,13 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
     }
     const ph = local?.device?.phase;
     if (ph === "authorized") {
+      if (initial) {
+        // 挂载即 authorized = 进程内残留终态（非本轮授权）——本地按 idle 呈现，绝不触发 onConnected
+        // （否则重挂→onConnected→reload→重挂 无限循环 = 2026-11-20「一跳一跳」缺陷；服务端已在 logout/delete/bind 消费清零）
+        local = { ...local, device: { phase: "idle" } };
+        sync(local);
+        return;
+      }
       dead = true;
       stop();
       onConnected?.();
@@ -177,5 +184,5 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
     api.verifyCredential().then(refresh).catch(() => {});
   }
 
-  schedule();
+  schedule(true);   // initial：挂载首轮——authorized 视为进程内残留，不触发 onConnected
 }

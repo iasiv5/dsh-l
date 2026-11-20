@@ -151,6 +151,7 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       const login = String(viewer.login ?? "");
       if (account && account.toLowerCase() !== login.toLowerCase()) return fail("account-mismatch: " + login, 409);
       store.setAuth({ account: account || login, login });
+      if (deviceState.phase === "authorized") deviceState = { phase: "idle" };   // authorized 已被绑定消费（gh-as-source 一跳一跳缺陷根治：终态不残留）
       try {
         // B3 实读 scopes：同端点 verifyToken（ETag 生效，通常 304 免计费），scopes/verifiedAt 落凭据块。
         const v = await provider.verifyToken(tk, { fetch });
@@ -161,7 +162,9 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
     },
     async postAuthLogout() {
       // 工作台级退出：只清绑定，watch/候选/设置全保留；绝不调 gh auth logout、不撤销本机凭据。
+      // 残留 authorized 设备态一并复位 idle——否则门禁重挂即 onConnected→reload 循环（2026-11-20 一跳一跳缺陷根治）。
       store.clearAuth();
+      deviceState = { phase: "idle" };
       return { ok: true };
     },
     async postAuthInstallGh() {
@@ -263,6 +266,7 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       const ours = store.getCredential()?.ghWrittenAt != null;   // gh 登录是否为工作台设备流所建（R2Q2 门控）
       store.clearCredential();
       store.clearAuth();
+      deviceState = { phase: "idle" };   // 残留 authorized 同步复位（2026-11-20 一跳一跳缺陷根治）
       viewerCache = null;   // R1-5
       if (!ghLogoutRequested) return { cleared: true, ghLogoutDone: false };
       if (!ours) return { ...fail("gh-not-ours", 409), cleared: true, ghLogoutDone: false };   // 清除已执行；gh 登录非工作台所建，不代作主
