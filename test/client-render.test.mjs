@@ -27,6 +27,8 @@ class FakeElement {
   get firstElementChild() { return this.children[0] ?? null; }
   append(...ns) { for (const n of ns) { if (n == null) continue; n._parent = this; this.children.push(n); } }
   prepend(n) { if (n != null) { n._parent = this; this.children.unshift(n); } }
+  insertBefore(n, ref) { if (n == null) return n; n._parent = this; const i = ref ? this.children.indexOf(ref) : -1; if (i < 0) this.children.push(n); else this.children.splice(i, 0, n); return n; }
+  addEventListener() {}   // 防自动填充 unroof 监听在 stub 上为 no-op
   remove() { if (this._parent) this._parent.children = this._parent.children.filter((c) => c !== this); }
   setAttribute(k, v) { this.attrs[k] = v; }
   getAttribute(k) { return this.attrs[k] ?? null; }
@@ -122,6 +124,32 @@ test("connectionCard 失败态就地呈现：patSave 抛错 → errForm 显示�
   await click(byClass(confirm, "patSave")[0]);
   await new Promise((r) => setTimeout(r, 0));
   assert.ok(byClass(mount, "errForm").some((n) => n.textContent === t("cred.errGhNotOurs")), "gh-not-ours 就地呈现");
+});
+
+test("connectionCard 防自动填充钉：挂载时密码框不进 DOM；展开后 readonly+new-password（2026-11-20 root 回填根因）", () => {
+  // full 卡：setPatOpen(true) 前后
+  const mount = new FakeElement("div");
+  const handle = renderConnectionCard(mount, { t, status: READY, mode: "full", on: {} });
+  assert.ok(!byClass(mount, "patForm").some((n) => n.textContent.includes(t("cred.patTitle"))), "挂载时 PAT 表单不进 DOM（密码框不唤醒 PM）");
+  handle.setPatOpen(true);
+  const form = byClass(mount, "patForm").find((n) => n.textContent.includes(t("cred.patTitle")));
+  assert.ok(form && form.classList.contains("open"), "展开后 PAT 表单在 DOM 且 open");
+  const pat = find(form, (n) => n.tagName === "input")[0];
+  assert.equal(pat.readOnly, true, "密码框 readonly（PM 跳过）");
+  assert.equal(pat.autocomplete, "new-password", "new-password 抑制已存凭据回填");
+  handle.setPatOpen(false);
+  assert.ok(!form.classList.contains("open"), "收起后 open 摘除；节点保留");
+  // compact 卡：patBtn2 点击路径同样懒挂载
+  const m2 = new FakeElement("div");
+  renderConnectionCard(m2, { t, status: READY, mode: "compact", on: {} });
+  assert.ok(!byClass(m2, "patForm").some((n) => n.textContent.includes(t("cred.patTitle"))), "compact 挂载时 PAT 表单不进 DOM");
+  const patBtn = byClass(m2, "auxAct").find((n) => n.textContent.includes(t("cred.patBtn")));
+  click(patBtn);
+  const form2 = byClass(m2, "patForm").find((n) => n.textContent.includes(t("cred.patTitle")));
+  assert.ok(form2 && form2.classList.contains("open"), "compact 点击更换令牌后 PAT 表单进 DOM 且 open");
+  const pat2 = find(form2, (n) => n.tagName === "input")[0];
+  assert.equal(pat2.readOnly, true);
+  assert.equal(pat2.autocomplete, "new-password");
 });
 
 test("connectionCard compact：ready/fresh 两态渲染与辅助按钮可用性", () => {
