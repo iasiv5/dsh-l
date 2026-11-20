@@ -17,39 +17,45 @@ const headers = (token) => ({
   ...(token ? { authorization: "Bearer " + token } : {}),
 });
 
-// ── 摄取分页（登录门禁改造 Task 4）：ETag 条件请求 + 请求预算 ────
+// ── 摄取分页（登录门禁改造 Task 4，评审 R1-1 回放式修复）：ETag 条件请求 + 请求预算 ────
 // ETag 键 = 完整请求 URL（path+query+page）：仅按 path 建键会被末页 etag 覆写、多页仓 304 收益静默失效。
+// 缓存条目 = { etag, page }：304 时**回放该页上轮内容**——listOpen*/postRefresh/sweepUpstream/discover 全链零分支
+// 自然正确（liveKeys 与上轮一致，无误回收、perRepo 计数不归零）；页长 <100 即终止翻页（不越界预取）。
 // 与 verifyToken 的 /user 缓存（token hash 键）是两个独立 Map，LRU 64。
 // budget = { remaining }（调用方创建并跨仓共享）：请求前 remaining<=0 即停、置 partial（Task 6 每次刷新预算 60）。
 const pagedEtagCache = new Map();
 const PAGED_CACHE_LIMIT = 64;
-const pagedCacheTouch = (key, etag) => {
+const pagedCacheTouch = (key, etag, page) => {
   if (!etag) return;
   pagedEtagCache.delete(key);
-  pagedEtagCache.set(key, etag);
+  pagedEtagCache.set(key, { etag, page });
   if (pagedEtagCache.size > PAGED_CACHE_LIMIT) pagedEtagCache.delete(pagedEtagCache.keys().next().value);
 };
 
 export async function pagedGet(path, { token, fetch: f = globalThis.fetch, budget }) {
   const rows = [];
   let partial = false;
-  let unchanged = true;   // 全部页都 304 才判 unchanged（列表尾部变更不会改 page1 的 etag，禁单页短路）
+  let unchanged = true;   // 全部页都 304 才置位（供上层标记；items 始终为该仓当前 open 集）
   for (let pageNo = 1; pageNo <= 10; pageNo++) {
     if (budget && budget.remaining <= 0) { budget.exhausted = true; partial = true; break; }
     if (budget) budget.remaining -= 1;
     const url = API_BASE + path + (path.includes("?") ? "&" : "?") + "per_page=100&page=" + pageNo;
-    const etag = pagedEtagCache.get(url) ?? null;
-    const res = await f(url, { headers: { ...headers(token), ...(etag ? { "if-none-match": etag } : {}) } });
-    if (res.status === 304) continue;   // 该页未变：内容与上轮一致，upsert 幂等无害，直接跳过
+    const hit = pagedEtagCache.get(url) ?? null;
+    const res = await f(url, { headers: { ...headers(token), ...(hit?.etag ? { "if-none-match": hit.etag } : {}) } });
+    if (res.status === 304) {
+      if (!hit) throw Object.assign(new Error("github api 304 for " + path), { status: 304 });   // 无缓存 304：协议异常，保持既有错误风格
+      rows.push(...hit.page);
+      if (hit.page.length < 100) break;   // 上轮该页未满 → 已是末页，终止翻页
+      continue;
+    }
     unchanged = false;
     if (!res.ok) throw Object.assign(new Error("github api " + res.status + " for " + path), { status: res.status });
-    pagedCacheTouch(url, res.headers?.get?.("etag"));
     const batch = await res.json();
+    pagedCacheTouch(url, res.headers?.get?.("etag"), batch);
     rows.push(...batch);
     if (batch.length < 100) break;
   }
-  if (unchanged && rows.length === 0 && !partial) return { items: [], unchanged: true, partial: false };
-  return { items: rows, partial };
+  return { items: rows, partial, unchanged: unchanged && !partial };
 }
 
 const excerpt = (body) => String(body ?? "").slice(0, 600);

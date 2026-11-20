@@ -40,7 +40,7 @@ test("非 2xx 抛带路径的错误", async () => {
 });
 
 // ── pagedGet 额度卫生（Task 4）：ETag 键=完整 URL、预算、err.status、仓库发现扩面 ──
-test("pagedGet：ETag 键含 page——同 path 两 page 各自 304", async () => {
+test("pagedGet：ETag 键含 page——同 path 两 page 各自 304，回放上轮内容", async () => {
   const full = Array.from({ length: 100 }, (_, i) => issue(i + 1));
   const calls = [];
   const f = async (url, init) => {
@@ -55,13 +55,15 @@ test("pagedGet：ETag 键含 page——同 path 两 page 各自 304", async () =
   assert.equal(r1.items.length, 101);
   assert.equal(r1.partial, false);
   const r2 = await github.pagedGet("/repos/o/r/issues?state=open", { token: "tk", fetch: f });
-  assert.equal(r2.unchanged, true);
-  assert.deepEqual(r2.items, []);
+  assert.equal(r2.unchanged, true);            // 全部页 304
+  assert.equal(r2.items.length, 101);          // 回放上轮两页内容（评审 R1-1：调用方零分支自然正确）
+  assert.equal(r2.partial, false);
   assert.equal(calls[2].inm, 'W/"p1"');   // page1 带自己的 etag
   assert.equal(calls[3].inm, 'W/"p2"');   // page2 带自己的 etag（键含 page 的回归锚）
+  assert.equal(calls.length, 4);              // 页长判断终止翻页：不越界预取 page3（次生 a）
 });
 
-test("pagedGet：单页仓 304 → unchanged 跳过处理", async () => {
+test("pagedGet：单页仓 304 → 回放该页行、unchanged 置位", async () => {
   let n = 0;
   const calls = [];
   const f = async (url, init) => {
@@ -72,7 +74,9 @@ test("pagedGet：单页仓 304 → unchanged 跳过处理", async () => {
   };
   await github.pagedGet("/repos/o/uni1/issues", { token: "tk", fetch: f });
   const r2 = await github.pagedGet("/repos/o/uni1/issues", { token: "tk", fetch: f });
-  assert.deepEqual(r2, { items: [], unchanged: true, partial: false });
+  assert.equal(r2.unchanged, true);
+  assert.equal(r2.items.length, 1);            // 回放而非空数组（评审 R1-1）
+  assert.equal(r2.partial, false);
   assert.equal(calls[1], 'W/"s"');
 });
 
@@ -85,7 +89,7 @@ test("pagedGet：预算耗尽截断 partial；剩余 0 时不发请求", async (
   assert.equal(r.partial, true);
   assert.equal(calls.length, 1);
   const r0 = await github.pagedGet("/repos/o/uni2/pulls", { token: null, fetch: f, budget: { remaining: 0 } });
-  assert.deepEqual(r0, { items: [], partial: true });
+  assert.deepEqual(r0, { items: [], partial: true, unchanged: false });
   assert.equal(calls.length, 1);
 });
 

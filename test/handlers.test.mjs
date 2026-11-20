@@ -550,6 +550,40 @@ test("getState：auth 载荷带 credential 健康摘要（无网络探测）", a
   assert.deepEqual(st.auth.credential, { configured: true, healthy: true, verifiedAt: "2026-11-19T00:00:00.000Z", rateLimitedUntil: null });
 });
 
+test("postRefresh 304 集成回归（评审 R1-1）：未变化仓二轮刷新——候选保留 inbox、perRepo 计数不变、无误回收", async () => {
+  const realGithub = await import("../src/github.mjs");
+  const store = openStore(); login(store); healthyCred(store);
+  store.setWatch(["o/r"]);
+  const calls = [];
+  const f = async (url, init) => {
+    calls.push({ url, inm: init?.headers?.["if-none-match"] ?? null });
+    const etag = 'W/"e"';
+    if (init?.headers?.["if-none-match"] === etag) return { ok: false, status: 304, headers: { get: () => null } };
+    const path = new URL(url).pathname;
+    if (path.endsWith("/issues")) {
+      const pageNo = Number(new URL(url).searchParams.get("page")) || 1;
+      if (pageNo >= 2) return { ok: true, status: 200, headers: { get: () => null }, json: async () => [] };   // 总长 1 行：page1 后即止
+      return { ok: true, status: 200, headers: { get: (x) => (x.toLowerCase() === "etag" ? etag : null) }, json: async () => [{ number: 7, title: "t", user: { login: "u" }, labels: [], created_at: "2026-11-01T00:00:00Z", updated_at: "T", html_url: "U", comments: 0, reactions: { total_count: 0 }, body: "b" }] };
+    }
+    if (path.endsWith("/pulls")) return { ok: true, status: 200, headers: { get: () => null }, json: async () => [] };
+    return { ok: true, status: 200, headers: { get: () => null }, json: async () => ({ default_branch: "main", ssh_url: "git@github.com:o/r.git" }) };   // /repos/o/r
+  };
+  const h = makeHandlers({ store, provider: { ...PROVIDER5({ token: "tk", viewerLogin: "o" }), listOpenIssues: realGithub.listOpenIssues, listOpenPulls: realGithub.listOpenPulls, getRepo: realGithub.getRepo }, triage: noTriage, fetch: f });
+  const calls1 = calls.length;
+  const r1 = await h.postRefresh();
+  assert.equal(r1.perRepo["o/r"].issues, 1);
+  assert.equal(store.getCandidate("o/r#issue#7").stage, "inbox");
+  const calls2Start = calls.length;
+  const r2 = await h.postRefresh();
+  assert.equal(r2.perRepo["o/r"].issues, 1);                          // 计数不归零
+  assert.equal(r2.perRepo["o/r"].error, null);
+  assert.equal(store.getCandidate("o/r#issue#7").stage, "inbox");     // 不误回收（阻断主断言）
+  assert.equal(store.getCandidate("o/r#issue#7").history.some((x) => x.event === "upstream-closed"), false);
+  const secondRound = calls.slice(calls2Start);
+  assert.equal(secondRound.length, 3);                                // issues 304 + pulls 200 + getRepo 200（页长终止，不越界）
+  assert.equal(secondRound[0].inm, 'W/"e"');
+});
+
 // ---- Task 9：run 四路由 + postGate 别名（engine 真 makeEngine + fake workspace/executor）----
 const fakeRunWorkspace = () => ({ ensure: async () => ({ dir: "/ws", cloned: false }), dirOf: () => "/ws", sweep: async () => ({ removed: [] }) });
 const fakeRunExecutor = () => {
