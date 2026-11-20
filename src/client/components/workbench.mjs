@@ -89,7 +89,7 @@ const CSS = [
   ".dot.wait{background:#d29922;animation:dot-breathe 1.6s ease-in-out infinite}",
   "@keyframes dot-breathe{50%{opacity:.35}}",
   "@media (prefers-reduced-motion:reduce){.dot.wait{animation:none}}",
-  ".recheck{flex:none;width:30px;height:30px;display:grid;place-items:center;border:1px solid color-mix(in srgb,currentColor 12%,transparent);border-radius:8px;background:transparent;color:inherit;cursor:pointer}",
+  ".recheck{flex:none;padding:0;width:30px;height:30px;display:grid;place-items:center;border:1px solid color-mix(in srgb,currentColor 12%,transparent);border-radius:8px;background:transparent;color:inherit;cursor:pointer}",
   ".recheck svg{transition:transform 400ms cubic-bezier(.22,1,.36,1)}",
   ".recheck:hover svg{transform:rotate(140deg)}",
   ".recheck:focus-visible{outline:2px solid color-mix(in srgb,#324DE2 60%,transparent);outline-offset:2px}",
