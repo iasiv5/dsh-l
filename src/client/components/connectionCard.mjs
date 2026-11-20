@@ -94,6 +94,7 @@ const deriveView = (t, status, ui) => {
   else if (pending) { badge = [t("cred.badgeBusy"), "wait"]; sub = t("cred.subDevice"); }
   else if (ok) { badge = [t("cred.badgeOk"), "ok"]; sub = c.source === "manual-pat" ? t("cred.subOk") : t("cred.subFlowOk"); }
   else if (c.healthy === false && verified) { badge = [t("cred.badgeErr"), "err"]; sub = t("cred.subErr"); }
+  else if (!hasGh) { badge = [t("cred.badgeUnset"), "warn"]; sub = installing ? t("cred.subInstalling") : t("cred.subNoGh"); }   // gh 未装：状态句引导安装（2026-11-20 简报）
   else if (ui.patOpen) { badge = [t("cred.badgeUnset"), "warn"]; sub = t("cred.subPat"); }
   else { badge = [t("cred.badgeUnset"), "warn"]; sub = t("cred.subUnset"); }
 
@@ -107,7 +108,7 @@ const deriveView = (t, status, ui) => {
     else cta = { label: t("cred.connectBtn"), disabled: false, action: "connect" };
   }
 
-  const showKv = verified;
+  const showKv = ok || limited;   // 仅凭据当前有效/限流显示；陈旧 verifiedAt 不再让「未配置」卡挂着旧 kv（2026-11-20 简报）
   const sourceText = c.source === "manual-pat" ? t("cred.srcPat") : c.source === "device-flow" ? t("cred.srcDeviceFlow") : t("cred.srcGh");
   const chips = [];
   if (Array.isArray(scopes) && scopes.length === 0) chips.push([t("cred.scopeFineGrained"), false]);
@@ -131,7 +132,7 @@ const deriveView = (t, status, ui) => {
   if (authorizing) notes.push(t("cred.g3WaitHanding"));
 
   const aux = [];
-  if (!pending && !ui.patOpen && !ui.confirmDelete && (ok || verified)) {
+  if (!pending && !ui.patOpen && !ui.confirmDelete && (ok || limited || (verified && hasGh))) {
     aux.push(limited ? ["recheck", t("cred.bannerRecheck")] : ["recheck", t("cred.recheck")]);
     aux.push(["pat", ok ? t("cred.patReplace") : t("cred.patBtn")]);
     aux.push(["delete", t("cred.deleteBtn")]);
@@ -277,7 +278,7 @@ export function renderConnectionCard(parent, { t, status = null, mode = "full", 
     const st = el("span", "gSt");
     row.append(d, el("span", "gName", name), st);
     gatesBox.append(row);
-    return { d, st };
+    return { row, d, st };
   });
   card.append(gatesBox);
 
@@ -406,6 +407,7 @@ export function renderConnectionCard(parent, { t, status = null, mode = "full", 
     const stCls = (s) => (s === "ok" ? "ok" : s === "bad" ? "warn" : "wait");
     v.gates.forEach(([state, stText], i) => {
       const r = gateRows[i];
+      r.row.style.display = i === 0 || v.hasGh ? "" : "none";   // gh 未装：只留 gh CLI 一行（2026-11-20 简报）
       r.d.className = "dot " + stCls(state);
       r.st.textContent = stText;
       r.st.classList.toggle("is-bad", state === "bad");
@@ -417,7 +419,7 @@ export function renderConnectionCard(parent, { t, status = null, mode = "full", 
       for (const [text, miss] of v.chips) kvChips.append(el("span", "chip" + (miss ? " is-miss" : ""), text));
       kvChecked.textContent = v.checked;
     }
-    connectZone.style.display = (!v.ok && !v.pending && !patOpen && !confirmDelete) ? "" : "none";
+    connectZone.style.display = (v.hasGh && !v.ok && !v.pending && !patOpen && !confirmDelete) ? "" : "none";   // gh 未装：双方法区不出现，唯一出路是安装（2026-11-20 简报）
     codeBox.style.display = v.pending ? "" : "none";
     deviceLine.style.display = v.pending ? "" : "none";
     if (v.pending) {

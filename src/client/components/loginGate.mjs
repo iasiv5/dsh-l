@@ -37,7 +37,7 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
 
   const refresh = async () => {
     try { local = await api.auth(); } catch {}
-    cardHandle?.update(local);
+    sync(local);
     schedule();
   };
 
@@ -66,7 +66,7 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
       try {
         await api.installGh();
         local = { ...local, install: { phase: "installing" } };
-        cardHandle?.update(local);
+        sync(local);
       } catch {}
       schedule();
     },
@@ -74,7 +74,7 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
       try {
         const d = await api.deviceStart();
         local = { ...local, device: d };
-        cardHandle?.update(local);
+        sync(local);
         schedule();
       } catch {}
       await refresh();
@@ -104,11 +104,21 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
   brand.append(mark, el("h3", "gateTitle", t("auth.loginTitle")));
   const cardMount = el("div");
   panel.append(brand, cardMount);
-  panel.append(el("footer", "gateFoot", t("cred.footNote")));
+  const foot = el("footer", "gateFoot", t("cred.footNote"));
+  panel.append(foot);
   wrap.append(panel);
   shadow.append(wrap);
 
   const cardHandle = renderConnectionCard(cardMount, { t, status: local, mode: "full", on });
+
+  // 脚注随凭据在场才显示（2026-11-20 简报：未安装态「凭据仅存本机…」是纯噪音）
+  const syncFoot = (s) => {
+    const c = s?.credential ?? {};
+    const limitedNow = Boolean(c.rateLimitedUntil) && new Date(c.rateLimitedUntil) > new Date();
+    foot.style.display = s?.gates?.credentialOk === true || c.healthy === false || limitedNow ? "" : "none";
+  };
+  const sync = (s) => { cardHandle?.update(s); syncFoot(s); };
+  syncFoot(local);
 
   const schedule = () => {
     stop();
@@ -120,7 +130,7 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
           await enter();
           return;
         }
-        cardHandle?.update(local);
+        sync(local);
         schedule();
       }, 2000);
       return;
@@ -144,7 +154,7 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
           onConnected?.();
           return;
         }
-        cardHandle?.update(local);
+        sync(local);
         schedule();
       }, ph === "authorizing" ? 1500 : 4000);
     }

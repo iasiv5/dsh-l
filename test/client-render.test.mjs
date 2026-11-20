@@ -66,16 +66,35 @@ test("connectionCard full：ready 态渲染不抛，CTA=进入工作台，kv 门
   assert.equal(byClass(mount, "auxAct").length, 3);
 });
 
-test("connectionCard full：fresh 态双方法区 + 安装 CTA + 注脚；pending 态码框 + 互切", () => {
+test("connectionCard full：fresh 态单门禁行收敛 + 安装 CTA + 注脚；pending 态码框 + 互切（2026-11-20 简报）", () => {
   const mount = new FakeElement("div");
   renderConnectionCard(mount, { t, status: FRESH, mode: "full", on: {} });
-  assert.equal(byClass(mount, "method").length, 2);
+  assert.equal(byClass(mount, "method").length, 2);   // 骨架常驻；显隐单独钉
+  assert.equal(byClass(mount, "connectZone")[0].style.display, "none");   // gh 未装：双方法区不出现
+  const rows = byClass(mount, "gateRow");
+  assert.equal(rows.length, 3);
+  assert.notEqual(rows[0].style.display, "none");   // 只留 gh CLI 一行
+  assert.equal(rows[1].style.display, "none");
+  assert.equal(rows[2].style.display, "none");
+  assert.equal(byClass(mount, "kv")[0].style.display, "none");
   assert.ok(byClass(mount, "cta")[0].textContent.includes(t("cred.installCta")));
   assert.ok(byClass(mount, "note").some((n) => n.textContent.includes(t("cred.installManual"))));
   const m2 = new FakeElement("div");
   renderConnectionCard(m2, { t, status: PENDING, mode: "full", on: {} });
   assert.ok(byClass(m2, "gateCode")[0].textContent.includes("ABCD-1234"));
   assert.ok(byClass(m2, "switchLink").length >= 1);
+});
+
+test("connectionCard full：陈旧 verifiedAt 幽灵态收敛——kv/aux/双方法区隐藏、单行+安装 CTA（2026-11-20 简报）", () => {
+  const GHOST = { gates: { ghInstalled: false, ghLogin: false, credentialOk: false }, viewerLogin: null, credential: { configured: false, source: "gh-login-state", scopes: ["gist", "read:org", "repo"], verifiedAt: new Date().toISOString(), healthy: true, ghWrittenByUs: false, rateLimitedUntil: null }, install: { phase: "idle" }, device: { phase: "idle" } };
+  const mount = new FakeElement("div");
+  renderConnectionCard(mount, { t, status: GHOST, mode: "full", on: {} });
+  assert.equal(byClass(mount, "kv")[0].style.display, "none");
+  assert.equal(byClass(mount, "aux")[0].style.display, "none");
+  assert.equal(byClass(mount, "connectZone")[0].style.display, "none");
+  assert.ok(byClass(mount, "badge")[0].textContent.includes(t("cred.badgeUnset")));
+  assert.ok(byClass(mount, "credSub")[0].textContent.includes(t("cred.subNoGh")));
+  assert.ok(byClass(mount, "cta")[0].textContent.includes(t("cred.installCta")));
 });
 
 test("connectionCard 句柄开关：patOpen/confirmDelete 类切换零重建（堆叠回归钉）", () => {

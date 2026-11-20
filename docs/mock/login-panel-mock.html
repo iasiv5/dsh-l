@@ -355,7 +355,7 @@
       </section>
 
       <!-- ③ 脚注区 -->
-      <footer class="foot">
+      <footer class="foot hidden" id="gateFoot">
         凭据仅存本机；退出只解除绑定，不影响 gh 登录态。
       </footer>
     </div>
@@ -397,13 +397,11 @@ const chip = (text, miss) => { const c = el("span", "chip" + (miss ? " is-miss" 
 const STATES = {
   fresh: {
     badge: ["未配置", "warn"],
-    sub: "设备流授权 · 无需复制令牌",
+    sub: "先安装 gh CLI，再连接 GitHub",
     gates: [
-      ["bad", "未安装（下方按钮一键安装，或见手动安装指引）", null],
-      ["wait", "等待 gh CLI 就绪", null],
-      ["wait", "等待 gh 登录与凭据校验", null],
+      ["bad", "未安装", null],
     ],
-    kv: false, connect: true, code: false,
+    kv: false, connect: false, code: false, foot: false,
     cta: ["一键安装 gh CLI", false, () => setState("installing")],
     aux: [],
     notes: [
@@ -413,13 +411,11 @@ const STATES = {
   },
   installing: {
     badge: ["未配置", "warn"],
-    sub: "设备流授权 · 无需复制令牌",
+    sub: "正在后台安装 gh CLI…",
     gates: [
       ["wait", "正在后台安装…", null],
-      ["wait", "等待 gh CLI 就绪", null],
-      ["wait", "等待 gh 登录与凭据校验", null],
     ],
-    kv: false, connect: true, code: false,
+    kv: false, connect: false, code: false, foot: false,
     cta: ["正在后台安装 gh CLI…", true, null],
     aux: [],
     notes: ["安装完成后本页自动继续，可随时离开；不改动系统 PATH 与已有环境。"],
@@ -432,7 +428,7 @@ const STATES = {
       ["wait", "等待你在 GitHub 确认授权", null],
       ["wait", "授权后自动校验", null],
     ],
-    kv: false, connect: false, code: true,
+    kv: false, connect: false, code: true, foot: false,
     cta: null,
     aux: [],
     notes: ["授权成功后自动移交 gh 凭据库、校验凭据并进入工作台，全程无需手动输入用户名。"],
@@ -450,7 +446,7 @@ const STATES = {
       scopes: [["repo", false], ["read:org", true]],
       checked: '<span class="ok-frag">令牌有效</span> · 5 分钟前',
     },
-    connect: false, code: false,
+    connect: false, code: false, foot: true,
     cta: ["iasiv5 · 进入工作台", false, null],
     aux: [["auxPat", "更换访问令牌"], ["auxReverify", "重新校验"], ["auxDelete", "删除凭证"]],
     notes: [],
@@ -463,7 +459,7 @@ const STATES = {
       ["ok", "已登录（iasiv5）", null],
       ["bad", "未提供工作台凭据", null],
     ],
-    kv: false, connect: false, code: false, pat: true,
+    kv: false, connect: false, code: false, pat: true, foot: false,
     cta: null,
     aux: [],
     notes: [],
@@ -478,7 +474,7 @@ const STATES = {
     ],
     kv: true,
     kvOverrides: {},
-    connect: false, code: false,
+    connect: false, code: false, foot: true,
     cta: ["iasiv5 · 进入工作台", false, null],
     aux: [["auxPat", "更换访问令牌"], ["auxReverify", "重新校验"], ["auxDelete", "删除凭证"]],
     notes: [],
@@ -493,7 +489,7 @@ const STATES = {
     ],
     kv: true,
     kvOverrides: { checked: '<span class="ok-frag">凭据有效</span> · 上次校验 12 分钟前' },
-    connect: false, code: false,
+    connect: false, code: false, foot: true,
     warn: "GitHub 主限流中：候选摄取暂停约 8 分钟后自动恢复。限流不影响凭据有效性，无需重新授权。",
     cta: ["iasiv5 · 进入工作台", false, null],
     aux: [["auxReverify", "稍后重试校验"], ["auxPat", "更换访问令牌"], ["auxDelete", "删除凭证"]],
@@ -507,7 +503,7 @@ function chipHtml(pairs) {
 }
 function renderGates(rows) {
   const box = $("gates"); box.textContent = "";
-  const names = ["gh CLI 已安装", "gh 已登录", "凭据校验通过"];
+  const names = ["gh CLI", "gh 登录", "凭据校验"];
   rows.forEach((r, i) => {
     const [state, stText] = r;
     const row = el("div", "gateRow");
@@ -529,6 +525,7 @@ function setState(name) {
   // kv
   $("kv").classList.toggle("hidden", !s.kv);
   $("connectZone").classList.toggle("hidden", !s.connect);
+  $("gateFoot").classList.toggle("hidden", !s.foot);   // 脚注随凭据在场（2026-11-20 简报）
   if (s.kv) {
     const o = s.kvOverrides || {};
     $("kvSource").textContent = o.source ?? "GitHub 授权（设备流）· 副本已移交 gh";
