@@ -177,50 +177,23 @@ const el = (tag, cls, text) => {
 export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
   let state = null;
   let authInfo = null;
-  let compactPat = false;       // Task 10：收活紧凑卡的内联换令牌表单开关
-  let compactDelete = false;    // Task 10：收活紧凑卡的内联删除确认开关
-  let compactPatError = null;   // 评审问题 3：紧凑卡 PAT 失败呈现
-  let compactDeleteError = null;// 评审问题 3：紧凑卡删除失败呈现（gh-not-ours 等）
-  let credMountEl = null;       // 评审问题（执行产出）：紧凑卡开关用定向重渲染，避免整台 paint() 全量重建引发宿主重排竞态
-  let reloadRunning = false;    // view.reload 并发合并（用户报告回归钉：连点换令牌/删除时的 paint 重入 churn）
-  let reloadQueued = false;
-  const rerenderCompact = () => {
-    if (!credMountEl) { paint(); return; }
-    renderConnectionCard(credMountEl, { t: makeT(getLang()), status: authInfo, mode: "compact", patOpen: compactPat, confirmDelete: compactDelete, patError: compactPatError, deleteError: compactDeleteError, on: compactOn });
-  };
+  // 紧凑卡 UI 态由卡内管理（连接卡句柄化重构：开关零 DOM 重建）；服务动作经 compactOn 抛错给卡呈现。
   const compactOn = {
     verify: async () => { try { await api.verifyCredential(); } catch {} await view.reload(); },
-    togglePat: () => { compactPat = !compactPat; compactDelete = false; compactPatError = null; rerenderCompact(); },
-    toggleDelete: () => { compactDelete = !compactDelete; compactPat = false; compactDeleteError = null; rerenderCompact(); },
     patSave: async (token) => {
-      if (!token) return;
-      try {
-        await api.putCredential(token);
-        compactPatError = null;
-        compactPat = false;
-      } catch (e) {
-        compactPatError = e?.message ?? String(e);   // 失败态可见呈现（评审问题 3：不再静默关表单）
-      }
+      await api.putCredential(token);   // 失败抛错 → 卡内 errForm 呈现（评审问题 3 纪律延续），成功才 reload
       await view.reload();
     },
     deleteConfirmed: async (ghLogout) => {
-      try {
-        await api.deleteCredential(ghLogout);
-        compactDeleteError = null;
-        compactDelete = false;
-      } catch (e) {
-        compactDeleteError = e?.message ?? String(e);   // gh-not-ours：gh 未动的事实必须可见
-        compactDelete = true;
-      }
+      await api.deleteCredential(ghLogout);
       await view.reload();
     },
-    cancelPat: () => { compactPat = false; compactPatError = null; rerenderCompact(); },
-    cancelDelete: () => { compactDelete = false; compactDeleteError = null; rerenderCompact(); },
-    // 紧凑卡不发起设备流（登录面板专属入口）；switchToDevice 在此处退化为收起表单
-    switchToDevice: () => { compactPat = false; compactPatError = null; rerenderCompact(); },
     connect: () => {}, enter: () => {}, install: () => {},
+    cancelPat: () => {}, cancelDelete: () => {}, switchToDevice: () => {},
   };
   let compactVerifiedAt = 0;    // 评审 S6：compact 挂载的 TTL 静默校验节流（Task 10「Task 9 同款」）
+  let reloadRunning = false;    // view.reload 并发合并（用户报告回归钉：连点换令牌/删除时的 paint 重入 churn）
+  let reloadQueued = false;
   let error = null;
   let notice = null;
   let busy = false;
@@ -346,9 +319,9 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
         api.verifyCredential().then(() => view.reload()).catch(() => {});
       }
     }
-    credMountEl = el("div");
-    intake.append(credMountEl);
-    renderConnectionCard(credMountEl, { t, status: authInfo, mode: "compact", patOpen: compactPat, confirmDelete: compactDelete, patError: compactPatError, deleteError: compactDeleteError, on: compactOn });
+    credMount = el("div");
+    intake.append(credMount);
+    renderConnectionCard(credMount, { t, status: authInfo, mode: "compact", on: compactOn });
     const intakeChips = el("div", "chips");
     const watchRepos = state?.watch?.repos ?? [];
     const perRepo = state?.snapshots?.perRepo ?? {};

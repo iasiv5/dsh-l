@@ -1,9 +1,10 @@
 import { api } from "../api.mjs";
 import { renderConnectionCard } from "./connectionCard.mjs";
 
-// 登录面板（Task 9 重写）：全面板三段式——品牌区（大标题金句）/ 三关门禁 + 凭据卡 / 脚注区。
-// 组件契约：renderLoginGate 签名不变（workbench 调用点零改动）；轮询节奏不变（install 2s / device 4s / authorizing 1.5s）；
-// DOM 保留 .gateWrap > article.gate > button.cta 类名链（scripts/ui-probe.cjs 视图判定锚）。
+// 登录面板（Task 9 重写，用户实测反馈二次重构）：全面板三段式——品牌区/三关门禁+凭据卡/脚注区。
+// 结构约束（评审执行产出反馈）：外壳一次构建常驻，凭据卡经句柄 update(status) 单点同步——
+// 任何 UI 开关（PAT 表单/删除确认）都是卡内类切换，**零 DOM 重建**（宿主工作区空白的触发面消除）。
+// 轮询节奏不变（install 2s / device 4s / authorizing 1.5s）；DOM 保留 .gateWrap > article.gate > button.cta 锚链。
 // 作者化图标 = icon.svg 原样（蓝青双弧循环双箭头），衬底由 .gateMark 蓝调 plate 提供。
 const MARK = '<svg width="27" height="27" viewBox="0 0 36 36" fill="none" aria-hidden="true">'
   + '<path d="M14.41 27.87A10.5 10.5 0 0 1 13.56 8.48" stroke="url(#dshl-mk-b)" stroke-width="4" stroke-linecap="round" fill="none"/>'
@@ -23,24 +24,20 @@ const el = (tag, cls, text) => {
   return n;
 };
 
-const VERIFY_TTL_MS = 30 * 60 * 1000;   // R2Q3：打开面板时 verifiedAt 超时才静默校验（失败静默不阻塞渲染）
+const VERIFY_TTL_MS = 30 * 60 * 1000;   // R2Q3：已校验但 verifiedAt 超时 → 挂载时静默重校验
 
 // 登录门禁（GLOSSARY「门禁」）：三关全绿才放行进入工作台；授权方式并列双方法（设备流 / 访问令牌，随时互切）。
 export function renderLoginGate(shadow, { t, status, onConnected }) {
   let local = status ?? {};
-  let timer = null;
   let dead = false;
-  let patOpen = false;        // 手动令牌表单（组件局部 UI 态，与服务器状态无关）
-  let confirmDelete = false;  // 删除确认浮层（R2Q2：gh logout 复选框按 ghWrittenByUs 门控）
-  let patError = null;        // PAT 保存失败的服务端错误串（评审问题 3：失败态可见呈现）
-  let deleteError = null;     // 删除凭证失败的服务端错误串（gh-not-ours 等）
-  let entered = false;        // bind 成功后防重入
+  let entered = false;
+  let timer = null;
 
   const stop = () => { if (timer) { clearTimeout(timer); timer = null; } };
 
   const refresh = async () => {
     try { local = await api.auth(); } catch {}
-    draw();
+    cardHandle?.update(local);
     schedule();
   };
 
@@ -58,90 +55,60 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
     }
   };
 
-  // R1-3：PUT 成功后按三关判定——全绿才自动 bind 进入；未全绿停留面板（CTA 切缺失门禁动作），轮询续走。
   const afterPatSave = async () => {
-    patOpen = false;
-    await refresh();
+    await refresh();   // PAT 保存成功：状态刷新；三关全绿则自动续走 bind+onConnected（计划 Task 9）
     if (local?.gates?.ghInstalled && local?.gates?.ghLogin && local?.gates?.credentialOk) await enter();
   };
 
+  // on.patSave / on.deleteConfirmed **抛错** → 凭据卡内 errForm 就地呈现（错误所有权在卡）
   const on = {
     install: async () => {
       try {
         await api.installGh();
         local = { ...local, install: { phase: "installing" } };
+        cardHandle?.update(local);
       } catch {}
-      draw();
       schedule();
     },
     connect: async () => {
       try {
         const d = await api.deviceStart();
         local = { ...local, device: d };
-        draw();
+        cardHandle?.update(local);
         schedule();
-      } catch {}   // already-authorized 等守卫失败经状态刷新呈现
+      } catch {}
       await refresh();
     },
     enter,
     verify: async () => { await refresh(); },
-    togglePat: () => { patOpen = !patOpen; confirmDelete = false; patError = null; draw(); },
-    cancelPat: () => { patOpen = false; patError = null; draw(); },
-    switchToDevice: async () => { patOpen = false; patError = null; await on.connect(); },
-    toggleDelete: () => { confirmDelete = !confirmDelete; patOpen = false; deleteError = null; draw(); },
-    cancelDelete: () => { confirmDelete = false; deleteError = null; draw(); },
-    deleteConfirmed: async (ghLogout) => {
-      try {
-        await api.deleteCredential(ghLogout);
-        deleteError = null;
-        patOpen = false;
-        await refresh();   // 成功：凭据/绑定已变，刷新进入新状态（未配置面板或工作台）
-      } catch (e) {
-        deleteError = e?.message ?? String(e);   // gh-not-ours：清除已执行但 gh 未动——浮层就地呈现，不 refresh（避免整面板重置吞掉提示）
-        confirmDelete = true;
-        draw();
-      }
-    },
+    switchToDevice: async () => { await on.connect?.(); },
+    cancelPat: () => {},
+    cancelDelete: () => {},
     patSave: async (token) => {
-      if (!token) return;
-      try {
-        await api.putCredential(token);
-        patError = null;
-        await afterPatSave();
-      } catch (err) {
-        patError = err?.message ?? String(err);   // credential-format/invalid/verify-failed → 表单下错误行
-        await refresh();
-        draw();
-      }
+      if (!token) throw new Error("credential-format");
+      await api.putCredential(token);
+      await afterPatSave();
+    },
+    deleteConfirmed: async (ghLogout) => {
+      await api.deleteCredential(ghLogout);
+      await refresh();
     },
   };
 
-  const draw = () => {
-    if (dead) return;
-    // 只清自己拥有的 .gateWrap——shadow 里的 <style> 是 workbench 注入的，抹掉会让整台裸奔成纯文本
-    for (const el of [...shadow.children]) {
-      if (el.classList?.contains("gateWrap")) el.remove();
-    }
-    const wrap = el("div", "gateWrap");
-    const panel = el("div", "gatePanel");
+  // 外壳一次构建：品牌区 / 凭据卡挂载点 / 脚注区
+  const wrap = el("div", "gateWrap");
+  const panel = el("div", "gatePanel");
+  const brand = el("header", "brandRow");
+  const mark = el("div", "gateMark");
+  mark.append(svg(MARK));
+  brand.append(mark, el("h3", "gateTitle", t("auth.loginTitle")));
+  const cardMount = el("div");
+  panel.append(brand, cardMount);
+  panel.append(el("footer", "gateFoot", t("cred.footNote")));
+  wrap.append(panel);
+  shadow.append(wrap);
 
-    // ① 品牌区：品牌标 + 大标题（金句 B，无副标题——B6 范围事实）
-    const brand = el("header", "brandRow");
-    const mark = el("div", "gateMark");
-    mark.append(svg(MARK));
-    const title = el("h3", "gateTitle", t("auth.loginTitle"));
-    brand.append(mark, title);
-    panel.append(brand);
-
-    // ② 授权卡（connectionCard full 形态，直接产出 article.gate；面板打开时超 TTL 静默校验一次）
-    renderConnectionCard(panel, { t, status: local, mode: "full", patOpen, confirmDelete, patError, deleteError, on });
-
-    // ③ 脚注区
-    panel.append(el("footer", "gateFoot", t("cred.footNote")));
-
-    wrap.append(panel);
-    shadow.append(wrap);
-  };
+  const cardHandle = renderConnectionCard(cardMount, { t, status: local, mode: "full", on });
 
   const schedule = () => {
     stop();
@@ -153,7 +120,7 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
           await enter();
           return;
         }
-        draw();
+        cardHandle?.update(local);
         schedule();
       }, 2000);
       return;
@@ -177,14 +144,14 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
           onConnected?.();
           return;
         }
-        draw();
+        cardHandle?.update(local);
         schedule();
       }, ph === "authorizing" ? 1500 : 4000);
     }
   };
 
-  // 打开面板时的主动静默校验（B10/R2Q3 + gh-fallback 补验）：
-  // ① 已校验但 verifiedAt 超时 → 重校验刷新；② gh 登录态在场但从未校验（存量 gh-fallback 用户）→ 挂载即补校验一次，
+  // 挂载时主动静默校验（B10/R2Q3 + gh-fallback 补验）：
+  // ① 已校验但 verifiedAt 超时 → 重校验；② gh 登录态在场但从未校验（存量 gh-fallback 用户）→ 补校验一次，
   // 成功后 G3 转绿、CTA 自动切换为「进入工作台」——不再要求 gh 登录用户显式走一遍面板授权。
   const c0 = local?.credential ?? {};
   const g0 = local?.gates ?? {};
@@ -197,6 +164,5 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
     api.verifyCredential().then(refresh).catch(() => {});
   }
 
-  draw();
   schedule();
 }

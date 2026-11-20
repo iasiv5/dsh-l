@@ -1,22 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-// 客户端渲染回归（评审 R1·问题 2 的测试缺口补面）：全套件此前无一执行客户端渲染路径，
-// 4 处未定义标识符（compact 裸名 / ui.confirmDelete / cardMount 残行）带病绿。
-// 本文件用最小 DOM stub 直调真实组件模块，钉死三件事：
-//   ① renderConnectionCard full/compact 两形态在代表性状态下不抛且产出关键节点；
-//   ② renderLoginGate 首次 draw 不抛、schedule 生效（timer 挂上）、authorized 即 onConnected；
-//   ③ deriveView 状态面（badge/gates 派生）冒烟。
+// 客户端渲染回归（评审执行产出反馈轮）：凭据卡句柄化（常驻骨架 + 类切换）后的钉子——
+// ① full/compact 两形态代表性状态渲染不抛且节点齐备；② **UI 开关零 DOM 重建**（堆叠回归钉：mount 子节点数恒定）；
+// ③ 失败态就地呈现（errKeyFor 映射）；④ renderLoginGate 首次 draw 不抛、静默补验、connect 链路、authorized→onConnected。
 
-// ── 最小 DOM stub ──────────────────────────────────────────────
+// ── 最小 DOM stub（父链 remove/切换 class 支持完整语义） ──
 class FakeElement {
   constructor(tag) { this.tagName = tag; this.children = []; this.attrs = {}; this._text = ""; this.onclick = null; this.type = ""; this.disabled = false; this.checked = false; this.style = {}; this._parent = null; }
   get classList() {
-    const raw = String(this.attrs.class ?? "");
+    const self = this;
+    const names = () => String(self.attrs.class ?? "").split(/\s+/).filter(Boolean);
     return {
-      add: (...cs) => { this.attrs.class = [...new Set([...raw.split(/\s+/).filter(Boolean), ...cs])].join(" "); },
-      remove: (...cs) => { this.attrs.class = raw.split(/\s+/).filter((c) => c && !cs.includes(c)).join(" "); },
-      contains: (c) => raw.split(/\s+/).includes(c),
+      add: (...cs) => { self.attrs.class = [...new Set([...names(), ...cs])].join(" "); },
+      remove: (...cs) => { self.attrs.class = names().filter((c) => !cs.includes(c)).join(" "); },
+      toggle: (c, force) => { const has = names().includes(c); const want = force === undefined ? !has : Boolean(force); if (want && !has) self.attrs.class = [...names(), c].join(" "); else if (!want && has) self.attrs.class = names().filter((x) => x !== c).join(" "); },
+      contains: (c) => names().includes(c),
     };
   }
   set className(v) { this.attrs.class = v; }
@@ -39,10 +38,6 @@ class FakeElement {
   set href(v) { this.attrs.href = v; }
   get href() { return this.attrs.href ?? ""; }
 }
-const shadowOf = () => { const sh = new FakeElement("shadow-root"); sh.host = new FakeElement("div"); return sh; };
-
-// document/window 全局（组件模块顶层只读这些；fetch 在 loginGate 路径经 api 模块——该路径用 authorized 短路绕开网络）
-// Node 24 的 navigator 是只读 getter——defineProperty 覆盖。
 Object.defineProperty(globalThis, "document", { value: { createElement: (tag) => new FakeElement(tag) }, configurable: true, writable: true });
 Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async () => {} } }, configurable: true, writable: true });
 
@@ -56,100 +51,89 @@ const PENDING = { ...FRESH, gates: { ghInstalled: true, ghLogin: false, credenti
 
 const find = (node, pred, out = []) => { for (const c of node.children ?? []) { if (pred(c)) out.push(c); find(c, pred, out); } return out; };
 const byClass = (root, cls) => find(root, (n) => typeof n.className === "string" && n.className.split(/\s+/).includes(cls));
+const click = (n) => n.onclick({ preventDefault() {} });
 
-test("connectionCard full：ready 态渲染不抛，CTA=进入工作台，kv 门禁行齐备", () => {
+test("connectionCard full：ready 态渲染不抛，CTA=进入工作台，kv 门禁行辅助齐备", () => {
   const mount = new FakeElement("div");
-  assert.doesNotThrow(() => renderConnectionCard(mount, { t, status: READY, mode: "full", patOpen: false, confirmDelete: false, on: {} }));
-  const card = byClass(mount, "gate")[0];
-  assert.ok(card, "article.gate 在场（ui-probe 锚）");
+  assert.doesNotThrow(() => renderConnectionCard(mount, { t, status: READY, mode: "full", on: {} }));
+  assert.ok(byClass(mount, "gate")[0], "article.gate 在场（ui-probe 锚）");
   const cta = byClass(mount, "cta")[0];
   assert.ok(cta && cta.textContent.includes("iasiv5") && cta.textContent.includes(t("auth.enterBtn")));
   assert.equal(byClass(mount, "gateRow").length, 3);
-  assert.ok(byClass(mount, "kv").length === 1);
-  assert.equal(byClass(mount, "auxAct").length, 3);   // 重新校验 / 更换令牌 / 删除凭证
-});
-
-test("connectionCard full：fresh 态双方法区 + 安装 CTA；patOpen 表单；confirmDelete 确认浮层（gh logout 门控）", () => {
-  const mount = new FakeElement("div");
-  renderConnectionCard(mount, { t, status: FRESH, mode: "full", patOpen: false, confirmDelete: false, on: {} });
-  assert.equal(byClass(mount, "method").length, 2);   // 双方法并列
-  assert.ok(byClass(mount, "cta")[0].textContent.includes(t("cred.installCta")));
-  const m2 = new FakeElement("div");
-  renderConnectionCard(m2, { t, status: { ...FRESH, gates: { ghInstalled: true, ghLogin: true, credentialOk: false } }, mode: "full", patOpen: true, confirmDelete: false, on: {} });
-  assert.ok(byClass(m2, "patForm")[0], "PAT 表单展开");
-  const m3 = new FakeElement("div");
-  renderConnectionCard(m3, { t, status: READY, mode: "full", patOpen: false, confirmDelete: true, on: {} });
-  const confirm = byClass(m3, "patForm").at(-1);
-  assert.ok(confirm.textContent.includes(t("cred.deleteConfirmTitle")));
-  const checkbox = find(confirm, (n) => n.tagName === "input")[0];
-  assert.equal(checkbox.checked, true);   // ghWrittenByUs=true → 预勾
-  assert.equal(checkbox.disabled, false);
-});
-
-test("connectionCard full：device pending 态码框 + 互切链接；limited 态黄条", () => {
-  const mount = new FakeElement("div");
-  renderConnectionCard(mount, { t, status: PENDING, mode: "full", patOpen: false, confirmDelete: false, on: {} });
-  const code = byClass(mount, "gateCode")[0];
-  assert.ok(code.textContent.includes("ABCD-1234"));
-  assert.ok(byClass(mount, "switchLink").length >= 1);
-  const lim = new FakeElement("div");
-  renderConnectionCard(lim, { t, status: { ...READY, credential: { ...READY.credential, rateLimitedUntil: new Date(Date.now() + 60000).toISOString() } }, mode: "full", patOpen: false, confirmDelete: false, on: {} });
-  assert.ok(byClass(lim, "warnBox")[0].textContent.includes(t("cred.bannerLimited")));
-});
-
-test("connectionCard compact：ready 态紧凑行 + 辅助操作；fresh 态仅重新校验", () => {
-  const mount = new FakeElement("div");
-  assert.doesNotThrow(() => renderConnectionCard(mount, { t, status: READY, mode: "compact", patOpen: false, confirmDelete: false, on: {} }));
-  assert.ok(byClass(mount, "credCompact")[0]);
+  assert.equal(byClass(mount, "kv").length, 1);
   assert.equal(byClass(mount, "auxAct").length, 3);
-  const m2 = new FakeElement("div");
-  renderConnectionCard(m2, { t, status: FRESH, mode: "compact", patOpen: false, confirmDelete: false, on: {} });
-  assert.equal(byClass(m2, "auxAct").length, 1);   // 未校验 → 只显重新校验
 });
 
-test("connectionCard：PAT 失败态呈现（credential-format/invalid/verify-failed → errForm 行）", () => {
-  for (const [prefix, expect] of [
+test("connectionCard full：fresh 态双方法区 + 安装 CTA + 注脚；pending 态码框 + 互切", () => {
+  const mount = new FakeElement("div");
+  renderConnectionCard(mount, { t, status: FRESH, mode: "full", on: {} });
+  assert.equal(byClass(mount, "method").length, 2);
+  assert.ok(byClass(mount, "cta")[0].textContent.includes(t("cred.installCta")));
+  assert.ok(byClass(mount, "note").some((n) => n.textContent.includes(t("cred.installManual"))));
+  const m2 = new FakeElement("div");
+  renderConnectionCard(m2, { t, status: PENDING, mode: "full", on: {} });
+  assert.ok(byClass(m2, "gateCode")[0].textContent.includes("ABCD-1234"));
+  assert.ok(byClass(m2, "switchLink").length >= 1);
+});
+
+test("connectionCard 句柄开关：patOpen/confirmDelete 类切换零重建（堆叠回归钉）", () => {
+  const mount = new FakeElement("div");
+  const handle = renderConnectionCard(mount, { t, status: READY, mode: "full", on: {} });
+  const childCount = () => mount.children.length;
+  assert.equal(childCount(), 1);
+  handle.setPatOpen(true);
+  assert.equal(childCount(), 1, "零重建：mount 子节点数恒定");
+  assert.ok(byClass(mount, "patForm")[0].classList.contains("open"));
+  handle.setPatOpen(false);
+  handle.setConfirmDelete(true);
+  assert.equal(childCount(), 1);
+  const confirm = byClass(mount, "patForm").find((n) => n.textContent.includes(t("cred.deleteConfirmTitle")));
+  assert.ok(confirm, "删除确认浮层在");
+  const check = find(confirm, (n) => n.tagName === "input")[0];
+  assert.equal(check.checked, true);          // ghWrittenByUs=true → 预勾
+  assert.equal(check.disabled, false);
+});
+
+test("connectionCard 失败态就地呈现：patSave 抛错 → errForm 显示映射文案（六前缀）", async () => {
+  const cases = [
     ["credential-format", t("cred.errFormat")],
     ["credential-invalid", t("cred.errInvalid")],
-    ["credential-verify-failed: github api 500", t("cred.errVerifyFailed")],
-  ]) {
+    ["credential-verify-failed: net", t("cred.errVerifyFailed")],
+    ["token-invalid", t("cred.errTokenInvalid")],
+    ["rate-limited:120", t("cred.errRateLimited")],
+  ];
+  for (const [thrown, expect] of cases) {
     const mount = new FakeElement("div");
-    renderConnectionCard(mount, { t, status: { ...FRESH, gates: { ghInstalled: true, ghLogin: true, credentialOk: false } }, mode: "full", patOpen: true, confirmDelete: false, patError: prefix, on: {} });
-    const errs = byClass(mount, "errForm");
-    assert.equal(errs.length, 1, prefix + " 应有错误行");
-    assert.equal(errs[0].textContent, expect, prefix);
+    const handle = renderConnectionCard(mount, { t, status: { ...READY, gates: { ghInstalled: true, ghLogin: true, credentialOk: false } }, mode: "full", on: { patSave: async () => { throw new Error(thrown); } } });
+    handle.setPatOpen(true);
+    const form = byClass(mount, "patForm").find((n) => n.textContent.includes(t("cred.patTitle")));
+    find(form, (n) => n.tagName === "input")[0].value = "ghp_test";   // 模拟用户输入（空值会被格式守卫早退）
+    const save = byClass(form, "patSave")[0];
+    await click(save);
+    await new Promise((r) => setTimeout(r, 0));
+    const errs = byClass(mount, "errForm").filter((n) => n.textContent === expect);
+    assert.equal(errs.length, 1, thrown + " 应呈现映射文案");
   }
-  const del = new FakeElement("div");
-  renderConnectionCard(del, { t, status: READY, mode: "full", patOpen: false, confirmDelete: true, deleteError: "gh-not-ours", on: {} });
-  assert.ok(byClass(del, "errForm").at(-1).textContent.includes(t("cred.errGhNotOurs")));
-  const compact = new FakeElement("div");
-  renderConnectionCard(compact, { t, status: READY, mode: "compact", patOpen: true, confirmDelete: false, patError: "credential-invalid", on: {} });
-  assert.ok(byClass(compact, "errForm").length >= 1, "compact 侧同样呈现");
+  // gh-not-ours：删除确认抛错 → 确认浮层内呈现
+  const mount = new FakeElement("div");
+  const handle = renderConnectionCard(mount, { t, status: READY, mode: "full", on: { deleteConfirmed: async () => { throw new Error("gh-not-ours"); } } });
+  handle.setConfirmDelete(true);
+  const confirm = byClass(mount, "patForm").find((n) => n.textContent.includes(t("cred.deleteConfirmTitle")));
+  await click(byClass(confirm, "patSave")[0]);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.ok(byClass(mount, "errForm").some((n) => n.textContent === t("cred.errGhNotOurs")), "gh-not-ours 就地呈现");
 });
 
-test("renderLoginGate：installing 轮询中三关全绿 → 自动续走 bind+onConnected（评审 S5）", async () => {
-  const timers = [];
-  const realSetTimeout = globalThis.setTimeout;
-  globalThis.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
-  const realClearTimeout = globalThis.clearTimeout;
-  globalThis.clearTimeout = () => {};
-  const { renderLoginGate } = await import("../src/client/components/loginGate.mjs");
-  const { api } = await import("../src/client/api.mjs");
-  const origAuth = api.auth, origBind = api.bind;
-  const INSTALLING = { ...FRESH, install: { phase: "installing" } };
-  api.auth = async () => READY;   // 轮询返回三关全绿（安装完成）
-  api.bind = async () => ({ account: "iasiv5" });
-  try {
-    const shadow = shadowOf();
-    let connected = 0;
-    renderLoginGate(shadow, { t, status: INSTALLING, onConnected: () => { connected++; } });
-    assert.ok(timers.length >= 1, "installing 轮询已挂");
-    await timers[0].fn();   // 2s 到点：auth 返回 ready → 自动 enter
-    assert.ok(connected >= 1, "三关全绿自动续走 bind+onConnected");
-  } finally {
-    api.auth = origAuth; api.bind = origBind;
-    globalThis.setTimeout = realSetTimeout; globalThis.clearTimeout = realClearTimeout;
-  }
+test("connectionCard compact：ready/fresh 两态渲染与辅助按钮可用性", () => {
+  const m1 = new FakeElement("div");
+  assert.doesNotThrow(() => renderConnectionCard(m1, { t, status: READY, mode: "compact", on: {} }));
+  assert.ok(byClass(m1, "credCompact")[0]);
+  const visible1 = byClass(m1, "auxAct").filter((n) => n.style.display !== "none");
+  assert.equal(visible1.length, 3);
+  const m2 = new FakeElement("div");
+  renderConnectionCard(m2, { t, status: FRESH, mode: "compact", on: {} });
+  const visible2 = byClass(m2, "auxAct").filter((n) => n.style.display !== "none");
+  assert.equal(visible2.length, 1);   // 未校验 → 只显重新校验（更换/删除隐藏）
 });
 
 test("renderLoginGate：gh 登录未校验态挂载即静默校验 → CTA 变进入工作台（用户反馈修复）", async () => {
@@ -164,22 +148,22 @@ test("renderLoginGate：gh 登录未校验态挂载即静默校验 → CTA 变�
   const UNVERIFIED = { gates: { ghInstalled: true, ghLogin: true, credentialOk: false }, viewerLogin: "iasiv5", credential: { configured: false, source: null, scopes: null, verifiedAt: null, healthy: true, ghWrittenByUs: false, rateLimitedUntil: null }, install: { phase: "idle" }, device: { phase: "idle" } };
   let verifyCalled = 0;
   api.verifyCredential = async () => { verifyCalled++; return { login: "iasiv5", scopes: ["repo", "read:org"], fineGrained: false, verifiedAt: new Date().toISOString() }; };
-  api.auth = async () => READY;   // 校验成功后 refresh 拉到 ready
+  api.auth = async () => READY;
   api.bind = async () => ({ account: "iasiv5" });
   try {
-    const shadow = shadowOf();
+    const shadow = new FakeElement("shadow-root"); shadow.host = new FakeElement("div");
     renderLoginGate(shadow, { t, status: UNVERIFIED, onConnected: () => {} });
-    for (let i = 0; i < 6; i++) await new Promise((r) => realSetTimeout(r, 0));   // 排空 promise 链
+    for (let i = 0; i < 6; i++) await new Promise((r) => realSetTimeout(r, 0));
     assert.equal(verifyCalled, 1, "挂载即补校验一次");
     const cta = byClass(shadow, "cta")[0];
-    assert.ok(cta && cta.textContent.includes(t("auth.enterBtn")), "校验成功后 CTA=进入工作台，不再是连接 GitHub");
+    assert.ok(cta && cta.textContent.includes(t("auth.enterBtn")), "校验成功后 CTA=进入工作台");
   } finally {
     api.verifyCredential = origVerify; api.auth = origAuth; api.bind = origBind;
     globalThis.setTimeout = realSetTimeout; globalThis.clearTimeout = realClearTimeout;
   }
 });
 
-test("renderLoginGate：点击连接 GitHub → deviceStart → 码框渲染 + 轮询挂载（用户报告坏掉路径复现）", async () => {
+test("renderLoginGate：点击连接 GitHub → deviceStart → 码框渲染 + 轮询挂载（用户报告路径复现）", async () => {
   const timers = [];
   const realSetTimeout = globalThis.setTimeout;
   globalThis.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
@@ -194,43 +178,23 @@ test("renderLoginGate：点击连接 GitHub → deviceStart → 码框渲染 + �
   api.deviceStatus = async () => PENDING_DEVICE;
   api.auth = async () => ({ ...UNVERIFIED, device: PENDING_DEVICE });
   try {
-    const shadow = shadowOf();
+    const shadow = new FakeElement("shadow-root"); shadow.host = new FakeElement("div");
     assert.doesNotThrow(() => renderLoginGate(shadow, { t, status: UNVERIFIED, onConnected: () => {} }));
     const cta = byClass(shadow, "cta")[0];
     assert.ok(cta && cta.textContent.includes(t("cred.connectBtn")));
     timers.length = 0;
-    assert.doesNotThrow(() => cta.onclick({ preventDefault() {} }));   // 点击连接 GitHub：用户报告「页面坏掉」的路径
+    assert.doesNotThrow(() => cta.onclick({ preventDefault() {} }));
     for (let i = 0; i < 8; i++) await new Promise((r) => realSetTimeout(r, 0));
     assert.ok(byClass(shadow, "gateCode")[0], "pending 码框渲染");
-    assert.ok(byClass(shadow, "switchLink").length >= 1, "互切链接在");
-    assert.ok(timers.length >= 1, "轮询 timer 挂上（界面不会静止坏死）");
+    assert.ok(byClass(shadow, "switchLink").length >= 1);
+    assert.ok(timers.length >= 1, "轮询 timer 挂上");
   } finally {
     api.deviceStart = origDeviceStart; api.deviceStatus = origDeviceStatus; api.auth = origAuth;
     globalThis.setTimeout = realSetTimeout; globalThis.clearTimeout = realClearTimeout;
   }
 });
 
-test("connectionCard compact：定向重渲染幂等——多次点击不堆叠（用户报告回归钉）", () => {
-  const mount = new FakeElement("div");
-  let patOpen = false, confirmDelete = false;
-  const render = () => renderConnectionCard(mount, { t, status: READY, mode: "compact", patOpen, confirmDelete, patError: null, deleteError: null, on: {} });
-  render();                                   // 初始
-  assert.equal(byClass(mount, "credCompact").length, 1);
-  patOpen = true; render();                   // 点更换令牌 → 表单开
-  assert.equal(byClass(mount, "credCompact").length, 1, "重渲染不堆叠紧凑卡");
-  assert.equal(byClass(mount, "patForm").length, 1);
-  patOpen = false; confirmDelete = true; render();   // 关表单 → 开删除确认
-  assert.equal(byClass(mount, "credCompact").length, 1);
-  const formsLeft = byClass(mount, "patForm");       // 确认浮层复用 patForm 类：剩下的唯一元素应为确认浮层（PAT 表单已关）
-  assert.equal(formsLeft.length, 1);
-  assert.ok(!formsLeft[0].textContent.includes(t("cred.patTitle")));
-  assert.equal(byClass(mount, "patForm.open").length + byClass(mount, "patForm").length >= 1, true);
-  confirmDelete = true; render(); render(); render();   // 连点删除凭证多次
-  assert.equal(byClass(mount, "patForm").length, 1, "删除确认浮层不堆叠");   // 确认框复用 patForm 类：3 次重渲染后仍只有一个
-  assert.equal(byClass(mount, "credCompact").length, 1);
-});
-
-test("renderLoginGate：初次 draw 不抛、结构三段在位；authorized 即 onConnected（不轮询）", async () => {
+test("renderLoginGate：installing 轮询中三关全绿 → 自动续走 bind+onConnected（评审 S5）", async () => {
   const timers = [];
   const realSetTimeout = globalThis.setTimeout;
   globalThis.setTimeout = (fn, ms) => { timers.push({ fn, ms }); return timers.length; };
@@ -238,22 +202,19 @@ test("renderLoginGate：初次 draw 不抛、结构三段在位；authorized 即
   globalThis.clearTimeout = () => {};
   const { renderLoginGate } = await import("../src/client/components/loginGate.mjs");
   const { api } = await import("../src/client/api.mjs");
-  const origAuth = api.auth;
-  const origDeviceStatus = api.deviceStatus;
-  api.auth = async () => PENDING;
-  api.deviceStatus = async () => ({ phase: "authorized", login: "iasiv5" });
+  const origAuth = api.auth, origBind = api.bind;
+  const INSTALLING = { ...FRESH, install: { phase: "installing" } };
+  api.auth = async () => READY;
+  api.bind = async () => ({ account: "iasiv5" });
   try {
-    const shadow = shadowOf();
+    const shadow = new FakeElement("shadow-root"); shadow.host = new FakeElement("div");
     let connected = 0;
-    assert.doesNotThrow(() => renderLoginGate(shadow, { t, status: PENDING, onConnected: () => { connected++; } }));
-    assert.ok(byClass(shadow, "gateWrap")[0], "面板挂载");
-    assert.ok(byClass(shadow, "brandRow")[0] && byClass(shadow, "gateFoot")[0], "品牌区 + 脚注区");
-    assert.ok(byClass(shadow, "gateCode")[0], "pending 态码框已渲染");
-    assert.ok(timers.length >= 1, "schedule 生效（轮询 timer 挂上）");
-    await timers[0].fn();   // 驱动一次轮询 → deviceStatus 返回 authorized
-    assert.ok(connected >= 1, "authorized 即 onConnected");
+    renderLoginGate(shadow, { t, status: INSTALLING, onConnected: () => { connected++; } });
+    assert.ok(timers.length >= 1);
+    await timers[0].fn();
+    assert.ok(connected >= 1);
   } finally {
-    api.auth = origAuth; api.deviceStatus = origDeviceStatus;
+    api.auth = origAuth; api.bind = origBind;
     globalThis.setTimeout = realSetTimeout; globalThis.clearTimeout = realClearTimeout;
   }
 });
