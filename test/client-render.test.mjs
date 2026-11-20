@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 
 // ── 最小 DOM stub（父链 remove/切换 class 支持完整语义） ──
 class FakeElement {
-  constructor(tag) { this.tagName = tag; this.children = []; this.attrs = {}; this._text = ""; this.onclick = null; this.type = ""; this.disabled = false; this.checked = false; this.style = {}; this._parent = null; }
+  constructor(tag) { this.tagName = tag; this.children = []; this.attrs = {}; this._text = ""; this.onclick = null; this.type = ""; this.disabled = false; this.checked = false; this.style = {}; this._parent = null; this.isConnected = true; }   // isConnected 供 success-turn 卸载语义检查（评审 N1）
   get classList() {
     const self = this;
     const names = () => String(self.attrs.class ?? "").split(/\s+/).filter(Boolean);
@@ -63,7 +63,7 @@ test("connectionCard full：ready 态渲染不抛，CTA=进入工作台，kv 门
   assert.ok(cta && cta.textContent.includes("iasiv5") && cta.textContent.includes(t("auth.enterBtn")));
   assert.equal(byClass(mount, "gateRow").length, 3);
   assert.equal(byClass(mount, "kv").length, 1);
-  assert.equal(byClass(mount, "auxAct").length, 3);
+  assert.equal(byClass(mount, "auxAct").length, 2);   // round-2 决策点精简：更换令牌 + 删除凭证（重新校验归头部图标钮）
 });
 
 test("connectionCard full：fresh 态单门禁行收敛 + 安装 CTA + 注脚；pending 态码框 + 互切（2026-11-20 简报 + round-2）", () => {
@@ -121,6 +121,119 @@ test("connectionCard full：setConnectError 就地呈现 device-start 错误映�
   assert.ok(err.textContent.includes(t("cred.errDeviceStart")));
   handle.setConnectError(null);
   assert.equal(byClass(mount, "err")[0].style.display, "none");
+});
+
+test("connectionCard polish：gates aria-live + 同值不写 + 过期倒计时 + PAT 可见性切换", () => {
+  const mount = new FakeElement("div");
+  const EXP = { gates: { ghInstalled: true, ghLogin: true, credentialOk: false, ghVersion: "2.105.0" }, viewerLogin: "o", credential: { configured: false, source: null, scopes: null, verifiedAt: null, healthy: true, ghWrittenByUs: false, rateLimitedUntil: null }, install: { phase: "idle" }, device: { phase: "pending", userCode: "ZZZZ-YYYY", verificationUri: "https://github.com/login/device", expiresAt: new Date(Date.now() + 10 * 60000).toISOString() } };
+  const h = renderConnectionCard(mount, { t, status: EXP, mode: "full", on: {} });
+  const gates = byClass(mount, "gates")[0];
+  assert.equal(gates.getAttribute("aria-live"), "polite");
+  assert.equal(gates.getAttribute("role"), "status");
+  const expLine = byClass(mount, "deviceExpires")[0];
+  assert.ok(expLine.textContent.includes("分钟后过期"));
+  h.setPatOpen(true);
+  const input = byClass(mount, "patInput")[0];
+  const toggle = byClass(mount, "patToggle")[0];
+  assert.equal(input.type, "password");
+  toggle.onclick({ preventDefault() {} });
+  assert.equal(input.type, "text");
+  assert.ok(toggle.textContent.includes(t("cred.patHide")));
+  toggle.onclick({ preventDefault() {} });
+  assert.equal(input.type, "password");
+  // 同值不写哨兵（评审 Q10）：同值二次 update 不重写文本节点
+  const st = byClass(mount, "gateRow")[0].children[2];
+  const kidsRef = st.children;
+  h.update(EXP);
+  assert.ok(st.children === kidsRef);   // 守卫跳过重写 → children 数组引用不变
+  // 四失败路径固化（评审 Q16）
+  const broken = mkErr("expired");   // 设备码过期
+  function mkErr(kind) {
+    const base = { gates: { ghInstalled: true, ghLogin: true, credentialOk: false, ghVersion: null }, viewerLogin: "o", credential: { configured: true, source: "device-flow", scopes: ["repo", "read:org"], verifiedAt: new Date().toISOString(), healthy: true, ghWrittenByUs: true, rateLimitedUntil: null }, install: { phase: "idle" }, device: { phase: "idle" } };
+    if (kind === "expired") base.device = { phase: "expired" };
+    if (kind === "failed") base.device = { phase: "failed", error: "boom" };
+    if (kind === "installFailed") { base.gates.ghInstalled = false; base.install = { phase: "failed" }; }
+    const m = new FakeElement("div");
+    renderConnectionCard(m, { t, status: base, mode: "full", on: {} });
+    return m;
+  }
+  assert.ok(byClass(mkErr("expired"), "gateRow")[2].textContent.includes(t("auth.deviceExpired")));
+  assert.ok(byClass(mkErr("failed"), "gateRow")[2].textContent.includes(t("auth.deviceFailed")));
+  assert.ok(byClass(mkErr("installFailed"), "note").some((n) => n.textContent.includes(t("cred.installFailed"))));
+  const mhMount = new FakeElement("div");
+  const mh = renderConnectionCard(mhMount, { t, status: { ...READY, gates: { ghInstalled: true, ghLogin: true, credentialOk: false } }, mode: "full", on: {} });
+  mh.setConnectError("gh-handoff-failed: x");
+  assert.ok(byClass(mhMount, "err").some((n) => n.textContent.includes(t("cred.errHandoff"))));   // "err" 类同时命中 bad 行红点（round-2 stCls），按文本断言
+});
+
+test("connectionCard polish：bad 行红点 + ready aux 决策点 4（评审 Q5/Q6）", () => {
+  const BROKEN = { gates: { ghInstalled: true, ghLogin: true, credentialOk: false, ghVersion: null }, viewerLogin: "o", credential: { configured: true, source: "device-flow", scopes: ["repo", "read:org"], verifiedAt: new Date().toISOString(), healthy: false, ghWrittenByUs: true, rateLimitedUntil: null }, install: { phase: "idle" }, device: { phase: "idle" } };
+  const m = new FakeElement("div");
+  renderConnectionCard(m, { t, status: BROKEN, mode: "full", on: {} });
+  const rows = byClass(m, "gateRow");
+  assert.equal(rows[2].children[0].className, "dot err");   // bad 行红点（stCls err）
+  const aux = byClass(m, "auxAct").filter((n) => n.style.display !== "none");
+  assert.equal(aux.length, 2);   // 更换令牌 + 删除凭证（重新校验已归头部图标钮）
+  assert.equal(aux.some((n) => n.textContent.includes(t("cred.recheck"))), false);
+});
+
+test("renderLoginGate success-turn 编排（gh-as-source 峰值）：轮询 authorized → 定影 → onConnected 尾触发；卸载不触发；reduced-motion 瞬切", async () => {
+  const timers = [];
+  const realST = globalThis.setTimeout, realCT = globalThis.clearTimeout;
+  globalThis.setTimeout = (fn, ms) => { const t = { fn, ms }; timers.push(t); return t; };
+  globalThis.clearTimeout = (t) => { const i = timers.indexOf(t); if (i >= 0) timers.splice(i, 1); };
+  const { renderLoginGate } = await import("../src/client/components/loginGate.mjs");
+  const { api } = await import("../src/client/api.mjs");
+  const origAuth = api.auth, origDeviceStatus = api.deviceStatus, origBind = api.bind;
+  const AUTHORIZED = { gates: { ghInstalled: true, ghLogin: true, credentialOk: true, ghVersion: "2.105.0" }, viewerLogin: "iasiv5", credential: { configured: true, source: "device-flow", scopes: ["repo", "read:org"], verifiedAt: new Date().toISOString(), healthy: true, ghWrittenByUs: true, rateLimitedUntil: null }, install: { phase: "idle" }, device: { phase: "authorized", login: "iasiv5" } };
+  const PENDING = { gates: { ghInstalled: true, ghLogin: true, credentialOk: false, ghVersion: null }, viewerLogin: "iasiv5", credential: { configured: false, source: null, scopes: null, verifiedAt: null, healthy: true, ghWrittenByUs: false, rateLimitedUntil: null }, install: { phase: "idle" }, device: { phase: "pending", userCode: "AB12-CD34", verificationUri: "https://github.com/login/device" } };
+  api.auth = async () => AUTHORIZED;
+  api.deviceStatus = async () => ({ phase: "authorized", login: "iasiv5" });
+  api.bind = async () => ({ account: "iasiv5" });
+  try {
+    // ① 轮询发现 authorized → success-turn 编排 → 尾触发 onConnected
+    let connected = 0;
+    const shadow = new FakeElement("shadow-root"); shadow.host = new FakeElement("div");
+    renderLoginGate(shadow, { t, status: PENDING, onConnected: () => { connected++; } });
+    const poll = timers.find((t) => t.ms === 4000);
+    timers.splice(timers.indexOf(poll), 1);   // 摘除已触发 poll，防陈旧重放（评审 Q2 测试卫生）
+    await poll.fn();
+    const gate = byClass(shadow, "gate")[0];
+    assert.ok(gate.classList.contains("success-turn"));   // 定影类在场
+    assert.equal(connected, 0);   // 编排期间不触发
+    const hold = timers.find((t) => t.ms === 650);
+    assert.ok(hold, "650ms hold 已挂");
+    await hold.fn();
+    assert.equal(connected, 1);   // 编排尾触发
+
+    // ② 卸载语义：isConnected=false → hold 触发也不 onConnected
+    let connected2 = 0;
+    const shadow2 = new FakeElement("shadow-root"); shadow2.host = new FakeElement("div");
+    renderLoginGate(shadow2, { t, status: PENDING, onConnected: () => { connected2++; } });
+    const poll2 = timers.find((t) => t.ms === 4000);
+    timers.splice(timers.indexOf(poll2), 1);
+    await poll2.fn();
+    shadow2.isConnected = false;   // 卸载
+    const hold2 = timers[timers.length - 1];
+    await hold2.fn();
+    assert.equal(connected2, 0);
+
+    // ③ reduced-motion → 瞬切（无 hold、立即 onConnected）
+    globalThis.matchMedia = () => ({ matches: true });
+    let connected3 = 0;
+    const shadow3 = new FakeElement("shadow-root"); shadow3.host = new FakeElement("div"); shadow3.mark = "S3";
+    renderLoginGate(shadow3, { t, status: PENDING, onConnected: () => { connected3++; const s = shadow3.isConnected ? "S3-attached" : "S3-detached"; console.log("DBG ③:", s, "stack:", new Error().stack.split("\n").slice(2, 14).map((l) => l.trim().slice(0, 700)).join(" <= ")); } });
+    const poll3 = timers.find((t) => t.ms === 4000);
+    timers.splice(timers.indexOf(poll3), 1);
+    await poll3.fn();
+    await new Promise((r) => realST(r, 0));   // success-turn 测试作用域内 realST=真实时钟（桩前捕获）
+    assert.equal(connected3, 1);
+    assert.equal(byClass(shadow3, "gate")[0].classList.contains("success-turn"), false);
+  } finally {
+    api.auth = origAuth; api.deviceStatus = origDeviceStatus; api.bind = origBind;
+    delete globalThis.matchMedia;
+    globalThis.setTimeout = realST; globalThis.clearTimeout = realCT;
+  }
 });
 
 test("connectionCard 句柄开关：patOpen/confirmDelete 类切换零重建（堆叠回归钉）", () => {

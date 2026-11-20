@@ -10,6 +10,7 @@ export const zhCN = {
     loading: "正在连接工作台…",
     loginTitle: "连接代码库，让 Agent 自主交付",   // 金句 B 修订（2026-11-20 用户删「你的」），品牌区只留大标题
     deviceNote: "无需手动输入用户名——授权完成后自动进入工作台。",
+    deviceExpiresIn: "约 {n} 分钟后过期",
     deviceExpired: "授权码已过期，请重新发起授权",
     deviceFailed: "授权失败",
     enterBtn: "进入工作台",
@@ -44,8 +45,8 @@ export const zhCN = {
     switchToPat: "改用访问令牌", switchToDevice: "改用设备流授权",
     deviceWaiting: "等待你在 GitHub 完成授权…",
     copy: "复制",
-    patTitle: "访问令牌（PAT）", patPlaceholder: "ghp_···· 或 github_pat_····", patSave: "校验并保存", patCancel: "取消",
-    patHint: "校验通过并移交 gh 凭据库后才会保存（gh 未装时无法保存）；classic 令牌需含 repo、read:org，细粒度令牌按仓库授权。保存后与设备流凭据同槽覆盖。",
+    patTitle: "访问令牌（PAT）", patPlaceholder: "ghp_···· 或 github_pat_····", patShow: "显示", patHide: "隐藏", patSave: "校验并保存", patCancel: "取消",
+    patHint: "校验通过并移交 gh 凭据库后才会保存（gh 未装时无法保存）；classic 令牌需含 repo、read:org，细粒度令牌按仓库授权。保存后会覆盖现有凭据。",
     deleteBtn: "删除凭证", recheck: "重新校验", patReplace: "更换访问令牌",
     deleteConfirmTitle: "删除 GitHub 仓库授权？", deleteGhLogout: "同时退出本机 gh 登录", deleteGhLogoutHint: "仅当此 gh 登录由工作台创建时可选", deleteConfirm: "确认删除", deleteCancel: "取消",
     errTokenInvalid: "token 校验未通过（可能已失效）：请重新授权。",

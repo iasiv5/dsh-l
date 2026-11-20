@@ -86,11 +86,11 @@ components:
 - 每个状态只有一个主 CTA（单一主行动纪律）
 - 状态语义三点色：ok 绿 / wait·warn 琥珀（呼吸）/ err 红
 - 玻璃瓷面 + 深影浮起的混合深度语言
-- 动效只有一次作者化时刻（gate-in 220ms），reduced-motion 全关
+- 动效两次作者化时刻（2026-11-20 主人拍板破例）：① gate-in 入场 220ms；② `success-turn` 授权成功定影 200ms（触发面=仅设备流轮询发现 authorized；PAT 保存/安装完成路径直 enter 不编排；挂载残留永不触发）。reduced-motion 全关。回归快路径**不做**（保持每次三关，主人拍板取舍）。
 
 ## Colors
 
-釉色借宿主：中性色全部由 `canvas` / `canvastext` 系统关键字经 `color-mix(in srgb, …)` 派生，不设自有中性色盘。文字三阶：`currentColor 62%`（次要正文）、`currentColor 52%`（注脚/标签/门禁状态值）、`currentColor 40%`（placeholder）。表面阶：`canvas 96%`（卡面）、`canvas 90%`（工作面）、`canvas 78%`（遮罩）、`currentColor 3–6%`（chip/输入底/hover）。边框阶：`currentColor 8–20%`（卡 10%、pill 12%、chip 16%、按钮 20%）。
+釉色借宿主：中性色全部由 `canvas` / `canvastext` 系统关键字经 `color-mix(in srgb, …)` 派生，不设自有中性色盘。文字四阶（2026-11-20 对比度校准，双主题实测 AA：正文 ≥4.5:1，light 为绑定约束侧）：`currentColor 72%`（次级正文，light 6.02:1 / dark 8.55:1）、`currentColor 68%`（注脚/标签/门禁状态值，light 5.26:1 / dark 7.79:1）、`currentColor 65%`（placeholder/弱提示，light 4.80:1 / dark 7.17:1）、`currentColor 75%`（强调片段）。同百分比 ≠ 同可达性——校准以 light 侧为准，dark 侧超额达标；层级全序 65 < 68 < 72 < 75 < 100 严格递增。表面阶：`canvas 96%`（卡面）、`canvas 90%`（工作面）、`canvas 78%`（遮罩）、`currentColor 3–6%`（chip/输入底/hover）。边框阶：`currentColor 8–20%`（卡 10%、pill 12%、chip 16%、按钮 20%）。
 
 ### Primary
 - **门禁靛蓝** (#324DE2)：品牌印款——focus ring（60–70% 混透明）、品牌标衬底（9% tint + 20% 边）、图标渐变深端；不参与任何功能语义。
@@ -106,6 +106,7 @@ components:
 ### Named Rules
 **The Host-Theme Rule.** 禁止硬编码任何浅色底值——主题由宿主切换，写死底色必在另一主题翻车（2026-11-19 实录：color-scheme 只挂面板层导致深底黑字）。语义色固定值只允许出现在点、片段、横幅的小面积上；文字级语义色必须 `color-mix(in srgb, <语义色> 85%, currentColor)` 混入前景。
 **The One Voice Rule.** 主 CTA 是唯一反色元素（`canvastext` 底 + `canvas` 字，hover 混 84%）；一屏之内反色只出现一次。
+**The Same-Rule-Different-Readability Rule.**（2026-11-20 critique）同一 alpha 比例在深浅主题下可达性不同（light 52%≈4.27:1 不达标、dark 同档≈4.95:1 达标）——文字阶校准以 light 为绑定约束侧实测，dark 侧超额达标即接受；校准后四阶 65/68/72/75 全线 ≥4.5:1。
 
 ## Typography
 
@@ -115,7 +116,7 @@ components:
 **Character:** 系统字体 + 紧字距标题，克制的工程感；mono 只服务代码与数据（scope chip、设备码、令牌输入框），绝不当「技术感」装饰。
 
 ### Hierarchy
-- **Title**（700, 19px, -0.01em）：面板大标题（金句）；窄屏降至 17/16/15.5px。
+- **Title**（700, 19px, -0.01em）：面板大标题（金句）；窄屏降至 17px（≤560）、16px（≤380）——原「15.5px」系 client ≤380 块内重复声明（16px 与 15.5px 同键后者覆盖前者）被误收为第三档，2026-11-20 评审勘误为两档映射；另有 max-height:640 矮屏压缩维度（非标题档）。
 - **Heading**（650, 16px）：卡片级标题（gate h3）。
 - **Card-label**（600, 14px）：卡头条目名（凭据卡标题、门禁行名称 550）。
 - **Body**（400, 13px, 行高 1.5–1.55）：门禁行、kv、intro 13.5px。
@@ -164,9 +165,9 @@ components:
 - **Mono input:** 8px 圆角、36px 高、mono 13px、4% 混底 18% 边；placeholder 40% 阶；focus 靛蓝 ring。防自动填充三件套（懒挂载 + new-password + readonly 首交互解锢）。
 
 ### Signature: 门禁行 + 凭据 kv
-- **门禁行:** 点 + 名称（550 字重）+ 状态值（52% 阶；bad 红混）。行是纯状态，不内嵌动作——动作归 CTA 区。
-- **凭据 kv:** dl 网格 64px 标签列（52% 阶），scope 用 mono chip，缺失权限 chip 红框红字（35% 边 / 9% 底）。
-- **辅助操作:** 右对齐文字按钮（62% 阶），hover 归位；破坏性动作必须经确认浮层。
+- **门禁行:** 点 + 名称（550 字重）+ 状态值（68% 阶；bad 红混）。行是纯状态，不内嵌动作——动作归 CTA 区。
+- **凭据 kv:** dl 网格 64px 标签列（68% 阶），scope 用 mono chip，缺失权限 chip 红框红字（35% 边 / 9% 底）。
+- **辅助操作:** 右对齐文字按钮（72% 阶），hover 归位；破坏性动作必须经确认浮层。
 
 ## Do's and Don'ts
 

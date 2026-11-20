@@ -9,6 +9,7 @@ const el = (tag, cls, text) => {
   if (text !== undefined) n.textContent = text;
   return n;
 };
+const setText = (n, v) => { if (n && n.textContent !== v) n.textContent = v; };   // 同值不写：防 aria-live 播报风暴（评审 Q10）
 const svg = (markup) => { const s = el("span"); s.innerHTML = markup; return s.firstElementChild; };
 const GH_MARK = '<svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>';
 const REFRESH_MARK = '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M13.6 8a5.6 5.6 0 1 1-1.64-3.96"/><path d="M13.7 1.6v2.9h-2.9" stroke-linejoin="round"/></svg>';
@@ -138,7 +139,7 @@ const deriveView = (t, status, ui) => {
   const aux = [];
   if (!pending && !ui.patOpen && !ui.confirmDelete) {
     if (ok || limited || (verified && hasGh)) {
-      aux.push(limited ? ["recheck", t("cred.bannerRecheck")] : ["recheck", t("cred.recheck")]);
+      // 重新校验仅保留头部图标钮（round-2 决策点精简：aux 不重复）
       aux.push(["pat", ok ? t("cred.patReplace") : t("cred.patBtn")]);
       aux.push(["delete", t("cred.deleteBtn")]);
     } else if (hasGh) {
@@ -280,6 +281,8 @@ export function renderConnectionCard(parent, { t, status = null, mode = "full", 
   card.append(head);
 
   const gatesBox = el("div", "gates");
+  gatesBox.setAttribute("role", "status");
+  gatesBox.setAttribute("aria-live", "polite");   // Sam 红旗：状态变化对读屏播报（同值不写守卫见 apply/setText，防播报风暴）
   const gateNames = [t("cred.gate1"), t("cred.gate2"), t("cred.gate3")];
   const gateRows = gateNames.map((name) => {
     const row = el("div", "gateRow");
@@ -306,7 +309,8 @@ export function renderConnectionCard(parent, { t, status = null, mode = "full", 
   const deviceLink = el("a", "", "https://github.com/login/device");
   deviceLink.href = "https://github.com/login/device"; deviceLink.target = "_blank"; deviceLink.rel = "noreferrer noopener";
   const deviceSwitch = el("button", "switchLink", t("cred.switchToPat")); deviceSwitch.type = "button";
-  deviceLine.append(el("span", "", t("cred.deviceWaiting") + " "), deviceLink, el("span", "", " · "), deviceSwitch);
+  const deviceExpires = el("span", "deviceExpires");
+  deviceLine.append(el("span", "", t("cred.deviceWaiting") + " "), deviceLink, el("span", "", " · "), deviceSwitch, deviceExpires);
   card.append(codeBox, deviceLine);
 
   const patForm = el("div", "patForm");
@@ -318,6 +322,14 @@ export function renderConnectionCard(parent, { t, status = null, mode = "full", 
   const patInput = el("input", "patInput");
   patInput.type = "password"; patInput.placeholder = t("cred.patPlaceholder");
   guardPatInput(patInput);   // 防自动填充三件套（懒挂载见 setPatOpen）
+  const patToggle = el("button", "switchLink patToggle", t("cred.patShow")); patToggle.type = "button";
+  patToggle.onclick = (e) => {
+    e.preventDefault();
+    const show = patInput.type === "password";
+    patInput.type = show ? "text" : "password";   // 风险留痕（评审 Q11）：仅用户主动点击后切换，shadow DOM + new-password 三件套结论不变
+    patToggle.textContent = show ? t("cred.patHide") : t("cred.patShow");
+  };
+  patForm.append(patToggle);
   patForm.append(patInput);
   const patRow = el("div", "patRow");
   const patSaveBtn = el("button", "patSave", t("cred.patSave")); patSaveBtn.type = "button";
@@ -343,10 +355,9 @@ export function renderConnectionCard(parent, { t, status = null, mode = "full", 
   card.append(cta);
 
   const auxWrap = el("div", "aux");
-  const auxRecheck = el("button", "auxAct", t("cred.recheck")); auxRecheck.type = "button";
   const auxPat = el("button", "auxAct", t("cred.patBtn")); auxPat.type = "button";
   const auxDelete = el("button", "auxAct is-danger", t("cred.deleteBtn")); auxDelete.type = "button";
-  auxWrap.append(auxRecheck, auxPat, auxDelete);
+  auxWrap.append(auxPat, auxDelete);
   card.append(auxWrap);
 
   const confirmBox = el("div", "patForm");
@@ -385,7 +396,6 @@ export function renderConnectionCard(parent, { t, status = null, mode = "full", 
     catch (err) { applyPatError(String(err?.message ?? err)); }
   };
   auxPat.onclick = (e) => { e.preventDefault(); setPatOpen(!patOpen); };
-  auxRecheck.onclick = (e) => { e.preventDefault(); on.verify?.(); };
   auxDelete.onclick = (e) => { e.preventDefault(); setConfirmDelete(true); };
   confirmCancel.onclick = (e) => { e.preventDefault(); setConfirmDelete(false); on.cancelDelete?.(); };
   confirmBtn.onclick = async (e) => {
@@ -400,14 +410,14 @@ export function renderConnectionCard(parent, { t, status = null, mode = "full", 
   const apply = () => {
     const v = deriveView(t, statusNow, { patOpen, confirmDelete });
     badgeDot.className = "dot " + (v.badge[1] === "ok" ? "ok" : v.badge[1] === "err" ? "err" : "wait");
-    badgeText.textContent = v.badge[0];
-    subEl.textContent = v.sub;
-    const stCls = (s) => (s === "ok" ? "ok" : s === "bad" ? "warn" : "wait");
+    setText(badgeText, v.badge[0]);
+    setText(subEl, v.sub);
+    const stCls = (s) => (s === "ok" ? "ok" : s === "bad" ? "err" : "wait");   // bad 行红点与红字同语义（round-2 评审）
     v.gates.forEach(([state, stText], i) => {
       const r = gateRows[i];
       r.row.style.display = i === 0 || v.hasGh ? "" : "none";   // gh 未装：只留 gh CLI 一行（2026-11-20 简报）
       r.d.className = "dot " + stCls(state);
-      r.st.textContent = stText;
+      setText(r.st, stText);   // 同值不写：防 aria-live 播报风暴（评审 Q10）
       r.st.classList.toggle("is-bad", state === "bad");
     });
     kv.style.display = v.showKv ? "" : "none";
@@ -423,6 +433,9 @@ export function renderConnectionCard(parent, { t, status = null, mode = "full", 
       codeText.textContent = statusNow?.device?.userCode ?? "····-····";
       deviceLink.href = statusNow?.device?.verificationUri ?? "https://github.com/login/device";
       deviceLink.textContent = statusNow?.device?.verificationUri ?? "https://github.com/login/device";
+      const exp = statusNow?.device?.expiresAt ? Date.parse(statusNow.device.expiresAt) : NaN;   // 设备码过期倒计时（评审 Sam/面积红旗）
+      const mins = Number.isFinite(exp) ? Math.max(0, Math.ceil((exp - Date.now()) / 60000)) : null;
+      setText(deviceExpires, Number.isFinite(exp) ? " · " + t("auth.deviceExpiresIn").replace("{n}", String(mins)) : "");
     }
     patForm.classList.toggle("open", patOpen);
     patErrLine.style.display = patError && patOpen ? "" : "none";
@@ -434,12 +447,11 @@ export function renderConnectionCard(parent, { t, status = null, mode = "full", 
     warnBox.textContent = v.warnText ?? "";
     if (v.cta) {
       cta.style.display = "";
-      cta.textContent = v.cta.label;
+      setText(cta, v.cta.label);
       cta.disabled = Boolean(v.cta.disabled);
       ctaAction = v.cta.action;
     } else { cta.style.display = "none"; ctaAction = null; }
     auxWrap.style.display = v.aux.length > 0 ? "" : "none";
-    auxRecheck.style.display = v.aux.some(([id]) => id === "recheck") ? "" : "none";
     auxPat.style.display = v.aux.some(([id]) => id === "pat") ? "" : "none";
     auxDelete.style.display = v.aux.some(([id]) => id === "delete") ? "" : "none";
     const patAux = v.aux.find(([id]) => id === "pat");

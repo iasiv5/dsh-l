@@ -111,6 +111,11 @@
         "name": "recheck-rotate",
         "value": "400ms cubic-bezier(.22,1,.36,1) rotate(140deg)",
         "purpose": "重新校验圆钮 hover 反馈。"
+      },
+      {
+        "name": "success-turn",
+        "value": "200ms ease-out",
+        "purpose": "授权成功定影（第二作者化时刻，主人拍板破例）：三关依次转绿后卡片边框 signal-ok keyline + settle；触发面=仅设备流轮询发现 authorized；reduced-motion 瞬切。"
       }
     ],
     "breakpoints": [

@@ -32,8 +32,42 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
   let dead = false;
   let entered = false;
   let timer = null;
+  let successTimers = [];   // success-turn 编排链（2026-11-20 峰值时刻，评审 Q2 生命周期协议）
 
-  const stop = () => { if (timer) { clearTimeout(timer); timer = null; } };
+  const stop = () => {
+    if (timer) { clearTimeout(timer); timer = null; }
+    successTimers.forEach(clearTimeout);
+    successTimers = [];
+  };
+  // gh-as-source 成功峰值（主人拍板第二作者化时刻）：全绿门禁短暂定格 + success-turn 定影 → 进入工作台。
+  // initial=挂载残留：按 idle 呈现绝不触发（2026-11-20 一跳一跳防线）；编排期 dead/shadow 断开即中止；
+  // 真实 gates 未全绿禁编排（伪造绿会在 onConnected→reload 后被打回）；reduced-motion 瞬切（评审 Q2 协议）。
+  const finishAuthorized = async (initial) => {
+    if (dead) return;   // 终态已消费（评审 Q2 协议）：重复调用（残留定时器/重复事件）不重复触发 onConnected
+    if (initial) {
+      local = { ...local, device: { phase: "idle" } };
+      sync(local);
+      return;
+    }
+    try { local = await api.auth(); } catch {}   // authorized 到达时 gates 可能仍是轮询旧值——刷新取真实全绿（green 判据真实性）
+    if (dead) return;   // await 期间终态已被并发调用消费（互斥：评审 Q2 生命周期协议）
+    sync(local);   // 真实终态全绿呈现（不伪造中间态——依次转绿由 pending→authorized 自然渲染承载）
+    const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const green = local?.gates?.ghInstalled && local?.gates?.ghLogin && local?.gates?.credentialOk;
+    if (!green || reduced || !shadow.isConnected) {
+      dead = true;
+      stop();
+      onConnected?.();
+      return;
+    }
+    cardHandle?.el?.classList?.add("success-turn");
+    successTimers.push(setTimeout(() => {
+      if (dead || !shadow.isConnected) return;
+      dead = true;
+      stop();
+      onConnected?.();
+    }, 650));
+  };
 
   const refresh = async () => {
     try { local = await api.auth(); } catch {}
@@ -140,16 +174,7 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
     }
     const ph = local?.device?.phase;
     if (ph === "authorized") {
-      if (initial) {
-        // 挂载即 authorized = 进程内残留终态（非本轮授权）——本地按 idle 呈现，绝不触发 onConnected
-        // （否则重挂→onConnected→reload→重挂 无限循环 = 2026-11-20「一跳一跳」缺陷；服务端已在 logout/delete/bind 消费清零）
-        local = { ...local, device: { phase: "idle" } };
-        sync(local);
-        return;
-      }
-      dead = true;
-      stop();
-      onConnected?.();
+      finishAuthorized(initial);
       return;
     }
     if (ph === "pending" || ph === "authorizing") {
@@ -159,10 +184,7 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
           local = { ...local, device: d };
         } catch {}
         if (local?.device?.phase === "authorized") {
-          dead = true;
-          stop();
-          onConnected?.();
-          return;
+          finishAuthorized(false);
         }
         sync(local);
         schedule();

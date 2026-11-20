@@ -19,7 +19,7 @@
     --bg-1: #f5f7fc; --bg-2: #edf0f9;
     --surface: rgba(255, 255, 255, .88); --surface-2: rgba(17, 24, 52, .045);
     --border: rgba(17, 24, 52, .08); --border-strong: rgba(17, 24, 52, .16);
-    --text: #131a33; --text-2: rgba(19, 26, 51, .64); --text-3: rgba(19, 26, 51, .44);
+    --text: #131a33; --text-2: rgba(19, 26, 51, .68); --text-3: rgba(19, 26, 51, .64);
     --accent: #324de2; --accent-soft: rgba(50, 77, 226, .09);
     --ok: #1a7f37; --warn: #9a6700; --err: #cf222e;
     --cta-bg: #161a35; --cta-text: #f7f8ff;
@@ -31,12 +31,14 @@
     --bg-1: #0b0e17; --bg-2: #0e1220;
     --surface: rgba(20, 25, 40, .80); --surface-2: rgba(151, 167, 215, .07);
     --border: rgba(151, 167, 215, .13); --border-strong: rgba(151, 167, 215, .24);
-    --text: #e9edfb; --text-2: rgba(216, 224, 247, .68); --text-3: rgba(216, 224, 247, .44);
+    --text: #e9edfb; --text-2: rgba(216, 224, 247, .72); --text-3: rgba(216, 224, 247, .60);
     --accent: #8fa4ff; --accent-soft: rgba(143, 164, 255, .12);
     --ok: #3fb950; --warn: #e3b341; --err: #f85149;
     --cta-bg: #e9edfb; --cta-text: #10132b;
     --glow-1: rgba(80, 110, 255, .13); --glow-2: rgba(5, 144, 157, .10);
     --shadow-1: 0 32px 64px -28px rgba(0, 0, 0, .6), 0 6px 18px rgba(0, 0, 0, .4);
+    /* dark 下品牌衬底阴影中性化（2026-11-20 critique dark-glow 命中：彩色模糊影在暗底属 AI 观感——靛蓝 tint 边框已足辨品牌） */
+    --gate-mark-shadow: 0 8px 20px -8px rgba(0, 0, 0, .45);
   }
   body {
     font-family: system-ui, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
@@ -45,10 +47,8 @@
   }
   .stage {
     position: fixed; inset: 0 0 52px 0;
-    background:
-      radial-gradient(900px 480px at 22% -6%, var(--glow-1), transparent 62%),
-      radial-gradient(760px 420px at 84% 108%, var(--glow-2), transparent 58%),
-      linear-gradient(180deg, var(--bg-1), var(--bg-2));
+    /* 辉光层已移除（2026-11-20 critique：dark-glow 检测命中 + glow 不在 design-full 词汇表——瓷面只保留釉面渐变） */
+    background: linear-gradient(180deg, var(--bg-1), var(--bg-2));
   }
 
   /* ── 面板三段式：品牌区 / 授权卡区 / 脚注区 ─────────────────────── */
@@ -66,9 +66,20 @@
     border-radius: 13px;
     background: var(--accent-soft);
     border: 1px solid color-mix(in srgb, var(--accent) 24%, transparent);
-    box-shadow: 0 2px 6px rgba(50, 77, 226, .16), 0 8px 20px -8px rgba(50, 77, 226, .28);
+    box-shadow: var(--gate-mark-shadow, 0 2px 6px rgba(50, 77, 226, .16), 0 8px 20px -8px rgba(50, 77, 226, .28));
   }
-  .brand h1 { font-size: 19px; font-weight: 700; letter-spacing: -.01em; }
+  .brand h1 { font-size: 19px; font-weight: 700; letter-spacing: -.01em; text-wrap: balance; }
+  /* 响应式（2026-11-20 critique P2 补齐：与 design-full/客户端三处对齐） */
+  @media (max-width: 560px) {
+    .brand h1 { font-size: 17px; }
+  }
+  @media (max-width: 380px) {
+    .brand h1 { font-size: 16px; }
+  }
+  @media (max-height: 640px) {
+    .panel { padding-top: 12px; }
+    .card { padding: 16px 16px 10px; }
+  }
 
   /* ── 授权卡（唯一卡片；门禁行与凭据详情是卡内行，不是子卡） ────── */
   .card {
@@ -132,7 +143,7 @@
   .kv dt { color: var(--text-3); }
   .kv dd { line-height: 1.5; min-width: 0; overflow-wrap: anywhere; }
   .chips { display: inline-flex; gap: 6px; flex-wrap: wrap; vertical-align: -2px; }
-  .chip { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; padding: 1px 8px; border-radius: 5px; border: 1px solid var(--border-strong); background: var(--surface-2); }
+  .chip { display: inline-block; overflow-wrap: anywhere; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; padding: 1px 8px; border-radius: 5px; border: 1px solid var(--border-strong); background: var(--surface-2); }
   .chip.is-miss { color: var(--err); border-color: color-mix(in srgb, var(--err) 35%, transparent); background: color-mix(in srgb, var(--err) 8%, transparent); }
   .ok-frag { color: var(--ok); }
   .bad-frag { color: var(--err); }
@@ -265,7 +276,7 @@
             </defs>
           </svg>
         </div>
-        <h1 id="title">连接你的代码库，让 Agent 自主交付</h1>
+        <h1 id="title">连接代码库，让 Agent 自主交付</h1>
       </header>
 
       <!-- ② 授权卡 -->
@@ -289,7 +300,7 @@
 
         <!-- 凭据四字段（已配置态） -->
         <dl class="kv hidden" id="kv">
-          <dt>来源</dt><dd id="kvSource">GitHub 授权（设备流）· 副本已移交 gh</dd>
+          <dt>来源</dt><dd id="kvSource">GitHub 授权（设备流）· 令牌存于 gh 凭据库</dd>
           <dt>权限</dt><dd><span class="chips" id="kvScopes"></span></dd>
           <dt>最近校验</dt><dd id="kvChecked"><span class="ok-frag">令牌有效</span> · 刚刚</dd>
           <dt>用于</dt><dd>摄取候选、发现仓库、执行环克隆与交付推送。</dd>
@@ -299,8 +310,8 @@
 
         <!-- 设备流码框 -->
         <div class="codeBox hidden" id="codeBox">
-          <b>ABCD-1234</b>
-          <button type="button">复制</button>
+          <b id="codeVal">ABCD-1234</b>
+          <button type="button" id="copyCode">复制</button>
         </div>
         <p class="deviceLine hidden" id="deviceLine">等待你在 GitHub 完成授权… <a href="https://github.com/login/device" target="_blank" rel="noreferrer noopener">github.com/login/device</a> · <button class="switchLink" id="switchToPat" type="button">改用访问令牌</button></p>
 
@@ -347,11 +358,16 @@
   <span class="lbl">状态</span>
   <button data-s="fresh" class="on">未配置</button>
   <button data-s="installing">安装中</button>
+  <button data-s="installFailed">安装失败</button>
   <button data-s="device">设备流中</button>
+  <button data-s="deviceExpired">码过期</button>
+  <button data-s="verify401">令牌失效</button>
+  <button data-s="handoff502">移交失败</button>
   <button data-s="scopemiss">缺权限</button>
 
   <button data-s="pat">访问令牌</button>
-  <button data-s="ready">全绿就绪</button>
+  <button data-s="authorized">设备流就绪</button>
+  <button data-s="ready">令牌就绪</button>
   <button data-s="ratelimit">限流中</button>
   <span class="sep"></span>
   <span class="lbl">主题</span>
@@ -360,8 +376,8 @@
   <span class="sep"></span>
   <span class="lbl">金句</span>
   <select id="tagline">
-    <option value="0">链接你的代码库，开始 Agent 自主交付</option>
-    <option value="1" selected>连接你的代码库，让 Agent 自主交付</option>
+    <option value="0">连接代码库，开始 Agent 自主交付</option>
+    <option value="1" selected>连接代码库，让 Agent 自主交付</option>
     <option value="2">仓库连上，交付成环</option>
     <option value="3">把 issue 和 PR，交付成环</option>
     <option value="4">从候选到交付，一环扣一环</option>
@@ -401,11 +417,50 @@ const STATES = {
     aux: [],
     notes: ["安装完成后本页自动继续，可随时离开；不改动系统 PATH 与已有环境。"],
   },
+  installFailed: {
+    badge: ["未配置", "warn"],
+    sub: "先安装 gh CLI，再连接 GitHub",
+    gates: [["bad", "未安装", null]],
+    kv: false, code: false, foot: false,
+    cta: ["一键安装 gh CLI（重试）", false, () => setState("installing")],
+    aux: [],
+    notes: [
+      "上次安装失败：可直接重试，或按下方命令手动安装，装完本页自动检测。",
+      "或手动安装：<code>brew install gh</code> · <code>winget install GitHub.cli</code> · <code>sudo apt install gh</code>，装完本页自动检测。",
+    ],
+  },
+  verify401: {
+    badge: ["有错误", "err"],
+    sub: "凭据校验未通过",
+    gates: [
+      ["ok", "已安装 v2.105.0", null],
+      ["ok", "已登录（iasiv5）", null],
+      ["bad", "令牌已失效（请重新授权）", null],
+    ],
+    kv: false, code: false, foot: true,
+    err: "token 校验未通过（可能已失效）：请重新授权。",
+    cta: ["重新授权 · 连接 GitHub", false, () => setState("device")],
+    aux: [["auxPat", "使用访问令牌"], ["auxDelete", "删除凭证"]],
+    notes: [],
+  },
+  deviceExpired: {
+    badge: ["未配置", "warn"],
+    sub: "设备流授权 · 授权已过期",
+    gates: [
+      ["ok", "已安装 v2.105.0", null],
+      ["bad", "授权已过期，请重新连接", null],
+      ["wait", "重新发起后自动校验", null],
+    ],
+    kv: false, code: false, foot: false,
+    cta: ["连接 GitHub", false, () => setState("device")],
+    aux: [],
+    notes: ["上一个授权码已过期：重新点击连接即可，无需重复安装。"],
+  },
   device: {
     badge: ["校验中", "wait"],
     sub: "设备流授权 · 等待确认",
     gates: [
-      ["ok", "已安装 v2.63", null],
+      ["ok", "已安装 v2.105.0", null],
       ["wait", "等待你在 GitHub 确认授权", null],
       ["wait", "授权后自动校验", null],
     ],
@@ -418,25 +473,26 @@ const STATES = {
     badge: ["已配置", "ok"],
     sub: "个人访问令牌 · 令牌有效（缺 read:org）",
     gates: [
-      ["ok", "已安装 v2.63", null],
+      ["ok", "已安装 v2.105.0", null],
       ["ok", "已登录（iasiv5）", null],
-      ["ok", "令牌有效 · 缺 read:org 不挡门禁（组织仓库发现降级，见权限红标）", null],
+      ["ok", "令牌有效 · 缺 read:org（组织仓库发现降级）", null],
     ],
     kv: true,
     kvOverrides: {
+      source: "个人访问令牌（手动）· 令牌存于 gh 凭据库",
       scopes: [["repo", false], ["read:org", true]],
       checked: '<span class="ok-frag">令牌有效</span> · 5 分钟前',
     },
     code: false, foot: true,
     cta: ["iasiv5 · 进入工作台", false, null],
-    aux: [["auxPat", "更换访问令牌"], ["auxReverify", "重新校验"], ["auxDelete", "删除凭证"]],
+    aux: [["auxPat", "更换访问令牌"], ["auxDelete", "删除凭证"]],
     notes: [],
   },
   pat: {
     badge: ["未配置", "warn"],
     sub: "访问令牌 · 校验后保存",
     gates: [
-      ["ok", "已安装 v2.63", null],
+      ["ok", "已安装 v2.105.0", null],
       ["ok", "已登录（iasiv5）", null],
       ["bad", "未提供工作台凭据", null],
     ],
@@ -449,7 +505,22 @@ const STATES = {
     badge: ["已配置", "ok"],
     sub: "个人访问令牌 · 令牌有效",
     gates: [
-      ["ok", "已安装 v2.63", null],
+      ["ok", "已安装 v2.105.0", null],
+      ["ok", "已登录（iasiv5）", null],
+      ["ok", "令牌有效 · repo / read:org", null],
+    ],
+    kv: true,
+    kvOverrides: { source: "个人访问令牌（手动）· 令牌存于 gh 凭据库" },
+    code: false, foot: true,
+    cta: ["iasiv5 · 进入工作台", false, null],
+    aux: [["auxPat", "更换访问令牌"], ["auxDelete", "删除凭证"]],
+    notes: [],
+  },
+  authorized: {
+    badge: ["已配置", "ok"],
+    sub: "设备流授权 · 令牌有效",
+    gates: [
+      ["ok", "已安装 v2.105.0", null],
       ["ok", "已登录（iasiv5）", null],
       ["ok", "令牌有效 · repo / read:org", null],
     ],
@@ -457,14 +528,14 @@ const STATES = {
     kvOverrides: {},
     code: false, foot: true,
     cta: ["iasiv5 · 进入工作台", false, null],
-    aux: [["auxPat", "更换访问令牌"], ["auxReverify", "重新校验"], ["auxDelete", "删除凭证"]],
+    aux: [["auxPat", "更换访问令牌"], ["auxDelete", "删除凭证"]],
     notes: [],
   },
   ratelimit: {
     badge: ["限流中", "warn"],
     sub: "凭据健康 · GitHub 主限流生效",
     gates: [
-      ["ok", "已安装 v2.63", null],
+      ["ok", "已安装 v2.105.0", null],
       ["ok", "已登录（iasiv5）", null],
       ["ok", "凭据有效 · 限流非凭据问题", null],
     ],
@@ -473,7 +544,21 @@ const STATES = {
     code: false, foot: true,
     warn: "GitHub 主限流中：候选摄取暂停约 8 分钟后自动恢复。限流不影响凭据有效性，无需重新授权。",
     cta: ["iasiv5 · 进入工作台", false, null],
-    aux: [["auxReverify", "稍后重试校验"], ["auxPat", "更换访问令牌"], ["auxDelete", "删除凭证"]],
+    aux: [["auxPat", "更换访问令牌"], ["auxDelete", "删除凭证"]],
+    notes: [],
+  },
+  handoff502: {
+    badge: ["未配置", "warn"],
+    sub: "访问令牌 · 校验后保存",
+    gates: [
+      ["ok", "已安装 v2.105.0", null],
+      ["bad", "未登录", null],
+      ["wait", "移交成功后自动校验", null],
+    ],
+    kv: false, pat: true, code: false, foot: false,
+    err: "令牌移交 gh 凭据库失败：未保存任何凭据。请重试；持续失败请检查 gh 可用性。",
+    cta: null,
+    aux: [],
     notes: [],
   },
 };
@@ -495,7 +580,10 @@ function renderGates(rows) {
     box.append(row);
   });
 }
+let cur = "fresh", prev = "fresh";
 function setState(name) {
+  prev = (name === "pat") ? prev : cur;   // PAT 取消/保存回退来路（评审：取消落 scopemiss 系错位）
+  cur = name;
   const s = STATES[name];
   // badge
   $("badgeText").textContent = s.badge[0];
@@ -508,7 +596,7 @@ function setState(name) {
   $("gateFoot").classList.toggle("hidden", !s.foot);   // 脚注随凭据在场（2026-11-20 简报）
   if (s.kv) {
     const o = s.kvOverrides || {};
-    $("kvSource").textContent = o.source ?? "GitHub 授权（设备流）· 副本已移交 gh";
+    $("kvSource").textContent = o.source ?? "GitHub 授权（设备流）· 令牌存于 gh 凭据库";
     chipHtml((o.scopes) ?? [["repo", false], ["read:org", false]]);
     $("kvChecked").innerHTML = o.checked ?? '<span class="ok-frag">令牌有效</span> · 刚刚';
   }
@@ -550,11 +638,15 @@ document.querySelectorAll(".toolbar [data-t]").forEach((b) => b.onclick = () => 
   document.querySelectorAll(".toolbar [data-t]").forEach((x) => x.classList.toggle("on", x === b));
 });
 $("tagline").onchange = (e) => { $("title").textContent = e.target.value; };
-$("patCancel").onclick = () => setState("scopemiss");
+$("patCancel").onclick = () => setState(prev);   // 回退来路态（评审：取消落 scopemiss 系错位）
+$("copyCode").onclick = async (e) => {
+  try { await navigator.clipboard?.writeText($("codeVal")?.textContent ?? "ABCD-1234"); e.target.textContent = "已复制"; }
+  catch { e.target.textContent = "复制失败"; }
+};
 $("switchToPat").onclick = () => setState("pat");
 $("switchToDevice").onclick = () => setState("device");
 $("auxDelete").onclick = () => { /* mock：不动作 */ };
-$("recheck").onclick = () => setState("ready");
+$("recheck").onclick = () => {};   // 未配置态重新校验无副作用（评审：原实现瞬移全绿系基准卫生问题）
 
 setState("fresh");
 </script>
