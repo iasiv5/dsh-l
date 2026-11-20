@@ -368,6 +368,7 @@
   <button data-s="installing">安装中</button>
   <button data-s="device">设备流中</button>
   <button data-s="scopemiss">缺权限</button>
+
   <button data-s="pat">访问令牌</button>
   <button data-s="ready">全绿就绪</button>
   <button data-s="ratelimit">限流中</button>
@@ -437,23 +438,21 @@ const STATES = {
     notes: ["授权成功后自动移交 gh 凭据库、校验凭据并进入工作台，全程无需手动输入用户名。"],
   },
   scopemiss: {
-    badge: ["有错误", "err"],
-    sub: "凭据校验未通过 · 缺少权限",
+    badge: ["已配置", "ok"],
+    sub: "个人访问令牌 · 令牌有效（缺 read:org）",
     gates: [
       ["ok", "已安装 v2.63", null],
       ["ok", "已登录（iasiv5）", null],
-      ["bad", "令牌缺少 read:org（组织仓库发现不可用）", null],
+      ["ok", "令牌有效 · 缺 read:org 不挡门禁（组织仓库发现降级，见权限红标）", null],
     ],
     kv: true,
     kvOverrides: {
-      source: "本机 gh 登录态（工作台外建立）",
       scopes: [["repo", false], ["read:org", true]],
-      checked: '<span class="bad-frag">缺少权限</span> · 5 分钟前',
+      checked: '<span class="ok-frag">令牌有效</span> · 5 分钟前',
     },
     connect: false, code: false,
-    err: "缺少 read:org：组织仓库发现不可用。重新授权（设备流）或更换含该权限的访问令牌即可补齐。",
-    cta: ["重新授权 · 连接 GitHub", false, () => setState("device")],
-    aux: [["auxPat", "使用访问令牌更换"]],
+    cta: ["iasiv5 · 进入工作台", false, null],
+    aux: [["auxPat", "更换访问令牌"], ["auxReverify", "重新校验"], ["auxDelete", "删除凭证"]],
     notes: [],
   },
   pat: {
