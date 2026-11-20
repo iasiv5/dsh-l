@@ -57,6 +57,7 @@ export const zhCN = {
     errMissing: "尚未提供工作台凭据。",
     errUnhealthy: "凭据已失效：请重新连接。",
     errVerifyFailed: "校验暂时失败（网络异常）：稍后重试，令牌本身未必有问题。",
+    errDeviceStart: "设备流发起失败：GitHub 未接受授权请求（网络异常或配置问题）。请稍后重试；持续失败可改用访问令牌。",
     errGhNotOurs: "本机 gh 登录非工作台创建，未做改动；工作台凭据已清除。",
     bannerUnhealthy: "连接受损：凭据校验未通过，修复后才能继续摄取。",
     bannerLimited: "GitHub 主限流中：摄取暂停，恢复后自动继续，无需重新授权。",

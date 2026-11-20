@@ -49,6 +49,7 @@ const errKeyFor = (t, msg) => {
   if (m.startsWith("credential-verify-failed")) return t("cred.errVerifyFailed");
   if (m.startsWith("token-invalid")) return t("cred.errTokenInvalid");
   if (m.startsWith("rate-limited:")) return t("cred.errRateLimited");
+  if (m.startsWith("device-start-failed")) return t("cred.errDeviceStart");
   if (m.startsWith("gh-not-ours")) return t("cred.errGhNotOurs");
   if (m.startsWith("credential-missing")) return t("cred.errMissing");
   if (m.startsWith("credential-unhealthy")) return t("cred.errUnhealthy");
@@ -146,6 +147,7 @@ const deriveView = (t, status, ui) => {
 export function renderConnectionCard(parent, { t, status = null, mode = "full", on = {} }) {
   let statusNow = status;
   let patOpen = false, confirmDelete = false, patError = null, deleteError = null;
+  let connectError = null;
   let ctaAction = null;
 
   // ── compact 形态：自包含常驻迷你骨架（同样的类切换纪律；开关零 DOM 重建） ──
@@ -430,8 +432,9 @@ export function renderConnectionCard(parent, { t, status = null, mode = "full", 
     patForm.classList.toggle("open", patOpen);
     patErrLine.style.display = patError && patOpen ? "" : "none";
     patErrLine.textContent = patError && patOpen ? errKeyFor(t, patError) : "";
-    errBox.style.display = v.errText ? "" : "none";
-    errBox.textContent = v.errText ?? "";
+    const errLine = connectError ? errKeyFor(t, connectError) : v.errText;   // 连接发起错误就地呈现，优先于服务端态错误（2026-11-20 静默失败修复）
+    errBox.style.display = errLine ? "" : "none";
+    errBox.textContent = errLine ?? "";
     warnBox.style.display = v.warnText ? "" : "none";
     warnBox.textContent = v.warnText ?? "";
     if (v.cta) {
@@ -468,5 +471,6 @@ export function renderConnectionCard(parent, { t, status = null, mode = "full", 
     setPatOpen, setConfirmDelete,
     setPatError: applyPatError,
     setDeleteError: applyDeleteError,
+    setConnectError(msg) { connectError = msg; apply(); },
   };
 }

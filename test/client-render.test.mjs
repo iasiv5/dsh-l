@@ -97,6 +97,17 @@ test("connectionCard full：陈旧 verifiedAt 幽灵态收敛——kv/aux/双方
   assert.ok(byClass(mount, "cta")[0].textContent.includes(t("cred.installCta")));
 });
 
+test("connectionCard full：setConnectError 就地呈现 device-start 错误映射（2026-11-20 静默失败修复）", () => {
+  const mount = new FakeElement("div");
+  const handle = renderConnectionCard(mount, { t, status: READY, mode: "full", on: {} });
+  handle.setConnectError("device-start-failed: github device code 404");
+  const err = byClass(mount, "err")[0];
+  assert.equal(err.style.display, "");
+  assert.ok(err.textContent.includes(t("cred.errDeviceStart")));
+  handle.setConnectError(null);
+  assert.equal(byClass(mount, "err")[0].style.display, "none");
+});
+
 test("connectionCard 句柄开关：patOpen/confirmDelete 类切换零重建（堆叠回归钉）", () => {
   const mount = new FakeElement("div");
   const handle = renderConnectionCard(mount, { t, status: READY, mode: "full", on: {} });

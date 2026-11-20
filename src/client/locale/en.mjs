@@ -57,6 +57,7 @@ export const en = {
     errMissing: "No workbench credential provided yet.",
     errUnhealthy: "Credential is broken: reconnect to fix.",
     errVerifyFailed: "Verification temporarily failed (network): retry later — the token itself may be fine.",
+    errDeviceStart: "Device flow failed to start: GitHub rejected the request (network or configuration issue). Retry later; if it persists, use an access token instead.",
     errGhNotOurs: "The local gh sign-in was not created by the workbench and was left untouched; the workbench credential was removed.",
     bannerUnhealthy: "Connection broken: credential verification failed, fix it before ingesting again.",
     bannerLimited: "GitHub primary rate limit: ingestion paused, resumes automatically — no re-authorization needed.",

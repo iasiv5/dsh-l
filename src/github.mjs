@@ -216,10 +216,11 @@ export async function resolveToken({ credentials, tokenRef, storedToken, execFil
 
 // 设备流·起点：拿 user_code 与验证链接——用户在浏览器完成授权，本插件只轮询结果。
 export async function deviceCodeStart({ fetch: f = globalThis.fetch, clientId = GH_CLIENT_ID, scope = "repo read:org" }) {
+  const cid = clientId ?? GH_CLIENT_ID;   // handlers 显式传 null（config 未配）时兜底官方公开 client_id——默认参数不接 null（2026-11-20 实锤 404）
   const res = await f(WEB_BASE + "/login/device/code", {
     method: "POST",
     headers: { accept: "application/json", "content-type": "application/json" },
-    body: JSON.stringify({ client_id: clientId, scope }),
+    body: JSON.stringify({ client_id: cid, scope }),
   });
   if (!res.ok) throw new Error("github device code " + res.status);
   const j = await res.json();
@@ -234,10 +235,11 @@ export async function deviceCodeStart({ fetch: f = globalThis.fetch, clientId = 
 
 // 设备流·单次轮询：authorization_pending / slow_down 的节奏控制交给调用方。
 export async function deviceCodePoll({ deviceCode, fetch: f = globalThis.fetch, clientId = GH_CLIENT_ID }) {
+  const cid = clientId ?? GH_CLIENT_ID;   // 同 deviceCodeStart：null 兜底（2026-11-20）
   const res = await f(WEB_BASE + "/login/oauth/access_token", {
     method: "POST",
     headers: { accept: "application/json", "content-type": "application/json" },
-    body: JSON.stringify({ client_id: clientId, device_code: deviceCode, grant_type: "urn:ietf:params:oauth:grant-type:device_code" }),
+    body: JSON.stringify({ client_id: cid, device_code: deviceCode, grant_type: "urn:ietf:params:oauth:grant-type:device_code" }),
   });
   if (!res.ok) throw new Error("github device poll " + res.status);
   const j = await res.json();

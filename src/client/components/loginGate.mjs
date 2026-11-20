@@ -71,12 +71,15 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
       schedule();
     },
     connect: async () => {
+      cardHandle?.setConnectError(null);
       try {
         const d = await api.deviceStart();
         local = { ...local, device: d };
         sync(local);
         schedule();
-      } catch {}
+      } catch (err) {
+        cardHandle?.setConnectError(String(err?.message ?? err));   // 就地呈现，不再静默（2026-11-20 用户实测「点击无反应」）
+      }
       await refresh();
     },
     enter,

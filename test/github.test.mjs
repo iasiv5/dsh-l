@@ -197,6 +197,17 @@ test("deviceCodeStart：clientId 可覆写（config.githubClientId 注入位）"
   assert.deepEqual(JSON.parse(calls[0].init.body).client_id, "my-client-id");
 });
 
+test("deviceCodeStart/Poll：clientId null 兜底 GH_CLIENT_ID（handlers 传 null 覆盖默认参数，2026-11-20 实锤 404）", async () => {
+  const calls = [];
+  const f = async (url, init) => { calls.push({ url, init }); return { ok: true, status: 200, json: async () => ({ device_code: "DC", user_code: "ABCD-1234", verification_uri: "https://github.com/login/device", interval: 5 }) }; };
+  await github.deviceCodeStart({ fetch: f, clientId: null });
+  assert.deepEqual(JSON.parse(calls[0].init.body).client_id, github.GH_CLIENT_ID);
+  const calls2 = [];
+  const f2 = async (url, init) => { calls2.push({ url, init }); return { ok: true, status: 200, json: async () => ({ access_token: "tk" }) }; };
+  await github.deviceCodePoll({ deviceCode: "DC", fetch: f2, clientId: null });
+  assert.deepEqual(JSON.parse(calls2[0].init.body).client_id, github.GH_CLIENT_ID);
+});
+
 test("deviceCodePoll：access_token 与 pending error 双路径", async () => {
   const ok = async () => ({ ok: true, status: 200, json: async () => ({ access_token: "tk" }) });
   assert.deepEqual(await github.deviceCodePoll({ deviceCode: "DC", fetch: ok }), { token: "tk" });
