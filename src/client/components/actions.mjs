@@ -285,7 +285,7 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
       }
       const gates = row();
       const g = gateState(c);
-      const run = runBlock(c, lastRuns);
+      const runInfo = runBlock(c, lastRuns);
       // 开工会话（GLOSSARY「开工会话」）：双入口——「打开会话」（有活跃行，任意 stage，直达 openSession）
       // 与「我来开」（fresh：gating 未放行；重试态：G1 pass + building 且无活跃行——kickoff 失败恢复出口，
       // 评审 R3-2；文案统一中性，评审建议①）。openWorkSession 守卫失败/开工失败就地 chip 呈现。
@@ -303,7 +303,7 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
           if (!openWorkSession(c.work.sessionId)) workRow.append(workChip(t("work.openPending")));
         }));
       }
-      const freshReady = g.G1 === true;
+      const freshReady = g.G1 === true && !c.work?.sessionId;   // 评审计划外建议②：已有活跃行 → 打开会话是唯一入口，避免弹选择器后被复用快路径忽略
       const retryReady = c.gates?.G1?.decision === "pass" && c.stage === "building" && !c.work;
       if (freshReady || retryReady) {
         workRow.append(btn(t("work.startBtn"), () => go(async () => {
@@ -321,38 +321,38 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
           }
         })));
       }
-      if (workRow.childNodes.length > 0) detail.append(workRow);
+      if (workRow.children.length > 0) detail.append(workRow);
       // M8 T2/D3：模型观测展示（entries join " · "——runRow chip join 先例；字面量不译）
-      const modelEntries = Object.entries(run?.models ?? {});
+      const modelEntries = Object.entries(runInfo?.models ?? {});
       if (modelEntries.length > 0) {
         const modelChip = document.createElement("span");
         modelChip.className = "chip";
         modelChip.textContent = "model: " + modelEntries.map(([nid, m]) => nid + " " + m).join(" · ");
         gates.append(modelChip);
       }
-      const g2Ready = run?.waitingGate === "g2";   // 评审 D6/R1-19：G2 从字面量禁用改为挂起激活；G3 仍禁用（M3 发版分区）
+      const g2Ready = runInfo?.waitingGate === "g2";   // 评审 D6/R1-19：G2 从字面量禁用改为挂起激活；G3 仍禁用（M3 发版分区）
       gates.append(
         btn("G1 " + t("gates.G1") + " · " + t("actions.pass"), () => go(async () => { const r = await api.gate(c.key, "G1", "pass", ""); if (r.taskPackage) await copy(r.taskPackage); }), !g.G1),
         btn("G1 · " + t("actions.reject"), () => go(() => api.gate(c.key, "G1", "reject", "")), !g.G1),
-        btn("G2 " + t("gates.G2") + " · " + t("actions.pass"), () => go(() => api.runGate(run.id, "g2", "pass", "")), !g2Ready),
-        btn("G2 · " + t("actions.reject"), () => go(() => api.runGate(run.id, "g2", "reject", "")), !g2Ready),
+        btn("G2 " + t("gates.G2") + " · " + t("actions.pass"), () => go(() => api.runGate(runInfo.id, "g2", "pass", "")), !g2Ready),
+        btn("G2 · " + t("actions.reject"), () => go(() => api.runGate(runInfo.id, "g2", "reject", "")), !g2Ready),
         btn("G3 " + t("gates.G3"), () => {}, true),
       );
       if (c.taskPackage) gates.append(btn(t("actions.copyPackage"), () => copy(c.taskPackage)));
-      if (run) {
+      if (runInfo) {
         const runRow = row();
         const st = document.createElement("span");
         st.className = "chip";
-        st.textContent = t("run.status." + run.status) + ((run.currentNodeIds ?? []).length ? " · " + run.currentNodeIds.join("/") : "");
+        st.textContent = t("run.status." + runInfo.status) + ((runInfo.currentNodeIds ?? []).length ? " · " + runInfo.currentNodeIds.join("/") : "");
         runRow.append(st);
-        if (run.status === "running" && (run.currentNodeIds ?? []).length === 0) {
+        if (runInfo.status === "running" && (runInfo.currentNodeIds ?? []).length === 0) {
           const cl = document.createElement("span"); cl.className = "chip"; cl.style.opacity = ".7"; cl.textContent = t("run.workspaceCloning");
           runRow.append(cl);
         }
-        if (run.error) { const err = document.createElement("span"); err.className = "chip"; err.style.color = "crimson"; err.textContent = run.error; runRow.append(err); }
+        if (runInfo.error) { const err = document.createElement("span"); err.className = "chip"; err.style.color = "crimson"; err.textContent = runInfo.error; runRow.append(err); }
         runRow.append(
-          btn(t("actions.retryRun"), () => go(() => api.runRetry(run.id, [...(run.failedNodeIds ?? []), ...(run.cancelledNodeIds ?? [])][0] ?? "")), !((run.status === "failed" || run.status === "cancelled") && [...(run.failedNodeIds ?? []), ...(run.cancelledNodeIds ?? [])].length > 0)),   // M7/§18.3：数据源扩 cancelled（retryNode 已支持——M2 R1-9）；failedNodeIds 沿 M2 产出评审问题 1
-          btn(t("actions.cancelRun"), () => go(() => api.runCancel(run.id, "user")), !(run.status === "running" || run.status === "waiting")),
+          btn(t("actions.retryRun"), () => go(() => api.runRetry(runInfo.id, [...(runInfo.failedNodeIds ?? []), ...(runInfo.cancelledNodeIds ?? [])][0] ?? "")), !((runInfo.status === "failed" || runInfo.status === "cancelled") && [...(runInfo.failedNodeIds ?? []), ...(runInfo.cancelledNodeIds ?? [])].length > 0)),   // M7/§18.3：数据源扩 cancelled（retryNode 已支持——M2 R1-9）；failedNodeIds 沿 M2 产出评审问题 1
+          btn(t("actions.cancelRun"), () => go(() => api.runCancel(runInfo.id, "user")), !(runInfo.status === "running" || runInfo.status === "waiting")),
         );
         detail.append(runRow);
       }

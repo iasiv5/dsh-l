@@ -15,6 +15,7 @@ const path = require("path");
   try {
     const page = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
     page.on("console", (m) => log("console." + m.type() + " " + m.text()));
+    page.on("response", (r) => { if (r.status() >= 400) log("HTTP " + r.status() + " " + r.url().slice(0, 180)); });   // 评审计划外建议①：4xx/5xx 带 URL 落盘（console.error 不含 URL 无法归因）
     await page.goto(url, { waitUntil: "domcontentloaded" });
     const entry = page.getByRole("button", { name: /Loop Forge|Loop Engineering/ });
     await entry.first().waitFor({ timeout: 45000 });

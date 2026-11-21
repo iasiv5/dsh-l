@@ -604,3 +604,29 @@ test("renderSessionsView：missing+building 行保留确认交付（候选级拍
   assert.ok(!row2Btns.some((x) => x.includes(t("sessions.another"))), "feed 不可用不误标 missing");
   assert.ok(root2.children.filter((n) => n._rowId === "dsh-l:work-gone")[0].children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").some((b) => b.textContent.includes(t("sessions.deliver"))), "交付不依赖 summaries");
 });
+
+// ---- 开工会话（Work Session）评审计划外建议②：gating+活跃行 → 只出「打开会话」，不再弹选择器后忽略 ----
+
+test("rowActions：gating 且已有活跃 work 行 → 打开会话在、我来开不渲染（复用入口去重）", async () => {
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [] });
+  const detail = new FakeElement("div");
+  const c = { key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t", stage: "gating",
+    gates: { G1: null, G2: null, G3: null }, taskPackage: null, work: { sessionId: "dsh-l:work-x", cwd: "/w", approvalPolicy: null, updatedAt: 1 },
+    triage: null, labels: [], history: [], meta: {}, pull: null };
+  hooks.rowActions(detail, c, { t, view: { reload: async () => {}, shadow: new FakeElement("shadow") }, lang: "zh-CN" });
+  const text = detail.textContent;
+  assert.ok(text.includes(t("work.openBtn")), "打开会话在");
+  assert.ok(!text.includes(t("work.startBtn")), "我来开不渲染（避免弹选择器后被复用快路径忽略）");
+});
+
+test("rowActions：gating 无活跃行 → 我来开在（fresh 正常入口不受影响）", async () => {
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [] });
+  const detail = new FakeElement("div");
+  const c = { key: "o/r#issue#2", repo: "o/r", type: "issue", number: 2, title: "t", stage: "gating",
+    gates: { G1: null, G2: null, G3: null }, taskPackage: null, work: null,
+    triage: null, labels: [], history: [], meta: {}, pull: null };
+  hooks.rowActions(detail, c, { t, view: { reload: async () => {}, shadow: new FakeElement("shadow") }, lang: "zh-CN" });
+  assert.ok(detail.textContent.includes(t("work.startBtn")), "fresh 我来开在");
+});
