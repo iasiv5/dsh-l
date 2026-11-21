@@ -174,6 +174,7 @@ test("connectionCard polish：bad 行红点 + ready aux 决策点 4（评审 Q5/
   assert.equal(rows[2].children[0].className, "dot err");   // bad 行红点（stCls err）
   const aux = byClass(m, "auxAct").filter((n) => n.style.display !== "none");
   assert.equal(aux.length, 2);   // 更换令牌 + 删除凭证（重新校验已归头部图标钮）
+  assert.equal(byClass(m, "recheck").length, 1);   // 头部图标钮在场 → 可交互控件全口径 CTA+图标+aux2 = 4（评审 R1-7 计数断言）
   assert.equal(aux.some((n) => n.textContent.includes(t("cred.recheck"))), false);
 });
 
@@ -191,7 +192,7 @@ test("renderLoginGate success-turn 编排（gh-as-source 峰值）：轮询 auth
   api.deviceStatus = async () => ({ phase: "authorized", login: "iasiv5" });
   api.bind = async () => ({ account: "iasiv5" });
   try {
-    // ① 轮询发现 authorized → success-turn 编排 → 尾触发 onConnected
+    // ① 轮询发现 authorized → 依次转绿编排（150ms staged→终态+success-turn）→ 650ms 尾触发 onConnected（评审 R1-1 补实现）
     let connected = 0;
     const shadow = new FakeElement("shadow-root"); shadow.host = new FakeElement("div");
     renderLoginGate(shadow, { t, status: PENDING, onConnected: () => { connected++; } });
@@ -199,6 +200,14 @@ test("renderLoginGate success-turn 编排（gh-as-source 峰值）：轮询 auth
     timers.splice(timers.indexOf(poll), 1);   // 摘除已触发 poll，防陈旧重放（评审 Q2 测试卫生）
     await poll.fn();
     const gate = byClass(shadow, "gate")[0];
+    assert.equal(gate.classList.contains("success-turn"), false);   // staged 期间未定影
+    const rows = byClass(shadow, "gateRow");
+    assert.ok(rows[1].textContent.includes("等待你在 GitHub 确认授权"));   // staged（authorizing 真实中间态）g2 呈等待
+    assert.ok(rows[2].textContent.includes("令牌有效"));   // 凭据已校验 → g3 先绿（deriveView 既有语义）
+    const stage2 = timers.find((t) => t.ms === 150);
+    assert.ok(stage2, "150ms staged 步进已挂");
+    timers.splice(timers.indexOf(stage2), 1);
+    await stage2.fn();   // 终态全绿 + success-turn 定影
     assert.ok(gate.classList.contains("success-turn"));   // 定影类在场
     assert.equal(connected, 0);   // 编排期间不触发
     const hold = timers.find((t) => t.ms === 650);
@@ -206,7 +215,7 @@ test("renderLoginGate success-turn 编排（gh-as-source 峰值）：轮询 auth
     await hold.fn();
     assert.equal(connected, 1);   // 编排尾触发
 
-    // ② 卸载语义：isConnected=false → hold 触发也不 onConnected
+    // ② 卸载语义：isConnected=false → 编排步进与 hold 均不 onConnected
     let connected2 = 0;
     const shadow2 = new FakeElement("shadow-root"); shadow2.host = new FakeElement("div");
     renderLoginGate(shadow2, { t, status: PENDING, onConnected: () => { connected2++; } });
@@ -214,15 +223,17 @@ test("renderLoginGate success-turn 编排（gh-as-source 峰值）：轮询 auth
     timers.splice(timers.indexOf(poll2), 1);
     await poll2.fn();
     shadow2.isConnected = false;   // 卸载
-    const hold2 = timers[timers.length - 1];
-    await hold2.fn();
+    const stage2b = timers.find((t) => t.ms === 150);
+    await stage2b.fn();   // 步进守卫：!isConnected → return
+    const hold2 = timers.find((t) => t.ms === 650);
+    await hold2.fn();   // hold 守卫：!isConnected → 不 onConnected
     assert.equal(connected2, 0);
 
-    // ③ reduced-motion → 瞬切（无 hold、立即 onConnected）
+    // ③ reduced-motion → 瞬切（无 staged/hold、立即 onConnected）
     globalThis.matchMedia = () => ({ matches: true });
     let connected3 = 0;
     const shadow3 = new FakeElement("shadow-root"); shadow3.host = new FakeElement("div"); shadow3.mark = "S3";
-    renderLoginGate(shadow3, { t, status: PENDING, onConnected: () => { connected3++; const s = shadow3.isConnected ? "S3-attached" : "S3-detached"; console.log("DBG ③:", s, "stack:", new Error().stack.split("\n").slice(2, 14).map((l) => l.trim().slice(0, 700)).join(" <= ")); } });
+    renderLoginGate(shadow3, { t, status: PENDING, onConnected: () => { connected3++; } });
     const poll3 = timers.find((t) => t.ms === 4000);
     timers.splice(timers.indexOf(poll3), 1);
     await poll3.fn();

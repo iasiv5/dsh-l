@@ -100,7 +100,7 @@
       {
         "name": "gate-in",
         "value": "220ms cubic-bezier(.22,1,.36,1)",
-        "purpose": "卡片入场，系统唯一作者化动效时刻；reduced-motion 关闭。"
+        "purpose": "卡片入场，第一作者化时刻（第二为 success-turn 授权成功定影）；reduced-motion 关闭。"
       },
       {
         "name": "dot-breathe",

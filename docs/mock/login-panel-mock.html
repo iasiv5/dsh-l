@@ -185,7 +185,7 @@
   .patForm input:focus-visible { outline: 2px solid color-mix(in srgb, var(--accent) 60%, transparent); outline-offset: 1px; }
   .patRow { display: flex; align-items: center; gap: 12px; }
   .patRow .save {
-    height: 34px; padding: 0 16px; border: none; border-radius: 8px; cursor: pointer;
+    height: 40px; padding: 0 16px; border: none; border-radius: 8px; cursor: pointer;
     background: var(--cta-bg); color: var(--cta-text); font-size: 13px; font-weight: 600;
   }
   .patRow .save:hover { background: color-mix(in srgb, var(--cta-bg) 86%, var(--accent)); }
@@ -573,7 +573,7 @@ function renderGates(rows) {
   rows.forEach((r, i) => {
     const [state, stText] = r;
     const row = el("div", "gateRow");
-    const dot = el("span", "dot " + (state === "ok" ? "dot-ok" : state === "bad" ? "dot-warn" : "dot-wait"));
+    const dot = el("span", "dot " + (state === "ok" ? "dot-ok" : state === "bad" ? "dot-err" : "dot-wait"));
     const name = el("span", "name", names[i]);
     const st = el("span", "st" + (state === "bad" ? " is-bad" : ""), stText);
     row.append(dot, name, st);

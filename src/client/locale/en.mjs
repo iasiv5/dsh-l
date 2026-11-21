@@ -46,7 +46,7 @@ export const en = {
     deviceWaiting: "Waiting for you to authorize on GitHub…",
     copy: "Copy",
     patTitle: "Access token (PAT)", patPlaceholder: "ghp_···· or github_pat_····", patShow: "Show", patHide: "Hide", patSave: "Verify & save", patCancel: "Cancel",
-    patHint: "Saved only after verification and hand-off to the gh credential store (needs gh installed); classic tokens need repo and read:org, fine-grained authorize per repository. Saving overwrites the device-flow credential in the same slot.",
+    patHint: "Saved only after verification and hand-off to the gh credential store (needs gh installed); classic tokens need repo and read:org, fine-grained authorize per repository. Saving overwrites your existing credential.",
     deleteBtn: "Delete credential", recheck: "Re-verify", patReplace: "Replace access token",
     deleteConfirmTitle: "Delete the GitHub repository authorization?", deleteGhLogout: "Also sign out of local gh", deleteGhLogoutHint: "only selectable when this gh login was created by the workbench", deleteConfirm: "Delete", deleteCancel: "Cancel",
     errTokenInvalid: "Token verification failed (possibly expired): authorize again.",

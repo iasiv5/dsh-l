@@ -51,7 +51,6 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
     }
     try { local = await api.auth(); } catch {}   // authorized 到达时 gates 可能仍是轮询旧值——刷新取真实全绿（green 判据真实性）
     if (dead) return;   // await 期间终态已被并发调用消费（互斥：评审 Q2 生命周期协议）
-    sync(local);   // 真实终态全绿呈现（不伪造中间态——依次转绿由 pending→authorized 自然渲染承载）
     const reduced = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
     const green = local?.gates?.ghInstalled && local?.gates?.ghLogin && local?.gates?.credentialOk;
     if (!green || reduced || !shadow.isConnected) {
@@ -60,7 +59,14 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
       onConnected?.();
       return;
     }
-    cardHandle?.el?.classList?.add("success-turn");
+    // 依次转绿编排（计划 Task 4-①，评审 R1-1 采纳补实现）：authorizing 为真实历史态（移交后校验中），分步呈现非伪造
+    const staged = { ...local, device: { phase: "authorizing", login: local?.viewerLogin ?? null } };
+    sync(staged);   // g2 转绿「已登录」+ g3「授权成功，正在校验凭据…」+ badge 校验中
+    successTimers.push(setTimeout(() => {
+      if (dead || !shadow.isConnected) return;
+      sync(local);   // 终态全绿
+      cardHandle?.el?.classList?.add("success-turn");
+    }, 150));
     successTimers.push(setTimeout(() => {
       if (dead || !shadow.isConnected) return;
       dead = true;

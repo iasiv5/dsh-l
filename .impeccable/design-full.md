@@ -90,7 +90,7 @@ components:
 
 ## Colors
 
-釉色借宿主：中性色全部由 `canvas` / `canvastext` 系统关键字经 `color-mix(in srgb, …)` 派生，不设自有中性色盘。文字四阶（2026-11-20 对比度校准，双主题实测 AA：正文 ≥4.5:1，light 为绑定约束侧）：`currentColor 72%`（次级正文，light 6.02:1 / dark 8.55:1）、`currentColor 68%`（注脚/标签/门禁状态值，light 5.26:1 / dark 7.79:1）、`currentColor 65%`（placeholder/弱提示，light 4.80:1 / dark 7.17:1）、`currentColor 75%`（强调片段）。同百分比 ≠ 同可达性——校准以 light 侧为准，dark 侧超额达标；层级全序 65 < 68 < 72 < 75 < 100 严格递增。表面阶：`canvas 96%`（卡面）、`canvas 90%`（工作面）、`canvas 78%`（遮罩）、`currentColor 3–6%`（chip/输入底/hover）。边框阶：`currentColor 8–20%`（卡 10%、pill 12%、chip 16%、按钮 20%）。
+釉色借宿主：中性色全部由 `canvas` / `canvastext` 系统关键字经 `color-mix(in srgb, …)` 派生，不设自有中性色盘。文字四阶（2026-11-20 对比度校准，双主题实测 AA：正文 ≥4.5:1，light 为绑定约束侧）：`currentColor 72%`（次级正文，light 6.02:1 / dark 8.55:1）、`currentColor 68%`（注脚/标签/门禁状态值，light 5.26:1 / dark 7.79:1）、`currentColor 65%`（placeholder/弱提示，light 4.80:1 / dark 7.17:1）、`currentColor 75%`（强调片段）。同百分比 ≠ 同可达性——校准以 light 侧为准，dark 侧超额达标；层级全序 65 < 68 < 72 < 75 < 100 严格递增。**读数口径（第三方复算基准）**：canvastext 取 light `#1f2328` / dark `#e6edf3`，卡面合成底取 light `#f4f6f8` / dark `#0d1117`（GitHub light/dark 近似），sRGB alpha 混合后按 WCAG 相对亮度公式计算；同口径复算误差 ≤0.1。表面阶：`canvas 96%`（卡面）、`canvas 90%`（工作面）、`canvas 78%`（遮罩）、`currentColor 3–6%`（chip/输入底/hover）。边框阶：`currentColor 8–20%`（卡 10%、pill 12%、chip 16%、按钮 20%）。
 
 ### Primary
 - **门禁靛蓝** (#324DE2)：品牌印款——focus ring（60–70% 混透明）、品牌标衬底（9% tint + 20% 边）、图标渐变深端；不参与任何功能语义。
