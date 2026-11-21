@@ -493,6 +493,27 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
         return { ok: true, sessionId: out.sessionId, reused: out.reused, taskPackage: out.reused ? null : pkg };
       } catch (e) { return fail(String(e?.code ?? e?.message ?? e), e?.status ?? 500); }
     },
+    // ---- Task 7：工作区探测（选择器脏态警示数据源）。GET + cwd 查询串（http.mjs 二参通道）；
+    // 绝对路径守卫；exists 用注入 stat（false 不抛）；isRepo/dirty/branch 经 git execFile，失败分型降级。
+    async getWorkspaceStatus(_body, req) {
+      const gate = requireAuth(); if (gate) return gate;
+      let cwd = null;
+      try { cwd = new URL(req?.url ?? "/", "http://local").searchParams.get("cwd"); } catch { cwd = null; }
+      if (!cwd || !cwd.startsWith("/")) return fail("invalid-path", 400);
+      let exists = false;
+      try { exists = Boolean(stat?.(cwd)?.isDirectory?.()); } catch { exists = false; }
+      if (!exists) return { exists: false, isRepo: false, dirty: false, branch: null };
+      let isRepo = false;
+      let dirty = false;
+      let branch = null;
+      try {
+        await execFile("git", ["-C", cwd, "rev-parse", "--is-inside-work-tree"]);
+        isRepo = true;
+        try { const po = await execFile("git", ["-C", cwd, "status", "--porcelain"]); dirty = String(po.stdout ?? "").trim() !== ""; } catch {}
+        try { const bo = await execFile("git", ["-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"]); branch = String(bo.stdout ?? "").trim() || null; } catch {}
+      } catch {}
+      return { exists: true, isRepo, dirty, branch };
+    },
     async postRunGate(body) {
       if (!engine) return fail("engine-not-wired", 503);
       const gate = requireAuth(); if (gate) return gate;

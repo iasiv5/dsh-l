@@ -437,3 +437,60 @@ test("renderLoginGate：installing 轮询中三关全绿 → 自动续走 bind+o
     globalThis.setTimeout = realSetTimeout; globalThis.clearTimeout = realClearTimeout;
   }
 });
+
+// ---- 开工会话（Work Session）Task 8：工作区选择器 ----
+
+const candidateForPicker = () => ({ key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t" });
+
+test("pickWorkspace：三选项渲染 + 本地默认 null + 取消 null + 托管 managed", async () => {
+  const { pickWorkspace } = await import("../src/client/components/actions.mjs");
+  const c = candidateForPicker();
+  const shadow = new FakeElement("shadow-root");
+  let pickCalls = 0;
+  const p1 = pickWorkspace(shadow, { t, candidate: c, ui: { pickDirectory: async () => { pickCalls++; return "/picked"; } }, status: async () => ({ exists: true, isRepo: true, dirty: false, branch: "main" }) });
+  const buttons = () => (shadow.children[0]?.children[0]?.children ?? []).filter((n) => String(n.tagName).toUpperCase() === "BUTTON").map((b) => b.textContent);
+  const labels = buttons();
+  assert.ok(labels.some((x) => x.includes(t("work.pickLocal"))));
+  assert.ok(labels.some((x) => x.includes(t("work.pickBrowse"))));
+  assert.ok(labels.some((x) => x.includes(t("work.pickManaged"))));
+  assert.ok(labels.some((x) => x.includes(t("work.pickCancel"))));
+  // 本地默认：立即 resolve null（服务端默认解析），对话框收起
+  shadow.children[0].children[0].children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").find((b) => b.textContent.includes(t("work.pickLocal"))).onclick();
+  assert.equal(await p1, null);
+  const shadow2 = new FakeElement("shadow-root");
+  const p2 = pickWorkspace(shadow2, { t, candidate: c, ui: {}, status: async () => ({ exists: false }) });
+  shadow2.children[0].children[0].children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").find((b) => b.textContent.includes(t("work.pickCancel"))).onclick();
+  assert.equal(await p2, null);
+  const shadow3 = new FakeElement("shadow-root");
+  const p3 = pickWorkspace(shadow3, { t, candidate: c, ui: {}, status: async () => ({ exists: false }) });
+  shadow3.children[0].children[0].children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").find((b) => b.textContent.includes(t("work.pickManaged"))).onclick();
+  assert.equal(await p3, "managed");
+});
+
+test("pickWorkspace：选择目录 → 脏态警示行 + confirm 双分支", async () => {
+  const { pickWorkspace } = await import("../src/client/components/actions.mjs");
+  const c = candidateForPicker();
+  const statusCalls = [];
+  const status = async (cwd) => { statusCalls.push(cwd); return { exists: true, isRepo: true, dirty: true, branch: "dev" }; };
+  // confirm(true) → resolve cwd
+  const shadow = new FakeElement("shadow-root");
+  const confirms = [];
+  const p1 = pickWorkspace(shadow, { t, candidate: c, ui: { pickDirectory: async () => "/picked/dir" }, status, confirm: (msg) => { confirms.push(msg); return true; } });
+  const btns = () => shadow.children[0].children[0].children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON");
+  btns().find((b) => b.textContent.includes(t("work.pickBrowse"))).onclick();
+  await new Promise((r) => setTimeout(r, 10));   // 宏等待：pickDir 两次 await 后 setButtons（微任务计数跨环境不齐）
+  assert.deepEqual(statusCalls, ["/picked/dir"]);
+  btns().find((b) => b.textContent.includes(t("work.pickProceed"))).onclick();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.ok(confirms[0] && confirms[0].includes(t("work.dirtyHint")), "确认文案含脏态警示");
+  assert.equal(await p1, "/picked/dir");
+  // confirm(false) → resolve null
+  const shadow2 = new FakeElement("shadow-root");
+  const p2 = pickWorkspace(shadow2, { t, candidate: c, ui: { pickDirectory: async () => "/picked/dir" }, status, confirm: async () => false });
+  const btns2 = () => shadow2.children[0].children[0].children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON");
+  btns2().find((b) => b.textContent.includes(t("work.pickBrowse"))).onclick();
+  await new Promise((r) => setTimeout(r, 10));
+  btns2().find((b) => b.textContent.includes(t("work.pickProceed"))).onclick();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.equal(await p2, null);
+});

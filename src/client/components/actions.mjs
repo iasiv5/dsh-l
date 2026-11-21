@@ -180,7 +180,68 @@ const sel = (pairs, value) => {
 const row = () => { const d = document.createElement("div"); d.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;align-items:center"; return d; };
 const copy = (obj) => navigator.clipboard?.writeText(JSON.stringify(obj, null, 2)).catch(() => {});
 
-export function installActions({ getLang, openWorkSession = () => false }) {
+// 工作区选择器（Task 8，GLOSSARY「开工会话」工作区三来源）：本地默认（服务端解析）｜选择目录（uiWorkspace
+// pickDirectory + 脏态警示不阻止，评审 Q10）｜托管克隆（workspace:"managed"）。返回 null（取消/本地默认）|
+// "managed" | cwd。confirm 注入可测；活体走原生 confirm。
+export function pickWorkspace(shadow, { t, candidate, ui = {}, status = async () => ({ exists: false, isRepo: false, dirty: false, branch: null }), confirm = (msg) => Boolean(globalThis.confirm?.(msg)) } = {}) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement("div");
+    overlay.style.cssText = "position:absolute;inset:0;z-index:70;display:flex;align-items:flex-start;justify-content:center;padding-top:18vh;background:color-mix(in srgb,canvas 55%,transparent)";
+    const dialog = document.createElement("div");
+    dialog.setAttribute("role", "dialog");
+    dialog.setAttribute("aria-label", t("work.pickTitle"));
+    dialog.style.cssText = "width:min(400px,92%);display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:10px;background:canvas;color:canvastext;border:1px solid color-mix(in srgb,currentColor 18%,transparent)";
+    const title = document.createElement("h3");
+    title.style.margin = "0";
+    title.textContent = t("work.pickTitle");
+    const sub = document.createElement("div");
+    sub.style.cssText = "font-size:12.5px;opacity:.75";
+    sub.textContent = candidate.repo + "#" + candidate.number + " · " + (candidate.title ?? "");
+    const note = document.createElement("div");
+    note.style.cssText = "font-size:12.5px;display:none";
+    let done = false;
+    const finish = (v) => { if (done) return; done = true; overlay.remove(); resolve(v); };
+    let currentButtons = [];
+    const setButtons = (...bs) => { for (const b of currentButtons) b.remove(); currentButtons = bs; dialog.append(...bs); };
+    const showMain = () => {
+      note.style.display = "none";
+      setButtons(
+        btn(t("work.pickLocal"), () => finish(null)),
+        btn(t("work.pickBrowse"), () => { pickDir(); }),
+        btn(t("work.pickManaged"), () => finish("managed")),
+        btn(t("work.pickCancel"), () => finish(null)),
+      );
+    };
+    const pickDir = async () => {
+      let cwd = null;
+      try { cwd = await ui.pickDirectory?.() ?? null; } catch { cwd = null; }
+      if (!cwd) { showMain(); return; }
+      let st = null;
+      try { st = await status(cwd); } catch { st = null; }
+      if (st?.dirty) {
+        note.textContent = t("work.dirtyHint") + (st.branch ? " · " + st.branch : "");
+        note.style.display = "block";
+        setButtons(
+          btn(t("work.pickProceed"), async () => {
+            let ok = true;
+            try { ok = await confirm(note.textContent); } catch { ok = false; }
+            finish(ok ? cwd : null);
+          }),
+          btn(t("work.pickCancel"), () => finish(null)),
+        );
+      } else {
+        finish(cwd);
+      }
+    };
+    overlay.onclick = (e) => { if (e && e.target === overlay) finish(null); };
+    dialog.append(title, sub, note);
+    overlay.append(dialog);
+    shadow.append(overlay);
+    showMain();
+  });
+}
+
+export function installActions({ getLang, openWorkSession = () => false, pickDirectory = null }) {
   let lastRuns = [];   // strip 钩子先于行渲染被调（workbench 组装顺序），行内 run 区块由此取 runs 摘要
   const run = (view) => async (fn) => {
     try { await fn(); } catch (e) { console.warn("[dsh-l]", e); }
@@ -242,7 +303,13 @@ export function installActions({ getLang, openWorkSession = () => false }) {
       const retryReady = c.gates?.G1?.decision === "pass" && c.stage === "building" && !c.work;
       if (freshReady || retryReady) {
         workRow.append(btn(t("work.startBtn"), () => go(async () => {
-          const r = await api.workStart(c.key, null, retryReady && !freshReady, lang);
+          // Task 8：先弹工作区选择器（M2）——null=取消或本地默认（服务端解析）；"managed"=托管克隆。
+          const pick = await pickWorkspace(view.shadow, { t, candidate: c, ui: { pickDirectory }, status: (cwd) => api.workspaceStatus(cwd) });
+          if (pick === null) return;
+          const anotherFlag = retryReady && !freshReady;
+          const r = pick === "managed"
+            ? await api.workStart(c.key, null, anotherFlag, lang, "managed")
+            : await api.workStart(c.key, pick, anotherFlag, lang);
           if (r?.ok && r.sessionId) {
             if (!r.reused && !openWorkSession(r.sessionId)) workRow.append(workChip(t("work.openPending")));
           } else if (r?.error) {

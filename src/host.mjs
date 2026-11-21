@@ -10,7 +10,7 @@ import { statSync } from "node:fs";
 import { dataDir } from "./paths.mjs";
 import { createStore } from "./store.mjs";
 import { loadTemplates } from "./workflows/loader.mjs";
-import { makeWorkspace } from "./engine/workspace.mjs";
+import { makeWorkspace, sweepActiveKeys } from "./engine/workspace.mjs";
 import { makeExecutor } from "./engine/executor.mjs";
 import { makeEngine } from "./engine/engine.mjs";
 import { makeFeishu, formatNotice } from "./feishu.mjs";
@@ -134,6 +134,7 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     "/dsh-l/candidate/gate": { POST: handlers.postGate },
     "/dsh-l/run/start": { POST: handlers.postRunStart },
     "/dsh-l/work/start": { POST: handlers.postWorkStart },
+    "/dsh-l/work/workspace-status": { GET: handlers.getWorkspaceStatus },
     "/dsh-l/run/gate": { POST: handlers.postRunGate },
     "/dsh-l/run/cancel": { POST: handlers.postRunCancel },
     "/dsh-l/run/retry": { POST: handlers.postRunRetry },
@@ -176,7 +177,8 @@ export function apply(ctx, config = {}) {
     let sweeper = null;   // 保留期清扫（design-v2 §5）：每日一次，非活跃且超期的工作区递归删除。
     sweeper = ctx.interval(() => {
       try {
-        const active = runtime.store.listRuns().filter((r) => ["running", "waiting"].includes(r.status)).map((r) => r.candidateKey);
+        // Task 9（R1-5）：活跃集并入开工会话键（sweepActiveKeys 纯函数）——work 会话可存活数周且冷会话亦活跃。
+        const active = sweepActiveKeys({ runs: runtime.store.listRuns(), workSessions: runtime.store.listWorkSessions() });
         Promise.resolve(runtime.workspace.sweep({ activeKeys: active, retentionDays: runtime.store.getSettings().workspaceRetentionDays }))
           .then((out) => { (ctx.logger ?? console).info?.(`[dsh-l] sweep done: removed=${out.removed.length} skipped=${out.skipped?.length ?? 0}`); })   // M7/§18.5：skipped 计数（§16-13a）
           .catch((e2) => { (ctx.logger ?? console).warn?.('[dsh-l] workspace sweep async:', e2); });   // M6 D5：async 化补 .catch

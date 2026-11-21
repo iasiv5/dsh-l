@@ -85,7 +85,8 @@ export function makeHttpHandler({ methods, trust }) {
       try { body = await readJsonBody(req); } catch (e) { return sendJson(res, e.status ?? 400, { error: String(e.message ?? e) }); }
     }
     try {
-      const out = await fn(body);
+      // 第二参 req：GET 路由读查询串用（Task 7 workspace-status）；既有单参 handler 不受影响。
+      const out = await fn(body, req);
       if (out && typeof out === "object" && "error" in out) return sendJson(res, out.status ?? 400, { error: out.error });
       return sendJson(res, 200, out ?? {});
     } catch (e) {

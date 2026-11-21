@@ -1005,3 +1005,35 @@ test("putSettings workSessionApprovalPolicy：null/ask/never 接受、其它拒�
   assert.equal(store.getSettings().workSessionApprovalPolicy, null);
   assert.equal((await wsSettings(h, { workSessionApprovalPolicy: "yolo" })).error, "invalid settings");
 });
+
+// ---- 开工会话（Work Session）Task 7：workspace-status 探测路由 ----
+
+const wsExec = (mode = {}) => async (cmd, args) => {
+  const a = args.join(" ");
+  if (a.includes("rev-parse --is-inside-work-tree")) {
+    if (mode.notRepo) throw new Error("fatal: not a git repository");
+    return { stdout: "true\n", stderr: "" };
+  }
+  if (a.includes("status --porcelain")) return { stdout: mode.dirty ? " M x\n" : "", stderr: "" };
+  if (a.includes("rev-parse --abbrev-ref")) return { stdout: (mode.branch ?? "main") + "\n", stderr: "" };
+  return { stdout: "", stderr: "" };
+};
+
+test("workspace-status：repo+dirty+branch / 非 repo / 不存在 / 相对路径 / 未登录", async () => {
+  const store = openStore(); login(store);
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, execFile: wsExec({ dirty: true, branch: "dev" }), stat: () => ({ isDirectory: () => true }), home: wsHome() });
+  const req = (q) => ({ url: "/dsh-l/work/workspace-status" + q });
+  const dirty = await h.getWorkspaceStatus(null, req("?cwd=%2Fw%2Fdir"));
+  assert.deepEqual(dirty, { exists: true, isRepo: true, dirty: true, branch: "dev" });
+  const clean = await h.getWorkspaceStatus(null, req("?cwd=%2Fw%2Fdir"));
+  assert.equal(clean.dirty, true);
+  const noRepo = await makeHandlers({ store, provider: PROVIDER(), triage: noTriage, execFile: wsExec({ notRepo: true }), stat: () => ({ isDirectory: () => true }) }).getWorkspaceStatus(null, req("?cwd=%2Fw%2Fx"));
+  assert.deepEqual(noRepo, { exists: true, isRepo: false, dirty: false, branch: null });
+  const gone = await makeHandlers({ store, provider: PROVIDER(), triage: noTriage, execFile: wsExec(), stat: () => { throw new Error("ENOENT"); } }).getWorkspaceStatus(null, req("?cwd=%2Fgone"));
+  assert.equal(gone.exists, false);
+  const rel = await h.getWorkspaceStatus(null, req("?cwd=relative%2Fpath"));
+  assert.equal(rel.error, "invalid-path");
+  const anonStore = openStore();
+  const anon = await makeHandlers({ store: anonStore, provider: PROVIDER(), triage: noTriage }).getWorkspaceStatus(null, req("?cwd=%2Fw"));
+  assert.equal(anon.error, "auth-required");
+});

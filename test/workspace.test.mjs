@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { sanitizeKey, makeWorkspace } from "../src/engine/workspace.mjs";
+import { sanitizeKey, makeWorkspace, sweepActiveKeys } from "../src/engine/workspace.mjs";
 
 test("sanitizeKey：# 与 / 替换为下划线", () => {
   assert.equal(sanitizeKey("o/r#issue#12"), "o_r_issue_12");
@@ -93,4 +93,26 @@ test("M6/D5：sweep 脏检查三态——净删除/脏跳过/命令失败 fail-c
   assert.equal(out3.removed.length, 0); assert.equal(out3.skipped.length, 1);   // 命令失败 → fail-closed 跳过
   const r4 = []; const out4 = await mk({ count: "3" }, r4).sweep({ activeKeys: [], retentionDays: 7, now: new Date(now) });
   assert.equal(out4.removed.length, 0); assert.equal(out4.skipped.length, 1);   // 未推送（ahead=3）→ 跳过
+});
+
+// ---- 开工会话（Work Session）Task 9：sweepActiveKeys 纯函数（R1-5/R3-3 断言面打在 active 计算） ----
+
+test("sweepActiveKeys：running/waiting run 键 ∪ workSessions 全键去重；终态 run 键不进", () => {
+  const runs = [
+    { candidateKey: "o/live#issue#1", status: "running" },
+    { candidateKey: "o/wait#issue#2", status: "waiting" },
+    { candidateKey: "o/done#issue#3", status: "succeeded" },
+    { candidateKey: "o/failed#issue#4", status: "failed" },
+  ];
+  const workSessions = [
+    { key: "o/cold#issue#9", rows: [{ sessionId: "dsh-l:work-a", cwd: "/w" }] },
+    { key: "o/live#issue#1", rows: [{ sessionId: "dsh-l:work-b", cwd: "/w" }] },
+  ];
+  const out = sweepActiveKeys({ runs, workSessions });
+  assert.deepEqual([...out].sort(), ["o/cold#issue#9", "o/live#issue#1", "o/wait#issue#2"]);
+  assert.equal(new Set(out).size, out.length, "去重");
+});
+
+test("sweepActiveKeys：空输入退化为空数组", () => {
+  assert.deepEqual(sweepActiveKeys({ runs: [], workSessions: [] }), []);
 });

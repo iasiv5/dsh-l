@@ -52,7 +52,7 @@ export function apply(ctx) {
       const host = ref.current;
       if (!host) return undefined;
       const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
-      const view = mountWorkbench(shadow, { getLang: lang.get, build: BUILD, extend: installActions({ getLang: lang.get, openWorkSession }) });
+      const view = mountWorkbench(shadow, { getLang: lang.get, build: BUILD, extend: installActions({ getLang: lang.get, openWorkSession, pickDirectory: (opts) => ctx.uiWorkspace.pickDirectory(opts) }) });
       const off = lang.subscribe(() => view.relabel());
       return () => { off(); view.dispose(); };
     }, []);

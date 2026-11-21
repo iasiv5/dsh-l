@@ -4,6 +4,15 @@ import { join } from "node:path";
 // 候选键 → 目录名的安全化：候选键含 "/" 与 "#"（如 o/r#issue#12），目录名只留文件系统安全字符。
 export const sanitizeKey = (key) => String(key ?? "").replace(/[^A-Za-z0-9._-]/g, "_");
 
+// 清扫活跃集（Task 9，R1-5/R3-3）：running/waiting run 的候选键 ∪ 开工会话索引全键（Q9 冷会话亦活跃），
+// 去重；终态 run 键不进。纯函数无 IO——host.mjs sweeper 由此取 activeKeys，测试直接钉本函数。
+export function sweepActiveKeys({ runs = [], workSessions = [] } = {}) {
+  const out = new Set();
+  for (const r of runs) if (r && (r.status === "running" || r.status === "waiting")) out.add(r.candidateKey);
+  for (const w of workSessions) if (w && w.key) out.add(w.key);
+  return [...out];
+}
+
 const ghEnv = (ghBin) => ({
   ...process.env,
   PATH: (ghBin ? ghBin.slice(0, ghBin.lastIndexOf("/")) + ":" : "") + process.env.PATH,   // ghBin 目录前插 PATH（评审 D5：纯 gh 路线）
