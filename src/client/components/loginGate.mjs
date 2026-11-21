@@ -60,6 +60,7 @@ export function renderLoginGate(shadow, { t, status, onConnected }) {
       return;
     }
     // 依次转绿编排（计划 Task 4-①，评审 R1-1 采纳补实现）：authorizing 为真实历史态（移交后校验中），分步呈现非伪造
+    // staged 帧实际语义（deriveView）：g1 ok / g2 wait「等待确认」/ g3 ok「令牌有效」（凭据已校验先绿）/ badge 校验中
     const staged = { ...local, device: { phase: "authorizing", login: local?.viewerLogin ?? null } };
     sync(staged);   // g2 转绿「已登录」+ g3「授权成功，正在校验凭据…」+ badge 校验中
     successTimers.push(setTimeout(() => {
