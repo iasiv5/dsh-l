@@ -133,7 +133,7 @@ export const en = {
   review: { gates: "Waiting for you", release: "Release pending", failed: "Failed", confirm: "Confirm released", empty: "Nothing waiting for you" },
   feishu: { url: "Feishu webhook URL", save: "Save webhook", saveOk: "Webhook saved", test: "Send test message", testOk: "Test message sent", testFail: "Test send failed" },
   badge: { pending: "Pending ({n})" },
-  actions: { triageBatch: "Triage inbox", override: "Save my judgment", reason: "Reason", moveTo: "Move to", pass: "Pass", reject: "Reject", copyPackage: "Copy task package", cancelRun: "Cancel run", retryRun: "Retry node" },
+  actions: { triageBatch: "Triage inbox", override: "Save my judgment", overrideGroup: "Manual override (recorded as by:human)", reason: "Reason", moveTo: "Move to", pass: "Pass", reject: "Reject", copyPackage: "Copy task package", cancelRun: "Cancel run", retryRun: "Retry node" },
   run: {
     status: { running: "Running", waiting: "Waiting for you", succeeded: "Delivered", failed: "Failed", cancelled: "Cancelled" },
     workspaceCloning: "Cloning workspace",

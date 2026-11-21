@@ -253,7 +253,10 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
     sessionsFeed: () => (sessionsFeed ? sessionsFeed() : []),
     startAnother: (key, cwd) => api.workStart(key, cwd ?? null, true, getLang()),
     header(header, { t, state, view }) {
-      header.append(btn(t("settings.title"), () => openSettings(view.shadow, { t, current: state?.settings ?? { intervalMinutes: 0 }, onSaved: () => view.reload() })));
+      const b = btn(t("settings.title"), () => openSettings(view.shadow, { t, current: state?.settings ?? { intervalMinutes: 0 }, onSaved: () => view.reload() }));
+      b.setAttribute("aria-label", t("settings.title"));
+      b.dataset.short = t("settings.title").slice(0, 1);
+      header.append(b);
     },
     // 收活板块的仓源管理入口：勾选/取消监看仓在对话框内完成，保存后立即刷新摄取。
     intake(container, { t, state, view }) {
@@ -276,9 +279,12 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
       const reason = document.createElement("input");
       reason.value = tr.reason ?? "";
       reason.placeholder = t("actions.reason");
+      // ── 人工推翻 + 阶段迁移（桌面既有行，ux-wide；窄视口由 ux-narrow 折叠/chips 接管——评审 Task 3 双渲染）──
       const override = row();
+      override.className += " ux-wide";
       override.append(v, u, a, reason, btn(t("actions.override"), () => go(() => api.override({ key: c.key, validity: v.value, urgency: u.value, action: a.value, reason: reason.value, lang }))));
       const stages = row();
+      stages.className += " ux-wide";
       for (const s of ["triaged", "gating", "held", "closed"]) {
         const label = s === "held" ? t("recommendedActions.hold") : t("groups." + s);
         stages.append(btn(t("actions.moveTo") + " " + label, () => go(() => api.stage(c.key, s, "")), c.stage === s));
@@ -286,42 +292,73 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
       const gates = row();
       const g = gateState(c);
       const runInfo = runBlock(c, lastRuns);
-      // 开工会话（GLOSSARY「开工会话」）：双入口——「打开会话」（有活跃行，任意 stage，直达 openSession）
-      // 与「我来开」（fresh：gating 未放行；重试态：G1 pass + building 且无活跃行——kickoff 失败恢复出口，
-      // 评审 R3-2；文案统一中性，评审建议①）。openWorkSession 守卫失败/开工失败就地 chip 呈现。
-      const workRow = row();
-      const workChip = (text, warn = false) => {
+      // 开工会话双入口（GLOSSARY「开工会话」）按钮工厂：桌面行与窄视口主动作行各自实例化（桌面像素零变化红线）。
+      // 打开会话（有活跃行）/我来开（fresh：gating 未放行；重试态：G1 pass + building 且无活跃行——评审 R3-2）。
+      const workChip = (target, text, warn = false) => {
         const chip = document.createElement("span");
         chip.className = "chip";
         chip.style.opacity = warn ? "1" : ".8";
         if (warn) chip.style.color = "crimson";
         chip.textContent = text;
-        return chip;
+        target.append(chip);
       };
-      if (c.work?.sessionId) {
-        workRow.append(btn(t("work.openBtn"), () => {
-          if (!openWorkSession(c.work.sessionId)) workRow.append(workChip(t("work.openPending")));
-        }));
-      }
-      const freshReady = g.G1 === true && !c.work?.sessionId;   // 评审计划外建议②：已有活跃行 → 打开会话是唯一入口，避免弹选择器后被复用快路径忽略
+      const mkOpen = (target) => btn(t("work.openBtn"), () => {
+        if (!openWorkSession(c.work.sessionId)) workChip(target, t("work.openPending"));
+      });
+      const mkStart = (target) => btn(t("work.startBtn"), () => go(async () => {
+        // Task 8：先弹工作区选择器（M2）——null=取消或本地默认（服务端解析）；"managed"=托管克隆。
+        const pick = await pickWorkspace(view.shadow, { t, candidate: c, ui: { pickDirectory }, status: (cwd) => api.workspaceStatus(cwd) });
+        if (pick === null) return;
+        const anotherFlag = c.gates?.G1?.decision === "pass" && c.stage === "building";
+        const r = pick === "managed"
+          ? await api.workStart(c.key, null, anotherFlag, lang, "managed")
+          : await api.workStart(c.key, pick, anotherFlag, lang);
+        if (r?.ok && r.sessionId) {
+          if (!r.reused && !openWorkSession(r.sessionId)) workChip(target, t("work.openPending"));
+        } else if (r?.error) {
+          workChip(target, t("work.startFailed") + " (" + r.error + ")", true);
+        }
+      }));
+      const mkG1Pair = () => [
+        btn("G1 " + t("gates.G1") + " · " + t("actions.pass"), () => go(async () => { const r = await api.gate(c.key, "G1", "pass", ""); if (r.taskPackage) await copy(r.taskPackage); }), !g.G1),
+        btn("G1 · " + t("actions.reject"), () => go(() => api.gate(c.key, "G1", "reject", "")), !g.G1),
+      ];
+      const workRow = row();
+      workRow.className += " ux-wide";
+      if (c.work?.sessionId) workRow.append(mkOpen(workRow));
+      const freshReady = g.G1 === true && !c.work?.sessionId;   // 评审计划外建议②：已有活跃行 → 打开会话唯一入口
       const retryReady = c.gates?.G1?.decision === "pass" && c.stage === "building" && !c.work;
-      if (freshReady || retryReady) {
-        workRow.append(btn(t("work.startBtn"), () => go(async () => {
-          // Task 8：先弹工作区选择器（M2）——null=取消或本地默认（服务端解析）；"managed"=托管克隆。
-          const pick = await pickWorkspace(view.shadow, { t, candidate: c, ui: { pickDirectory }, status: (cwd) => api.workspaceStatus(cwd) });
-          if (pick === null) return;
-          const anotherFlag = retryReady && !freshReady;
-          const r = pick === "managed"
-            ? await api.workStart(c.key, null, anotherFlag, lang, "managed")
-            : await api.workStart(c.key, pick, anotherFlag, lang);
-          if (r?.ok && r.sessionId) {
-            if (!r.reused && !openWorkSession(r.sessionId)) workRow.append(workChip(t("work.openPending")));
-          } else if (r?.error) {
-            workRow.append(workChip(t("work.startFailed") + " (" + r.error + ")", true));
-          }
-        })));
-      }
+      if (freshReady || retryReady) workRow.append(mkStart(workRow));
       if (workRow.children.length > 0) detail.append(workRow);
+      // ── 窄视口编排（ux-narrow：主动作行/阶段 chips/折叠人工推翻；桌面 display:none，像素零变化）──
+      const uxNarrow = document.createElement("div");
+      uxNarrow.className = "ux-narrow";
+      const uxPrimary = row(); uxPrimary.className = "primary-actions";
+      if (c.work?.sessionId) uxPrimary.append(mkOpen(uxPrimary));
+      if (freshReady || retryReady) uxPrimary.append(mkStart(uxPrimary));
+      uxPrimary.append(...mkG1Pair());
+      if (c.taskPackage) uxPrimary.append(btn(t("actions.copyPackage"), () => copy(c.taskPackage)));
+      const uxChips = row(); uxChips.className = "stage-chips";
+      for (const s of ["triaged", "gating", "held", "closed"]) {
+        const label = s === "held" ? t("recommendedActions.hold") : t("groups." + s);
+        uxChips.append(btn(t("actions.moveTo") + " " + label, () => go(() => api.stage(c.key, s, "")), c.stage === s));
+      }
+      const details = document.createElement("details");
+      details.className = "override-box";
+      const sum = document.createElement("summary");
+      sum.textContent = t("actions.overrideGroup");
+      details.append(sum);
+      const uxOverride = row();
+      const v2 = sel(["high", "medium", "low"].map((x) => [x, t("validity." + x)]), tr.validity);
+      const u2 = sel(["P0", "P1", "P2", "P3"].map((x) => [x, t("urgency." + x)]), tr.urgency);
+      const a2 = sel(["start", "feedback", "close", "hold"].map((x) => [x, t("recommendedActions." + x)]), tr.action);
+      const reason2 = document.createElement("input");
+      reason2.value = tr.reason ?? "";
+      reason2.placeholder = t("actions.reason");
+      uxOverride.append(v2, u2, a2, reason2, btn(t("actions.override"), () => go(() => api.override({ key: c.key, validity: v2.value, urgency: u2.value, action: a2.value, reason: reason2.value, lang }))));
+      details.append(uxOverride);
+      uxNarrow.append(uxPrimary, uxChips, details);
+      detail.append(uxNarrow);
       // M8 T2/D3：模型观测展示（entries join " · "——runRow chip join 先例；字面量不译）
       const modelEntries = Object.entries(runInfo?.models ?? {});
       if (modelEntries.length > 0) {

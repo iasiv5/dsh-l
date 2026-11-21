@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 
 // ── 最小 DOM stub（父链 remove/切换 class 支持完整语义） ──
 class FakeElement {
-  constructor(tag) { this.tagName = tag; this.children = []; this.attrs = {}; this._text = ""; this.onclick = null; this.type = ""; this.disabled = false; this.checked = false; this.style = {}; this._parent = null; this.isConnected = true; }   // isConnected 供 success-turn 卸载语义检查（评审 N1）
+  constructor(tag) { this.tagName = tag; this.children = []; this.attrs = {}; this._text = ""; this.onclick = null; this.type = ""; this.dataset = {}; this.disabled = false; this.checked = false; this.style = {}; this._parent = null; this.isConnected = true; }   // isConnected 供 success-turn 卸载语义检查（评审 N1）
   get classList() {
     const self = this;
     const names = () => String(self.attrs.class ?? "").split(/\s+/).filter(Boolean);
@@ -629,4 +629,100 @@ test("rowActions：gating 无活跃行 → 我来开在（fresh 正常入口不�
     triage: null, labels: [], history: [], meta: {}, pull: null };
   hooks.rowActions(detail, c, { t, view: { reload: async () => {}, shadow: new FakeElement("shadow") }, lang: "zh-CN" });
   assert.ok(detail.textContent.includes(t("work.startBtn")), "fresh 我来开在");
+});
+
+// ---- 移动触控 UX（2026-11-22 计划）：Task 2/3/4 断言 ----
+
+const mkCandidate = (stage, work = null, g1 = null) => ({
+  key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t",
+  stage, gates: { G1: g1, G2: null, G3: null }, taskPackage: null, work,
+  triage: null, labels: [], history: [], meta: {}, pull: null,
+});
+
+const rowBtnTexts = (detail) => [...detail.children].filter((n) => String(n.tagName).toUpperCase() === "DIV" && n.className.includes("ux-narrow")).flatMap((n) => [...n.children[0].children].filter((x) => String(x.tagName).toUpperCase() === "BUTTON").map((b) => b.textContent));
+
+test("rowActions 状态映射：待拍板=我来开+G1对；活跃行=打开会话唯一；重试态=我来开", async () => {
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [] });
+  const view = { reload: async () => {}, shadow: new FakeElement("shadow") };
+  // 待拍板 fresh
+  let detail = new FakeElement("div");
+  hooks.rowActions(detail, mkCandidate("gating"), { t, view, lang: "zh-CN" });
+  let btns = rowBtnTexts(detail);
+  assert.ok(btns.some((x) => x.includes(t("work.startBtn"))), "待拍板有我来开");
+  assert.ok(btns.some((x) => x.includes("G1 ") && x.includes(t("actions.pass"))), "G1 放行在主动作行");
+  assert.ok(btns.some((x) => x.includes(t("actions.reject"))), "G1 驳回不消失（R1-6③）");
+  assert.ok(!btns.some((x) => x.includes(t("work.openBtn"))), "无活跃行无打开会话");
+  // 有活跃行（任意 stage）→ 打开会话唯一
+  detail = new FakeElement("div");
+  hooks.rowActions(detail, mkCandidate("building", { sessionId: "dsh-l:work-x", cwd: "/w" }), { t, view, lang: "zh-CN" });
+  btns = rowBtnTexts(detail);
+  assert.ok(btns.some((x) => x.includes(t("work.openBtn"))), "活跃行有打开会话");
+  assert.ok(!btns.some((x) => x.includes(t("work.startBtn"))), "活跃行无我来开（互斥）");
+  // 重试态：building + G1 pass + 无活跃行 → 我来开
+  detail = new FakeElement("div");
+  hooks.rowActions(detail, mkCandidate("building", null, { decision: "pass", note: "", via: "workbench-ui", at: "t" }), { t, view, lang: "zh-CN" });
+  btns = rowBtnTexts(detail);
+  assert.ok(btns.some((x) => x.includes(t("work.startBtn"))), "重试态有我来开");
+});
+
+test("rowActions 窄视口结构：details 折叠人工推翻 + stage-chips 组", async () => {
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [] });
+  const detail = new FakeElement("div");
+  hooks.rowActions(detail, mkCandidate("gating"), { t, view: { reload: async () => {}, shadow: new FakeElement("shadow") }, lang: "zh-CN" });
+  const narrow = [...detail.children].find((n) => n.className.includes("ux-narrow"));
+  assert.ok(narrow, "ux-narrow 容器在");
+  const detailsEl = [...narrow.children].find((n) => String(n.tagName).toUpperCase() === "DETAILS");
+  assert.ok(detailsEl, "人工推翻收进 details");
+  const sum = detailsEl.children.find((n) => String(n.tagName).toUpperCase() === "SUMMARY");
+  assert.ok(sum && sum.textContent.includes(t("actions.overrideGroup")), "summary 为折叠摘要键");
+  const chips = [...narrow.children].find((n) => n.className.includes("stage-chips"));
+  assert.equal(chips.children.filter((x) => String(x.tagName).toUpperCase() === "BUTTON").length, 4, "阶段迁移 4 chips");
+});
+
+test("样式表触控层断言：:active 反馈 + 44px + 16px 表单 + :host 滚动修复（P0）", async () => {
+  const fs = await import("node:fs");
+  const src = fs.readFileSync(new URL("../src/client/components/workbench.mjs", import.meta.url), "utf8");
+  const a = src.indexOf("const CSS = [");
+  const b = src.indexOf("].join(", a);
+  const joined = eval(src.slice(src.indexOf("[", a), b) + "]");
+  const j = joined.join("\n");
+  assert.ok(j.includes("button:active:not(:disabled){opacity:.72}"), ":active 触压反馈");
+  assert.ok(j.includes("min-height:44px"), "44px 触控下限");
+  assert.ok(j.includes("font-size:16px"), "iOS 表单 16px");
+  assert.ok(j.includes("touch-action:manipulation"), "防双击缩放");
+  assert.ok(j.includes(":host{overflow-y:auto !important}"), "P0 滚动修复（含 !important——React 内联 overflow:hidden 压制级联）");
+});
+
+test("header 单字态：三按钮 data-short 单字态 + aria-label 全文（Task 2）", async () => {
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [] });
+  const header = new FakeElement("header");
+  hooks.header(header, { t, state: { settings: { intervalMinutes: 0 } }, view: { reload: async () => {}, shadow: new FakeElement("shadow") } });
+  const btns = [...header.children].filter((n) => String(n.tagName).toUpperCase() === "BUTTON");
+  const setBtn = btns.find((b) => (b.getAttribute("aria-label") || "").includes(t("settings.title")));
+  assert.ok(setBtn, "设置按钮有 aria-label 全文");
+  assert.equal(setBtn.dataset.short, t("settings.title").slice(0, 1), "设置按钮 data-short 单字（窄视口 ::after 用）");
+  const fs = await import("node:fs");
+  const wb = fs.readFileSync(new URL("../src/client/components/workbench.mjs", import.meta.url), "utf8");
+  assert.ok((wb.match(/dataset\.short/g) || []).length >= 2, "刷新/退出已带 data-short（workbench 侧静态断言）");
+});
+
+test("candidateRow：chevron 随展开切换 + region/labelledby + 行高亮类", async () => {
+  const { renderRow } = await import("../src/client/components/candidateRow.mjs");
+  const c = { key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t", triage: { reason: "r", urgency: "P1", validity: "high", action: "start" } };
+  const root = new FakeElement("div");
+  const row = renderRow(root, c, t, { expanded: false, onToggle: () => {} });
+  assert.equal(row.className.includes("rowActive"), false, "收起态无高亮类");
+  const chev1 = row.children.find((n) => n.className === "ux-chev");
+  assert.ok(chev1 && chev1.textContent === "▸", "收起 chevron ▸");
+  const root2 = new FakeElement("div");
+  renderRow(root2, c, t, { expanded: true, onToggle: () => {} });
+  const row2 = root2.children[0];
+  assert.ok(row2.className.includes("rowActive"), "展开态高亮类");
+  assert.equal(row2.children.find((n) => n.className === "ux-chev").textContent, "▾", "展开 chevron ▾");
+  const detail = root2.children.find((n) => n.className === "detail");
+  assert.equal(detail.getAttribute("role"), "region", "detail role=region");
+  assert.equal(detail.getAttribute("aria-labelledby"), row2.children.find((n) => String(n.tagName).toUpperCase() === "BUTTON").id, "labelledby 指向行标题");
 });

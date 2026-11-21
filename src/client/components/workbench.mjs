@@ -162,6 +162,40 @@ const CSS = [
     ".credHead{gap:9px}",
     ".ghMark{width:34px;height:34px}",
   "}",
+  // ── 移动触控/窄视口适配层（2026-11-22 Mobile Touch UX；计划 docs/plans/2026-11-22-mobile-touch-ux-implementation-plan.md）──
+  // 断点矩阵：fine+宽=桌面（零变化）；coarse+任意宽=触控层；≤560=布局层；平板(coarse+宽)拿触控层+P0 滚动。
+  "@media (pointer:coarse){",
+    "button,select{min-height:44px}",
+    ".chip{min-height:44px}",
+    "button:active:not(:disabled){opacity:.72}",
+    ".row{min-height:48px}",
+    "input,select{font-size:16px}",
+    "*{touch-action:manipulation}",
+    // P0（与宽度无关）：shadow host 被 React 内联 overflow:hidden 裁剪——!important 越权（评审 r9 实证）；
+    // fine pointer 永不命中 coarse，桌面零风险。平板(coarse+宽)同样由此恢复可达。
+    ":host{overflow-y:auto !important}",
+    ".ux-chev{display:inline}",
+    ".rowActive{background:color-mix(in srgb,currentColor 6%,transparent)}",
+  "}",
+  "@media (max-width:560px){",
+    // P0（手机）：同款滚动修复 + 底部行情悬浮胶囊避让（26px 实测 + 余量 30px；iOS 安全区 env 承担）
+    ":host{overflow-y:auto !important;padding-bottom:calc(56px + env(safe-area-inset-bottom))}",
+    "header button[data-short]{font-size:0;min-width:44px;text-align:center}",
+    'header button[data-short]::after{content:attr(data-short);font-size:13px}',
+    ".tabsbar{overflow-x:auto}",
+    ".tabsbar button{flex:0 0 auto}",
+    ".primary-actions{display:flex;flex-direction:column;gap:8px}",
+    ".primary-actions button{width:100%;min-height:44px}",
+    ".stage-chips{display:flex;gap:8px;overflow-x:auto}",
+    ".stage-chips button{min-height:44px;flex:0 0 auto}",
+    ".override-box{border:1px solid color-mix(in srgb,currentColor 14%,transparent);border-radius:8px;padding:6px 10px}",
+    ".override-box summary{cursor:pointer;min-height:44px;display:flex;align-items:center}",
+    ".ux-wide{display:none}",
+  "}",
+  ".ux-narrow{display:none}",
+  ".ux-chev{display:none}",
+  "@media (max-width:560px){.ux-narrow{display:flex;flex-direction:column;gap:8px}}",
+
 ].join("\n");
 
 const el = (tag, cls, text) => {
@@ -231,8 +265,11 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
     // 待确认聚合（design-v2 §13.5）：页头 badge chip（N>0 才显）+ 侧栏 label 计数（badge.count 供 index label 读取）。
     const review = needsReview({ candidates: state?.candidates ?? [], runs: state?.runs ?? [] });
     badge.count = review.count;
-    const refreshBtn = el("button", null, busy ? t("refreshing") : t("refresh"));
+    const refreshLbl = busy ? t("refreshing") : t("refresh");
+    const refreshBtn = el("button", null, refreshLbl);
     refreshBtn.type = "button";
+    refreshBtn.setAttribute("aria-label", refreshLbl);
+    refreshBtn.dataset.short = refreshLbl.slice(0, 1);
     refreshBtn.disabled = busy;
     refreshBtn.onclick = () => view.refresh();
     header.append(refreshBtn);
@@ -258,6 +295,8 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
       header.append(who);
       const out = el("button", null, t("auth.logout"));
       out.type = "button";
+      out.setAttribute("aria-label", t("auth.logout"));
+      out.dataset.short = t("auth.logout").slice(0, 1);
       out.onclick = async () => {
         out.disabled = true;
         try { await api.logout(); } catch (e) { console.warn("[dsh-l]", e); }
@@ -279,7 +318,7 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
     extend?.bar?.(bar, { t, state, filters, view });
     const main = el("main");
     // 主栏 tab bar（design-v2 §13.5/D6）：三视图互斥显隐（评审 P10）。
-    const tabsBar = el("div");
+    const tabsBar = el("div", "tabsbar");
     tabsBar.style.cssText = "display:flex;gap:6px;padding:10px 16px 0";
     for (const [id, label] of [["list", t("tabs.list")], ["board", t("tabs.board")], ["review", t("tabs.review")], ["sessions", t("tabs.sessions")], ["roles", t("tabs.roles")]]) {
       const b = el("button", null, label);
