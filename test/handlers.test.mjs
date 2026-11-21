@@ -1037,3 +1037,51 @@ test("workspace-status：repo+dirty+branch / 非 repo / 不存在 / 相对路径
   const anon = await makeHandlers({ store: anonStore, provider: PROVIDER(), triage: noTriage }).getWorkspaceStatus(null, req("?cwd=%2Fw"));
   assert.equal(anon.error, "auth-required");
 });
+
+// ---- 开工会话（Work Session）Task 11：work/sessions 聚合路由（run 行 sessionId = currentNodeIds 序首个非空） ----
+
+test("getWorkSessions：work 行（含另开历史）∪ run 行（sessionId 选取规则 + 缺失 null）+ 候选摘要", async () => {
+  const store = openStore(); login(store); seed(store, 1); seed(store, 2);
+  store.appendWorkSession("o/r#issue#1", { sessionId: "dsh-l:work-a", cwd: "/w/a", approvalPolicy: null, createdAt: "t1", updatedAt: "t1" });
+  store.appendWorkSession("o/r#issue#1", { sessionId: "dsh-l:work-b", cwd: "/w/b", approvalPolicy: "never", createdAt: "t2", updatedAt: "t2" });
+  store.createRun({ id: "run-1", candidateKey: "o/r#issue#2", templateId: "loop-v1", templateRevision: 1, snapshot: { nodes: [], edges: [] },
+    nodeStates: { a: { status: "succeeded", attempt: 1 }, b: { status: "running", attempt: 1, sessionId: "dsh-l:run:run-1:b:1" } },
+    status: "running", cancelReason: null, currentNodeIds: ["b", "a"], createdAt: "t", updatedAt: "t", history: [] });
+  store.createRun({ id: "run-2", candidateKey: "o/r#issue#1", templateId: "loop-v1", templateRevision: 1, snapshot: { nodes: [], edges: [] },
+    nodeStates: { a: { status: "pending", attempt: 0 } }, status: "failed", cancelReason: null, currentNodeIds: ["a"], createdAt: "t", updatedAt: "t", history: [] });
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
+  const r = await h.getWorkSessions();
+  const workA = r.items.find((x) => x.kind === "work" && x.sessionId === "dsh-l:work-a");
+  const workB = r.items.find((x) => x.kind === "work" && x.sessionId === "dsh-l:work-b");
+  assert.ok(workA && workB, "另开历史行都在");
+  assert.equal(workB.cwd, "/w/b");
+  assert.equal(workB.approvalPolicy, "never");
+  assert.equal(workB.candidate.title, "t");
+  assert.equal(workB.candidate.stage, "inbox");
+  const run1 = r.items.find((x) => x.kind === "run" && x.runId === "run-1");
+  assert.equal(run1.sessionId, "dsh-l:run:run-1:b:1", "currentNodeIds 序首个非空");
+  const run2 = r.items.find((x) => x.kind === "run" && x.runId === "run-2");
+  assert.equal(run2.sessionId, null, "全空降级 null");
+  assert.equal(run2.candidate.title, "t");
+});
+
+// ---- 开工会话（Work Session）Task 13：确认交付（人工 G2 等价留痕） ----
+
+test("postWorkDeliver：无活跃会话 404 / 阶段不符 409 / 成功 G2 留痕 + shipped + history", async () => {
+  const store = openStore(); login(store); seed(store, 1); seed(store, 2); seed(store, 3);
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
+  assert.equal((await h.postWorkDeliver({ key: "o/r#issue#3" })).error, "no-work-session");
+  store.appendWorkSession("o/r#issue#1", { sessionId: "dsh-l:work-a", cwd: "/w", approvalPolicy: null, createdAt: "t", updatedAt: "t" });
+  assert.equal((await h.postWorkDeliver({ key: "o/r#issue#1" })).error, "deliver-requires-building");   // inbox
+  await store.setStage("o/r#issue#1", "gating", "");
+  assert.equal((await h.postWorkDeliver({ key: "o/r#issue#1" })).error, "deliver-requires-building");   // gating
+  await store.setStage("o/r#issue#1", "building", "G1 pass");
+  const ok = await h.postWorkDeliver({ key: "o/r#issue#1", note: "手工确认" });
+  assert.equal(ok.ok, true);
+  assert.equal(store.getCandidate("o/r#issue#1").gates.G2.decision, "pass");
+  assert.equal(store.getCandidate("o/r#issue#1").gates.G2.via, "workbench-ui");
+  assert.equal(store.getCandidate("o/r#issue#1").stage, "shipped");
+  assert.ok(store.getCandidate("o/r#issue#1").history.some((x) => x.event === "work-session.delivered"));
+  // shipped 后再交付 → 409
+  assert.equal((await h.postWorkDeliver({ key: "o/r#issue#1" })).error, "deliver-requires-building");
+});

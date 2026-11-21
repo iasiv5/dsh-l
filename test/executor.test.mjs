@@ -157,3 +157,27 @@ test("脱密守护（M6 T5/评审 R8-②）：script env 注入面 = 基线 env 
   // 差集与敏感后缀双断言：基线 env 中的敏感键不因 executor 扩散（若有也在 captured 内原样——断言差集即可）
   assert.ok(injected.every((k) => !/(_TOKEN|_KEY|_SECRET|_PASSWORD)$/.test(k)));
 });
+
+// ---- 开工会话（Work Session）Task 10：onSessionBound 持久化回调（R1-8） ----
+
+test("onSessionBound：createAgent 成功即回调确定性 sessionId；缺省 no-op 不炸", async () => {
+  const w = fakeWorld();
+  const bound = [];
+  const ex = makeExecutor({ world: w, spawn: () => fakeChild(), onSessionBound: (run, nodeId, sessionId) => bound.push({ runId: run.id, nodeId, sessionId }) });
+  const node = { id: "build", type: "agent" };
+  const { promise } = ex.runAgentNode({ run: agentRun(0), node, cwd: "/ws", taskPackage: { kind: "dsh-l.task-package" }, upstream: [], rolePrompt: "纪律句", executionPolicy: "ask" });
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  const boundBeforeFinish = bound.length;   // 先采样后 finish（断言不得打断 sleep 空转环——否则文件悬挂）
+  w.finish("completed");
+  const r = await promise;
+  assert.equal(r.ok, true);
+  assert.equal(boundBeforeFinish, 1, "create 后即回调（先于 turn 完成）");
+  assert.deepEqual(bound[0], { runId: "r1", nodeId: "build", sessionId: "dsh-l:run:r1:build:1" });
+
+  const w2 = fakeWorld();
+  const ex2 = makeExecutor({ world: w2, spawn: () => fakeChild() });   // 缺省 no-op
+  const { promise: p2 } = ex2.runAgentNode({ run: agentRun(1), node: { id: "build", type: "agent" }, cwd: "/ws", taskPackage: {}, upstream: [], rolePrompt: "r" });
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  w2.finish("completed");
+  assert.equal((await p2).ok, true);
+});

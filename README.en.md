@@ -9,7 +9,7 @@
 
 [中文](README.md) ｜ English
 
-Turn the GitHub repositories you watch into a **visible loop** inside DeepSeek Harness: every open issue and pull request is ingested into a staged backlog, an LLM triages each candidate (validity, urgency P0–P3, recommended action), and three gates (before build / before ship / before release) keep every step human-approved. Starting work emits a structured **task package**; the issues shipping creates flow back into the backlog — the loop keeps turning.
+Turn the GitHub repositories you watch into a **visible loop** inside DeepSeek Harness: every open issue and pull request is ingested into a staged backlog, an LLM triages each candidate (validity, urgency P0–P3, recommended action), and three gates (before build / before ship / before release) keep every step human-approved. G1 now has a second exit — the **Work Session**: after human approval you can hand the candidate to yourself as a regular DSH session (workspace of your choice: local checkout, picked directory, or managed clone) with a kickoff first message carrying the full task package; the session lives entirely in the official DSH session system and dsh-l keeps only an index, a Sessions board, and a deliver confirmation (manual G2 equivalent). Starting work can also go through the headless engine, which emits a structured **task package**; the issues shipping creates flow back into the backlog — the loop keeps turning.
 
 The plugin is an advisor and a record keeper: **it never writes code on its own and never touches your repositories by itself.**
 

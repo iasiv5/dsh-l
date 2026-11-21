@@ -596,6 +596,45 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       store.deleteRole(id);
       return { ok: true };
     },
+    // ---- Task 11：会话板块聚合（work 行含另开历史 ∪ run 行）。run 行 sessionId = currentNodeIds 序
+    // 首个 nodeStates[].sessionId 非空（Task 10 落库）；全空/缺 currentNodeIds → null（旧行降级）。
+    async getWorkSessions() {
+      const items = [];
+      for (const { key, rows } of store.listWorkSessions()) {
+        const c = store.getCandidate(key);
+        const candidateDigest = c ? { repo: c.repo, number: c.number, title: c.title, stage: c.stage } : null;
+        for (const row of rows) {
+          items.push({ kind: "work", key, sessionId: row.sessionId, runId: null, cwd: row.cwd ?? null,
+            approvalPolicy: row.approvalPolicy ?? null, createdAt: row.createdAt ?? null, updatedAt: row.updatedAt ?? null,
+            candidate: candidateDigest });
+        }
+      }
+      for (const run of store.listRuns()) {
+        const c = store.getCandidate(run.candidateKey);
+        let sessionId = null;
+        for (const nid of run.currentNodeIds ?? []) {
+          const sid = run.nodeStates?.[nid]?.sessionId;
+          if (sid) { sessionId = sid; break; }
+        }
+        items.push({ kind: "run", key: run.candidateKey, sessionId, runId: run.id, cwd: null, approvalPolicy: null,
+          createdAt: run.createdAt ?? null, updatedAt: run.updatedAt ?? null,
+          candidate: c ? { repo: c.repo, number: c.number, title: c.title, stage: c.stage } : null });
+      }
+      return { items };
+    },
+    // ---- Task 13：确认交付（人工 G2 等价——开工会话路径的交付留痕；不代跑发版，G3 仍永久人工）。
+    async postWorkDeliver(body) {
+      const gate = requireAuth(); if (gate) return gate;
+      const key = body?.key;
+      const c = store.getCandidate(key);
+      if (!c) return fail("not found", 404);
+      if (!store.getWorkSession(key)) return fail("no-work-session", 404);
+      if (!["building", "verifying"].includes(c.stage)) return fail("deliver-requires-building", 409);
+      store.setGate(key, "G2", "pass", body?.note ?? "", null, "workbench-ui");
+      store.setStage(key, "shipped", "work deliver");
+      store.recordHistory(key, "work-session.delivered", body?.note ?? "");
+      return { ok: true };
+    },
     async getRoles() {
       const gate = requireAuth(); if (gate) return gate;
       // 合并单列表（评审 P9③/R1-3）：覆盖行显用户值（override 字段优先展开）

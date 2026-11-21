@@ -92,8 +92,22 @@ store API（后续任务的接口契约）：getWatch()/setWatch(repos)、upsert
 | POST | /dsh-l/candidate/override | {key, validity, urgency, action, reason, lang} | 人工推翻分诊（by=human） |
 | POST | /dsh-l/candidate/stage | {key, stage, note} | 人工改阶段（仅 inbox/triaged/gating/shipped/closed/held；building 只能经 G1） |
 | POST | /dsh-l/candidate/gate | {key, gate, decision, note} | 闸门放行/驳回：G1 仅 gating 可操作（否则 409 gate-requires-gating），pass→building+任务包、reject→triaged；G2/G3 v1 返回 409 |
-| GET/PUT | /dsh-l/settings | {intervalMinutes?, triageModel?} | 设置读写（可只改其中一项；triageModel 须在目录内或 null）；intervalMinutes 变更即时重 arm 定时器 |
-| GET | /dsh-l/models | — | 宿主模型目录 + 宿主默认（分诊模型设置数据源） |
+| GET/PUT | /dsh-l/settings | {intervalMinutes?, triageModel?, workSessionModel?, workSessionPreset?, workSessionApprovalPolicy?} | 设置读写（逐键白名单，可只改其中一项；triageModel/workSessionModel 须在目录内或 null；workSessionPreset ∈ presets 名册或 null；workSessionApprovalPolicy ∈ null/ask/never）；intervalMinutes 变更即时重 arm 定时器 |
+| GET | /dsh-l/models | — | 宿主模型目录 + 宿主默认 + presets 名册（agentPresets.list 规整为 id 串；分诊与开工会话设置数据源） |
+| POST | /dsh-l/work/start | {key, cwd?, another?, lang?, workspace?} | **开工会话创建**（G1 第二出口，见 §4a）：复用快路径零记账；错误码 workspace-not-found(422) / work-cwd-conflict(409) / run-already-active(409，fresh 与 another+managed) / gate-requires-gating(409) / managed-clone-failed(502) / kickoff-failed(500) |
+| GET | /dsh-l/work/workspace-status?cwd= | — | 工作区探测 `{exists, isRepo, dirty, branch}`（选择器脏态警示数据源）；相对路径 400 invalid-path |
+| GET | /dsh-l/work/sessions | — | 会话板块聚合：work 行（含另开历史）∪ run 行（sessionId = currentNodeIds 序首个 nodeStates[].sessionId 非空，缺省 null） |
+| POST | /dsh-l/work/deliver | {key, note} | 确认交付（人工 G2 等价）：活跃开工会话在场(404 no-work-session) + stage ∈ building/verifying(409 deliver-requires-building) → G2 留痕(via workbench-ui) + shipped + history work-session.delivered |
+
+### §4a. 开工会话（Work Session）
+
+G1 放行的第二出口（与引擎执行并列）：把候选交给**用户亲自开工的普通 DSH 会话**。会话由官方会话系统全权承载（原生模型切换 / 审批 / 归档 / fork），dsh-l 只留索引与导航。
+
+- **七步守卫序**（postWorkStart）：①requireAuth → ②候选存在(404) → ③活跃行复用快路径（同 cwd 或无 cwd → 200 `{sessionId, reused:true, taskPackage:null}`，零记账零 world 调用）→ ④异 cwd → 409 work-cwd-conflict（早守卫零记账）→ ⑤fresh：引擎活跃 run 409（先于闸门）→ stage≠gating 409 → 工作区解析（422/502 早守卫先于 setGate）→ setGate(G1 pass)+setStage(building) → ⑥another：要求 G1 pass 记录；workspace:"managed" 时先查引擎互斥（托管目录与引擎 run 共享 dirOf(key) 同一工作树，活跃 run 期间同树 checkout 会打断引擎节点——R3-1）；不重复记账不动 stage → ⑦工作区解析：managed = makeWorkspace.ensure（分支 `work-<type>-<number>`）/ local = 显式 cwd 或 `~/workspace/<仓目录>` 目录命中。
+- **创建事务**（startWorkSession）：create → send(kickoff) → appendWorkSession 索引 + history `work-session.opened`；send 失败 → **回滚 dispose（rollback-only，红线②唯一例外）** + history `work-session.kickoff-failed` → 500 kickoff-failed；恢复出口 = 「我来开」重试态（G1 pass + building 且无活跃行 → another 重建，文案中性）。
+- **kickoff 首条消息**：锚行 `[dsh-l] {repo}#{number} {issue|PR} · {title}`（固定 ASCII 前缀自动取题，>72 字符截断保前缀；issue|PR 为同号消歧的有意扩展）+ 可读块（链接/分诊/目标/默认分支/工作区）+ 任务包 JSON 围栏；语言跟随界面。
+- **三分支模型解析**（composeWorkWorld）：显式 workSessionModel（validity 判定，effort 在场即透传）→ agentOptions + setup select；preset 在场且无显式 → agentOptions 不传不 select（preset 自带组合生效）；皆无 → 部署默认。`meta.cwd` 只落会话头，`workingDirectory.set` 二跳设置，二者必须先于 send（红线①时序）；审批策略未显式配置零 setPolicy（红线③）；**已登记（索引内）会话零 dispose**（红线②，handle 不逃逸 worksession.mjs）。
+- **sweeper 保全与取舍**：每日清扫活跃集 = `sweepActiveKeys({runs, workSessions})`（running/waiting run ∪ work 索引全键）。取舍：曾有开工会话的候选其托管目录**永不自动清扫**（Q9 冷会话亦活跃的保守取舍），磁盘回收转手动。
 
 处理器写成纯函数 makeHandlers({ store, provider, triage, now })，路由层只做 JSON 编解码——单测不打真 HTTP。
 

@@ -241,13 +241,17 @@ export function pickWorkspace(shadow, { t, candidate, ui = {}, status = async ()
   });
 }
 
-export function installActions({ getLang, openWorkSession = () => false, pickDirectory = null }) {
+export function installActions({ getLang, openWorkSession = () => false, pickDirectory = null, sessionsFeed = null }) {
   let lastRuns = [];   // strip 钩子先于行渲染被调（workbench 组装顺序），行内 run 区块由此取 runs 摘要
   const run = (view) => async (fn) => {
     try { await fn(); } catch (e) { console.warn("[dsh-l]", e); }
     await view.reload();
   };
   return {
+    // Task 12：会话板块 hooks——openWorkSession（导航）、sessionsFeed（sessions.list 投影）、startAnother（另开）。
+    openWorkSession,
+    sessionsFeed: () => (sessionsFeed ? sessionsFeed() : []),
+    startAnother: (key, cwd) => api.workStart(key, cwd ?? null, true, getLang()),
     header(header, { t, state, view }) {
       header.append(btn(t("settings.title"), () => openSettings(view.shadow, { t, current: state?.settings ?? { intervalMinutes: 0 }, onSaved: () => view.reload() })));
     },

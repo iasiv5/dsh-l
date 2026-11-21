@@ -30,6 +30,15 @@ BUILD="$(grep -m1 -oE 'dsh-l-build:[0-9a-f]{12}' "$ROOT/lib/client.js" | cut -d:
 if curl -s -o /dev/null --max-time 2 "$BASE/"; then fail "端口 $PORT 已被占用"; fi
 LIVE_BEFORE="$(stat -c %Y "$LIVE_STORE" 2>/dev/null || echo absent)"
 
+# 0b. gh 可用性阶梯（gh-as-source 绑定前置，2026-11-20 收敛后 bind 强制要求 gh）：PATH 已有 → 在役 profile
+# 插件私有 gh（一键安装产物，本机通常已登录）→ 两级皆无则提前失败并指路（不在烟测内代下载，保持脚本零网络依赖膨胀）。
+SMOKE_GH="$(command -v gh || true)"
+if [ -z "$SMOKE_GH" ] && [ -x "$HOME/.dsh/profiles/web/data/dsh-l/bin/gh" ]; then
+  SMOKE_GH="$HOME/.dsh/profiles/web/data/dsh-l/bin/gh"
+fi
+[ -n "$SMOKE_GH" ] && [ -x "$SMOKE_GH" ] || fail "本机无可用 gh（PATH 与 ~/.dsh/profiles/web/data/dsh-l/bin/gh 皆无）——先在 DSH 工作台一键安装 gh 或本机安装 gh 并 gh auth login"
+export PATH="$(dirname "$SMOKE_GH"):$PATH"
+
 # 1. 官方模板建 profile（3080 被在役宿主占用 → 模板首启 EADDRINUSE 退出属预期，049 步骤 1）
 timeout 60 "$DSH" "$PROFILE" --from-default-profile web --no-open > "$EVID/profile-create.log" 2>&1 || true
 [ -f "$PROFILE_DIR/cordis.yml" ] || fail "profile 未建成（见 profile-create.log）"
@@ -44,6 +53,10 @@ node -e 'const fs=require("fs");const p=process.argv[1]+"/package.json";const j=
 # 4. 隔离端口启动（脚本托管，trap 按精确 pid 收尾，不用 pkill，049 坑位三）
 node "$RUNTIME_BIN" "$PROFILE" --host 127.0.0.1 --port "$PORT" --no-open > "$EVID/host.log" 2>&1 &
 echo $! > "$EVID/host.pid"
+# 4b. gh 注入 scratch 数据目录（引擎 clone 走 ghBin=<dataDir>/bin/gh；缺失时 clone ENOENT 即败，
+# 失败态抢先于 7c 的 building 断言——竞态根因修复，与 0b 阶梯同一 gh 源）。
+mkdir -p "$PROFILE_DIR/data/dsh-l/bin"
+cp "$SMOKE_GH" "$PROFILE_DIR/data/dsh-l/bin/gh" && chmod +x "$PROFILE_DIR/data/dsh-l/bin/gh"
 for _ in $(seq 1 90); do grep -q "127.0.0.1:$PORT/?token=" "$EVID/host.log" && break; sleep 1; done
 grep -q "127.0.0.1:$PORT/?token=" "$EVID/host.log" || fail "宿主未起（见 host.log）"
 if grep -qE "did not activate|skipping profile bundle|waiting for service|disabling profile plugin row" "$EVID/host.log"; then fail "插件拒载或未激活（见 host.log）"; fi
@@ -64,7 +77,7 @@ node -e 'const j=require(process.argv[1]);if(j.watch.repos.length!==12)throw new
 hc -H "content-type: application/json" -X POST -d '{}' "$BASE/dsh-l/refresh?token=$TOKEN" > "$EVID/refresh-gate.json"
 node -e 'const j=require(process.argv[1]);if(j.error!=="auth-required")throw new Error(JSON.stringify(j));' "$EVID/refresh-gate.json" || fail "未绑定时 refresh 未被闸门拦截（见 refresh-gate.json）"
 hc "$BASE/dsh-l/auth?token=$TOKEN" > "$EVID/auth.json"
-node -e 'const j=require(process.argv[1]);if(typeof j.installed!=="boolean"||typeof j.tokenAvailable!=="boolean"||!("account" in j))throw new Error(JSON.stringify(j));' "$EVID/auth.json" || fail "auth 状态形状不符（见 auth.json）"
+node -e 'const j=require(process.argv[1]);if(!("account" in j))throw new Error(JSON.stringify(j));const g=j.gates||{};if(typeof g.ghInstalled!=="boolean"||typeof g.ghLogin!=="boolean"||typeof g.credentialOk!=="boolean")throw new Error("gates shape: "+JSON.stringify(j));if(!j.install||!j.install.phase||!j.device||!j.device.phase)throw new Error("install/device shape: "+JSON.stringify(j));if(!j.credential||typeof j.credential.configured!=="boolean")throw new Error("credential shape: "+JSON.stringify(j));' "$EVID/auth.json" || fail "auth 状态形状不符（见 auth.json）"
 ACCOUNT="$(gh api user -q .login 2>/dev/null || echo iasiv5)"
 hc -H "content-type: application/json" -X POST -d "{\"account\":\"$ACCOUNT\"}" "$BASE/dsh-l/auth/bind?token=$TOKEN" > "$EVID/bind.json"
 node -e 'const j=require(process.argv[1]);if(j.login!==process.argv[2])throw new Error(JSON.stringify(j));' "$EVID/bind.json" "$ACCOUNT" || fail "GitHub 绑定失败（见 bind.json；本机需先 gh auth login）"
@@ -146,6 +159,16 @@ if [ -n "$TKEY" ]; then
   case "$TRIAGE_VERDICT" in FAIL*) fail "真分诊接线不正确：$TRIAGE_VERDICT（见 triage.json / state4.json）";; esac
 fi
 echo "triage verdict: $TRIAGE_VERDICT" | tee -a "$EVID/result.txt"
+
+# 7e2. 开工会话路由形状探针（Task 4/7/11/13，置于退出账号探针前——需绑定态）（Task 4/7/11/13）：路由挂载 + 早守卫形状（副作用 free——假候选 404）
+hc "$BASE/dsh-l/work/sessions?token=$TOKEN" > "$EVID/worksessions.json"
+node -e 'const j=require(process.argv[1]);if(!Array.isArray(j.items))throw new Error("items not array");' "$EVID/worksessions.json" || fail "work/sessions 形状不符（见 worksessions.json）"
+post work/start '{"key":"o/none#issue#999"}' > "$EVID/workstart.json"
+node -e 'const j=require(process.argv[1]);if(j.error!=="not found")throw new Error("unexpected: "+JSON.stringify(j));' "$EVID/workstart.json" || fail "work/start 假候选应 404 not found（见 workstart.json）"
+hc "$BASE/dsh-l/work/workspace-status?token=$TOKEN&cwd=rel/path" > "$EVID/wsstatus.json"
+node -e 'const j=require(process.argv[1]);if(j.error!=="invalid-path")throw new Error("unexpected: "+JSON.stringify(j));' "$EVID/wsstatus.json" || fail "workspace-status 相对路径应 400 invalid-path（见 wsstatus.json）"
+post work/deliver '{"key":"o/none#issue#999"}' > "$EVID/workdeliver.json"
+node -e 'const j=require(process.argv[1]);if(j.error!=="not found")throw new Error("unexpected: "+JSON.stringify(j));' "$EVID/workdeliver.json" || fail "work/deliver 假候选应 404 not found（见 workdeliver.json）"
 
 # 7f. 退出账号：解绑后 refresh 重新被闸门拦截；监看配置保留
 hc -H "content-type: application/json" -X POST -d '{}' "$BASE/dsh-l/auth/logout?token=$TOKEN" > "$EVID/logout.json"

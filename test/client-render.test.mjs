@@ -494,3 +494,85 @@ test("pickWorkspace：选择目录 → 脏态警示行 + confirm 双分支", asy
   await new Promise((r) => setTimeout(r, 10));
   assert.equal(await p2, null);
 });
+
+// ---- 开工会话（Work Session）Task 12：renderSessionsView（合并/徽章/兜底/空态） ----
+
+test("renderSessionsView：running 置顶 + 四类徽章 + 打开/另开动作 + 不在列表仅另开", async () => {
+  const { renderSessionsView } = await import("../src/client/components/sessionsView.mjs");
+  const items = [
+    { kind: "work", key: "o/r#issue#1", sessionId: "dsh-l:work-a", runId: null, cwd: "/w/a", approvalPolicy: "never", createdAt: 1, updatedAt: 100, candidate: { repo: "o/r", number: 1, title: "T1", stage: "closed" } },
+    { kind: "work", key: "o/r#issue#2", sessionId: "dsh-l:work-b", runId: null, cwd: "/w/b", approvalPolicy: null, createdAt: 1, updatedAt: 200, candidate: { repo: "o/r", number: 2, title: "T2", stage: "building" } },
+    { kind: "work", key: "o/r#issue#3", sessionId: "dsh-l:work-missing", runId: null, cwd: "/w/c", approvalPolicy: null, createdAt: 1, updatedAt: 150, candidate: { repo: "o/r", number: 3, title: "T3", stage: "building" } },
+    { kind: "run", key: "o/r#issue#4", sessionId: "dsh-l:run:x:1", runId: "run-1", cwd: null, approvalPolicy: null, createdAt: 1, updatedAt: 50, candidate: { repo: "o/r", number: 4, title: "T4", stage: "building" } },
+  ];
+  const summaries = [
+    { id: "dsh-l:work-b", displayTitle: "[dsh-l] o/r#2 issue · T2", running: true },
+    { id: "dsh-l:run:x:1", displayTitle: "x", running: false },
+  ];   // work-a 与 work-missing 不在 ids → missing
+  const root = new FakeElement("div");
+  const opens = []; const anothers = [];
+  renderSessionsView(root, { t, items, summaries, onOpen: (id) => opens.push(id), onAnother: (key, cwd) => anothers.push({ key, cwd }) });
+  const text = root.textContent;
+  assert.ok(text.includes(t("sessions.badgeWork")));
+  assert.ok(text.includes(t("sessions.badgeRun")));
+  assert.ok(text.includes(t("sessions.badgeAuto")));
+  assert.ok(text.includes(t("sessions.badgeGone")));
+  assert.ok(text.includes(t("sessions.badgeMissing")));
+  assert.ok(text.includes(t("sessions.badgeRunning")));
+  // 不在列表行：只留另开
+  const missingRowBtns = root.children.filter((n) => n._rowId === "dsh-l:work-missing")[0].children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").map((b) => b.textContent);
+  assert.ok(missingRowBtns.some((x) => x.includes(t("sessions.another"))), "missing 行有另开");
+  assert.ok(!missingRowBtns.some((x) => x.includes(t("sessions.open"))), "missing 行无打开");
+  root.children.filter((n) => n._rowId === "dsh-l:work-missing")[0].children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").find((b) => b.textContent.includes(t("sessions.another"))).onclick();
+  assert.deepEqual(anothers, [{ key: "o/r#issue#3", cwd: "/w/c" }]);
+  // 打开：正常行
+  const normalRow = root.children.filter((n) => n._rowId === "dsh-l:work-b")[0];
+  normalRow.children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").find((b) => b.textContent.includes(t("sessions.open"))).onclick();
+  assert.deepEqual(opens, ["dsh-l:work-b"]);
+});
+
+test("renderSessionsView：兜底行（锚行反解/反解失败/run 孤儿仅打开）与空态", async () => {
+  const { renderSessionsView } = await import("../src/client/components/sessionsView.mjs");
+  const items = [];
+  const summaries = [
+    { id: "dsh-l:work-zz", displayTitle: "[dsh-l] x/y#7 PR · Some fix", running: false },
+    { id: "dsh-l:work-q", displayTitle: "无锚行标题", running: false },
+    { id: "dsh-l:run:r:1:1", displayTitle: "run 孤儿", running: false },
+  ];
+  const root = new FakeElement("div");
+  const opens = [];
+  renderSessionsView(root, { t, items, summaries, onOpen: (id) => opens.push(id), onAnother: () => {} });
+  const text = root.textContent;
+  assert.ok(text.includes("x/y#7 PR"), "锚行反解候选标识");
+  assert.ok(text.includes("无锚行标题"), "反解失败只显标题");
+  assert.ok(text.includes(t("sessions.badgeWork")));
+  const runOrphanRow = root.children.filter((n) => n._rowId === "dsh-l:run:r:1:1")[0];
+  const runBtns = runOrphanRow.children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").map((b) => b.textContent);
+  assert.ok(runBtns.some((x) => x.includes(t("sessions.open"))));
+  assert.ok(!runBtns.some((x) => x.includes(t("sessions.another"))), "run 孤儿无另开");
+  runOrphanRow.children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").find((b) => b.textContent.includes(t("sessions.open"))).onclick();
+  assert.deepEqual(opens, ["dsh-l:run:r:1:1"]);
+  // 空态
+  const emptyRoot = new FakeElement("div");
+  renderSessionsView(emptyRoot, { t, items: [], summaries: [], onOpen: () => {}, onAnother: () => {} });
+  assert.ok(emptyRoot.textContent.includes(t("sessions.empty")));
+});
+
+test("renderSessionsView：确认交付按钮仅 building/verifying 工作行出现，点击回调 onDeliver", async () => {
+  const { renderSessionsView } = await import("../src/client/components/sessionsView.mjs");
+  const items = [
+    { kind: "work", key: "o/r#issue#1", sessionId: "dsh-l:work-a", runId: null, cwd: "/w/a", approvalPolicy: null, createdAt: 1, updatedAt: 100, candidate: { repo: "o/r", number: 1, title: "T1", stage: "building" } },
+    { kind: "work", key: "o/r#issue#2", sessionId: "dsh-l:work-b", runId: null, cwd: "/w/b", approvalPolicy: null, createdAt: 1, updatedAt: 90, candidate: { repo: "o/r", number: 2, title: "T2", stage: "triaged" } },
+  ];
+  const summaries = [{ id: "dsh-l:work-a", displayTitle: "[dsh-l] o/r#1 issue · T1", running: true }, { id: "dsh-l:work-b", displayTitle: "[dsh-l] o/r#2 issue · T2", running: false }];
+  const root = new FakeElement("div");
+  const delivers = [];
+  renderSessionsView(root, { t, items, summaries, onOpen: () => {}, onAnother: () => {}, onDeliver: (key) => delivers.push(key) });
+  const rowA = root.children.filter((n) => n._rowId === "dsh-l:work-a")[0];
+  const rowB = root.children.filter((n) => n._rowId === "dsh-l:work-b")[0];
+  const btnTexts = (row) => row.children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").map((b) => b.textContent);
+  assert.ok(btnTexts(rowA).some((x) => x.includes(t("sessions.deliver"))), "building 行有确认交付");
+  assert.ok(!btnTexts(rowB).some((x) => x.includes(t("sessions.deliver"))), "triaged 行无确认交付");
+  rowA.children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").find((b) => b.textContent.includes(t("sessions.deliver"))).onclick();
+  assert.deepEqual(delivers, ["o/r#issue#1"]);
+});

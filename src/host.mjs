@@ -70,7 +70,19 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
   const dir = dataDir();
   const store = createStore({ filePath: join(dir, "store.json") });
   const workspace = makeWorkspace({ dataDir: dir, ghBin: join(dir, "bin", "gh"), execFile });
-  const executor = makeExecutor({ world: makeExecWorld(ctx, dir), spawn: spawnCb, ghBin: join(dir, "bin", "gh") });
+  const executor = makeExecutor({
+    world: makeExecWorld(ctx, dir), spawn: spawnCb, ghBin: join(dir, "bin", "gh"),
+    // Task 10（R1-8）：会话 id 落 run 节点状态（nodeStates[nodeId] ??= {} 兜底——executor 以 ?.attempt 可选读，节点态可能未建）。
+    onSessionBound: (run, nodeId, sessionId) => {
+      try {
+        const cur = store.getRun(run.id);
+        if (!cur) return;
+        const ns = { ...cur.nodeStates };
+        ns[nodeId] = { ...(ns[nodeId] ?? {}), sessionId };
+        store.saveRun({ ...cur, nodeStates: ns });
+      } catch (err) { (ctx.logger ?? console).warn?.("[dsh-l] onSessionBound:", err); }
+    },
+  });
   // 开工会话 world（GLOSSARY「开工会话」；Task 4 装配）：调用序红线在 composeWorkWorld 内。
   const workWorld = composeWorkWorld({
     agents: ctx.agents,
@@ -135,6 +147,8 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     "/dsh-l/run/start": { POST: handlers.postRunStart },
     "/dsh-l/work/start": { POST: handlers.postWorkStart },
     "/dsh-l/work/workspace-status": { GET: handlers.getWorkspaceStatus },
+    "/dsh-l/work/sessions": { GET: handlers.getWorkSessions },
+    "/dsh-l/work/deliver": { POST: handlers.postWorkDeliver },
     "/dsh-l/run/gate": { POST: handlers.postRunGate },
     "/dsh-l/run/cancel": { POST: handlers.postRunCancel },
     "/dsh-l/run/retry": { POST: handlers.postRunRetry },

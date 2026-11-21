@@ -114,7 +114,14 @@ export const en = {
     noToken: "No GitHub credential found: configure a token or sign in to gh on this machine.",
   },
   meta: { lastRefreshAt: "Last refresh" },
-  tabs: { list: "List", board: "Board", review: "Needs review", roles: "Roles" },
+  tabs: { list: "List", board: "Board", review: "Needs review", sessions: "Sessions", roles: "Roles" },
+  sessions: {
+    title: "Sessions",
+    badgeWork: "Work", badgeRun: "Run", badgeAuto: "Auto-approve", badgeGone: "Upstream closed",
+    badgeMissing: "Not in session list", badgeRunning: "Running",
+    open: "Open", another: "Start another", deliver: "Confirm delivery",
+    empty: "No dsh-l sessions yet — pass G1 on a candidate in the list and choose \"Start it myself\".",
+  },
   roles: {
     search: "Search roles (name/id/description)", empty: "No matching roles", overridden: "overrides builtin",
     policyAuto: "Auto", policyAsk: "Ask each time", uses: "node refs", unused: "unused",

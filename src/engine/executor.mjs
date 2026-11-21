@@ -25,7 +25,7 @@ export function composeAgentPrompt({ rolePrompt, taskPackage, upstream = [] }) {
 
 // 节点执行器（design-v2 §5）。makeExecutor 产物：runScriptNode / runAgentNode（T5 增）。
 // 两者均返回 { promise, cancel }：promise 决议 { ok, error, artifacts }；cancel 立即以 cancelled 决议。
-export function makeExecutor({ spawn: sp = spawn, world = null, ghBin = null, agentTimeoutMs = 1800000, scriptTimeoutMs = 600000 } = {}) {
+export function makeExecutor({ spawn: sp = spawn, world = null, ghBin = null, agentTimeoutMs = 1800000, scriptTimeoutMs = 600000, onSessionBound = null } = {}) {
   const env = () => ghEnv(ghBin);
   return {
     // agent 节点（design-v2 §5 / §12.4）：ctx.agents 短会话（triage 同款等待机制）。
@@ -48,6 +48,8 @@ export function makeExecutor({ spawn: sp = spawn, world = null, ghBin = null, ag
               if (event?.type === "turn/end") endKind = kindOf(event.data?.reason ?? event.data);
             });
             handle = await world.createAgent(sessionId, model ? { model } : {});   // 评审 R1-5：角色 model 通道闭环
+            // Task 10（R1-8）：会话 id 持久化——run 行「打开」按钮的数据源（engine 落 nodeStates，旧 run 无字段降级 null）。
+            try { onSessionBound?.(run, node.id, sessionId); } catch {}
             world.setPolicy?.(handle.agent, policy);
             world.setWorkingDirectory?.(handle.agent, cwd);
             await handle.agent.send(world.userMessage(prompt), "next-turn", true);

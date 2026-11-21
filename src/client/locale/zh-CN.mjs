@@ -114,7 +114,14 @@ export const zhCN = {
     noToken: "未找到 GitHub 凭据：请配置 token，或在本机登录 gh。",
   },
   meta: { lastRefreshAt: "上次刷新" },
-  tabs: { list: "清单", board: "看板", review: "待我确认", roles: "角色" },
+  tabs: { list: "清单", board: "看板", review: "待我确认", sessions: "会话", roles: "角色" },
+  sessions: {
+    title: "会话",
+    badgeWork: "开工", badgeRun: "执行", badgeAuto: "自动放行", badgeGone: "上游已关闭",
+    badgeMissing: "不在会话列表", badgeRunning: "运行中",
+    open: "打开", another: "另开会话", deliver: "确认交付",
+    empty: "还没有 dsh-l 会话——从清单里对候选 G1 放行并选「我来开」即可开工。",
+  },
   roles: {
     search: "搜索角色（名称/ID/职责）", empty: "没有匹配的角色", overridden: "已覆盖内置",
     policyAuto: "自动", policyAsk: "每次询问", uses: "个节点引用", unused: "未被引用",

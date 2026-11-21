@@ -52,7 +52,19 @@ export function apply(ctx) {
       const host = ref.current;
       if (!host) return undefined;
       const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
-      const view = mountWorkbench(shadow, { getLang: lang.get, build: BUILD, extend: installActions({ getLang: lang.get, openWorkSession, pickDirectory: (opts) => ctx.uiWorkspace.pickDirectory(opts) }) });
+      const view = mountWorkbench(shadow, { getLang: lang.get, build: BUILD, extend: installActions({
+        getLang: lang.get,
+        openWorkSession,
+        pickDirectory: (opts) => ctx.uiWorkspace.pickDirectory(opts),
+        sessionsFeed: () => {
+          try {
+            const snap = ctx.sessions.list.getSnapshot();
+            const ids = snap?.ids ?? [];
+            const byId = snap?.byId ?? {};
+            return ids.map((id) => byId?.[id] ?? { id });
+          } catch (e) { console.warn("[dsh-l] sessionsFeed:", e); return []; }
+        },
+      }) });
       const off = lang.subscribe(() => view.relabel());
       return () => { off(); view.dispose(); };
     }, []);

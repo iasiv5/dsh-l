@@ -36,6 +36,8 @@ export const api = {
   releaseConfirm: (key, note = "") => send("dsh-l/release/confirm", { key, note }),
   workStart: (key, cwd = null, another = false, lang = "zh-CN", workspace = null) => send("dsh-l/work/start", { key, cwd, another, lang, workspace: workspace ?? undefined }),
   workspaceStatus: (cwd) => get("dsh-l/work/workspace-status?cwd=" + encodeURIComponent(cwd)),
+  workSessions: () => get("dsh-l/work/sessions"),
+  workDeliver: (key, note = "") => send("dsh-l/work/deliver", { key, note }),
   rolesList: () => get("dsh-l/roles"),
   rolesUpsert: (role) => send("dsh-l/roles", { role }),
   rolesDelete: (id) => send("dsh-l/roles/delete", { id }),

@@ -9,6 +9,7 @@ import { renderConnectionCard } from "./connectionCard.mjs";
 const VERIFY_TTL_MS = 30 * 60 * 1000;   // R2Q3/S6：compact 挂载静默校验节流窗（与 loginGate 同值）
 import { renderKanban } from "./kanban.mjs";
 import { renderReview } from "./review.mjs";
+import { renderSessionsView } from "./sessionsView.mjs";
 import { renderRolesTab } from "./rolesTab.mjs";
 
 const CSS = [
@@ -195,6 +196,7 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
   let busy = false;
   let disposed = false;
   let activeTab = "list";   // 评审 P10：tab 互斥显隐（list|board|review），闭包状态——paint 全量重建时保持，不进 store
+  let sessionsItems = [];   // Task 12：会话板块数据（GET /dsh-l/work/sessions，reload 并行拉取）
   const filters = { type: "all", repo: "all", urgency: "all" };
   const expanded = new Set();
   const view = {};
@@ -279,7 +281,7 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
     // 主栏 tab bar（design-v2 §13.5/D6）：三视图互斥显隐（评审 P10）。
     const tabsBar = el("div");
     tabsBar.style.cssText = "display:flex;gap:6px;padding:10px 16px 0";
-    for (const [id, label] of [["list", t("tabs.list")], ["board", t("tabs.board")], ["review", t("tabs.review")], ["roles", t("tabs.roles")]]) {
+    for (const [id, label] of [["list", t("tabs.list")], ["board", t("tabs.board")], ["review", t("tabs.review")], ["sessions", t("tabs.sessions")], ["roles", t("tabs.roles")]]) {
       const b = el("button", null, label);
       b.type = "button";
       if (activeTab === id) b.style.cssText = "font-weight:700;border-bottom:2px solid currentColor;border-radius:0";
@@ -358,15 +360,18 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
     const boardWrap = el("div");
     const reviewWrap = el("div");
     const rolesWrap = el("div");
+    const sessionsWrap = el("div");
     boardWrap.style.display = activeTab === "board" ? "" : "none";
     reviewWrap.style.display = activeTab === "review" ? "" : "none";
     rolesWrap.style.display = activeTab === "roles" ? "" : "none";
+    sessionsWrap.style.display = activeTab === "sessions" ? "" : "none";
     if (activeTab === "board") renderKanban(boardWrap, { t, candidates: state?.candidates ?? [], view });
     if (activeTab === "review") renderReview(reviewWrap, { t, candidates: state?.candidates ?? [], runs: state?.runs ?? [], view });
     if (activeTab === "roles") renderRolesTab(rolesWrap, { t, workflow: state?.workflow ?? { templates: [] }, view });
+    if (activeTab === "sessions") renderSessionsView(sessionsWrap, { t, items: sessionsItems, summaries: extend?.sessionsFeed?.() ?? [], onOpen: (id) => extend?.openWorkSession?.(id), onAnother: (key, cwd) => extend?.startAnother?.(key, cwd), onDeliver: async (key) => { try { await api.workDeliver(key, ""); } catch (e) { console.warn("[dsh-l]", e); } await view.reload(); } });
     intake.style.display = activeTab === "list" ? "" : "none";
     triage.style.display = activeTab === "list" ? "" : "none";
-    main.append(intake, triage, boardWrap, reviewWrap, rolesWrap);
+    main.append(intake, triage, boardWrap, reviewWrap, rolesWrap, sessionsWrap);
     // 统一可读表面（用户反馈）：header/tabs/main 收进玻璃面板，不再直接浮在宿主壁纸上。
     const surface = el("div", "workSurface");
     surface.append(header, tabsBar, main);
@@ -380,9 +385,10 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
     try {
       do {
         reloadQueued = false;
-        const [s, a] = await Promise.allSettled([api.state(), api.auth()]);
+        const [s, a, w] = await Promise.allSettled([api.state(), api.auth(), api.workSessions()]);
         if (s.status === "fulfilled") { state = s.value; error = null; } else { error = s.reason?.message ?? String(s.reason); }
         authInfo = a.status === "fulfilled" ? a.value : null;
+        sessionsItems = w.status === "fulfilled" ? (w.value.items ?? []) : [];
         paint();
       } while (reloadQueued);
     } finally { reloadRunning = false; }
