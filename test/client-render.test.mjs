@@ -576,3 +576,31 @@ test("renderSessionsView：确认交付按钮仅 building/verifying 工作行出
   rowA.children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").find((b) => b.textContent.includes(t("sessions.deliver"))).onclick();
   assert.deepEqual(delivers, ["o/r#issue#1"]);
 });
+
+// ---- 开工会话（Work Session）评审 impl#O1/O2：missing 行交付语义钉例 + 交付失败就地反馈 ----
+
+test("renderSessionsView：missing+building 行保留确认交付（候选级拍板语义，impl#O1 钉例）；交付失败行内呈现错误（impl#O2）", async () => {
+  const { renderSessionsView } = await import("../src/client/components/sessionsView.mjs");
+  const items = [
+    { kind: "work", key: "o/r#issue#9", sessionId: "dsh-l:work-gone", runId: null, cwd: "/w/g", approvalPolicy: null, createdAt: 1, updatedAt: 100, candidate: { repo: "o/r", number: 9, title: "T9", stage: "building" } },
+  ];
+  const summaries = [{ id: "dsh-l:work-other", displayTitle: "[dsh-l] o/r#8 issue · T8", running: false }];   // 非空但不匹配 → missing（R1-11：空 summaries=feed 不可用不误标）
+  const root = new FakeElement("div");
+  const delivers = [];
+  renderSessionsView(root, { t, items, summaries, onOpen: () => {}, onAnother: () => {}, onDeliver: (key) => { delivers.push(key); return "boom"; } });
+  const row = root.children.filter((n) => n._rowId === "dsh-l:work-gone")[0];
+  const btns = () => row.children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").map((b) => b.textContent);
+  assert.ok(btns().some((x) => x.includes(t("sessions.another"))), "missing 行有另开");
+  assert.ok(btns().some((x) => x.includes(t("sessions.deliver"))), "missing+building 仍有确认交付（候选级拍板，路由守卫护住）");
+  const deliverBtn = row.children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").find((b) => b.textContent.includes(t("sessions.deliver")));
+  deliverBtn.onclick();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(delivers, ["o/r#issue#9"]);
+  assert.ok(row.textContent.includes("boom"), "交付失败错误就地呈现");
+  // R1-11 退化语义钉例：summaries 空（feed 不可用）→ 不误标 missing、无另开（打开按钮因无 summary 也不出）
+  const root2 = new FakeElement("div");
+  renderSessionsView(root2, { t, items, summaries: [], onOpen: () => {}, onAnother: () => {}, onDeliver: () => null });
+  const row2Btns = root2.children.filter((n) => n._rowId === "dsh-l:work-gone")[0].children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").map((b) => b.textContent);
+  assert.ok(!row2Btns.some((x) => x.includes(t("sessions.another"))), "feed 不可用不误标 missing");
+  assert.ok(root2.children.filter((n) => n._rowId === "dsh-l:work-gone")[0].children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").some((b) => b.textContent.includes(t("sessions.deliver"))), "交付不依赖 summaries");
+});

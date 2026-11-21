@@ -89,7 +89,7 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     workingDirectory: ctx.workingDirectory,
     approval: ctx.approval,
     agentDefaultModel: ctx.agentDefaultModel,
-    settings: store.getSettings(),
+    settings: () => store.getSettings(),
     userMessage: (text) => ({ id: randomUUID(), role: "user", content: [{ type: "text", text }], source: { kind: "user" } }),
   });
   // 飞书通知（design-v2 §13.3/§13.4）：webhook 经 credentials 存取（ref=DSH_L_FEISHU_WEBHOOK_URL）；
@@ -123,8 +123,9 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     engine,
     feishu: { notifier, setWebhook },
     templates: templateDefs,   // M4 T6/R1-1②：引用守卫数据源（templates 全量定义）
-    // 开工会话（Work Session）：composeWorkWorld 以 ctx 服务装配（settings 快照引用 store 活对象，改设置即生效）；
-    // startWork 绑定 world 后交 handlers（测试注 fake）。home/stat 承载本地检出默认命中；workspace 供托管克隆。
+    // 开工会话（Work Session）：composeWorkWorld 以 ctx 服务装配；settings 传取值函数（评审 impl#1——
+    // store.setSettings 整体替换引用，装配期对象快照会 stale）；startWork 绑定 world 后交 handlers（测试注 fake）。
+    // home/stat 承载本地检出默认命中；workspace 供托管克隆。
     startWork: (deps, params) => startWorkSession(workWorld, deps, params),
     home: homedir(),
     stat: (p) => statSync(p),

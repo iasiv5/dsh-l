@@ -77,10 +77,13 @@ export function resolveLocalWorkspace(repo, { home, stat } = {}) {
 // agentOptions + setup select；preset 在场且无显式 → agentOptions 不传、不 select；皆无 → 不传、不 select。
 export function composeWorkWorld({ agents, workingDirectory, approval, agentDefaultModel, settings = null, userMessage }) {
   const hostDefault = () => agentDefaultModel?.currentSelection?.() ?? { provider: "", model: "" };
+  // settings 支持对象或函数（评审 impl#1）：store.setSettings 整体替换 doc.settings 引用——装配期对象快照会
+  // stale，host.mjs 传 () => store.getSettings()，createAgent 每次调用时求值。
+  const settingsOf = () => (typeof settings === "function" ? settings() : settings) ?? null;
   return {
     async createAgent(sessionId, { cwd, agentPreset, model, approvalPolicy } = {}) {
-      const preset = agentPreset ?? settings?.workSessionPreset ?? undefined;
-      const policy = approvalPolicy ?? settings?.workSessionApprovalPolicy ?? null;
+      const preset = agentPreset ?? settingsOf()?.workSessionPreset ?? undefined;
+      const policy = approvalPolicy ?? settingsOf()?.workSessionApprovalPolicy ?? null;
       const explicit = model && typeof model.provider === "string" && model.provider !== ""
         && typeof model.model === "string" && model.model !== "";
       let agentOptions;

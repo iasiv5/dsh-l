@@ -119,7 +119,7 @@ export const zhCN = {
     title: "会话",
     badgeWork: "开工", badgeRun: "执行", badgeAuto: "自动放行", badgeGone: "上游已关闭",
     badgeMissing: "不在会话列表", badgeRunning: "运行中",
-    open: "打开", another: "另开会话", deliver: "确认交付",
+    open: "打开", another: "另开会话", deliver: "确认交付", deliverFailed: "确认交付失败",
     empty: "还没有 dsh-l 会话——从清单里对候选 G1 放行并选「我来开」即可开工。",
   },
   roles: {

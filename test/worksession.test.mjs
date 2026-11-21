@@ -268,3 +268,18 @@ test("红线②：worksession.mjs 中 .dispose( 恰出现 1 次且位于 rollbac
   const before = src.slice(Math.max(0, idx - 400), idx);
   assert.ok(before.includes("rollback-only"), "dispose 前应有 rollback-only 标记注释");
 });
+
+test("composeWorkWorld：settings 支持函数形态——store.getSettings 引用替换后读到新值（评审 impl#1）", async () => {
+  let s = { workSessionPreset: "p1", workSessionApprovalPolicy: null };
+  const svc = makeServices({ settings: () => s });
+  const w = composeWorkWorld(svc);
+  await w.createAgent("a1", { cwd: "/w" });
+  const c1 = svc._ops.find((o) => o[0] === "create")[1];
+  assert.equal(c1.meta.agentPreset, "p1");
+  assert.equal(svc._ops.filter((o) => o[0] === "policy").length, 0);
+  s = { workSessionPreset: "p2", workSessionApprovalPolicy: "never" };   // 引用整体替换（store.setSettings 语义）
+  await w.createAgent("a2", { cwd: "/w" });
+  const c2 = svc._ops.filter((o) => o[0] === "create").at(-1)[1];
+  assert.equal(c2.meta.agentPreset, "p2", "函数形态下读到替换后的新 settings");
+  assert.deepEqual(svc._ops.filter((o) => o[0] === "policy").at(-1)[1], "never");
+});

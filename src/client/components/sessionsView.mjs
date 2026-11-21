@@ -47,8 +47,9 @@ export function renderSessionsView(container, { t, items = [], summaries = [], o
       actions: [
         ...(item.sessionId && summary ? [{ text: t("sessions.open"), fn: () => onOpen(item.sessionId) }] : []),
         ...(missing ? [{ text: t("sessions.another"), fn: () => onAnother(item.key, item.cwd) }] : []),
-        // Task 13：确认交付（人工 G2 等价）——building/verifying 的开工会话行可交付留痕。
-        ...(onDeliver && item.kind === "work" && ["building", "verifying"].includes(item.candidate?.stage) ? [{ text: t("sessions.deliver"), fn: () => onDeliver(item.key) }] : []),
+        // Task 13：确认交付（人工 G2 等价）——候选级拍板语义：building/verifying 的开工会话行均可交付
+        //（含 missing 行——会话被归档/删除后用户仍须能拍板；路由守卫仍要求索引活跃行在场，评审 impl#O1 钉例）。
+        ...(onDeliver && item.kind === "work" && ["building", "verifying"].includes(item.candidate?.stage) ? [{ text: t("sessions.deliver"), fn: async () => onDeliver(item.key) }] : []),
       ],
     });
   }
@@ -86,7 +87,19 @@ export function renderSessionsView(container, { t, items = [], summaries = [], o
     label.style.cssText = "opacity:.88;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";
     label.textContent = m.label;
     row.append(label);
-    for (const a of m.actions) row.append(mkBtn(a.text, a.fn));
+    for (const a of m.actions) {
+      // 交付动作（impl#O2）：onDeliver 返回错误串 → 行内就地呈现（crimson chip），成功 null 无痕。
+      row.append(mkBtn(a.text, async () => {
+        const err = await a.fn();
+        if (typeof err === "string" && err) {
+          const c = document.createElement("span");
+          c.className = "chip";
+          c.style.color = "crimson";
+          c.textContent = err;
+          row.append(c);
+        }
+      }));
+    }
     container.append(row);
   }
 }

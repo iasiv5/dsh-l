@@ -119,7 +119,7 @@ export const en = {
     title: "Sessions",
     badgeWork: "Work", badgeRun: "Run", badgeAuto: "Auto-approve", badgeGone: "Upstream closed",
     badgeMissing: "Not in session list", badgeRunning: "Running",
-    open: "Open", another: "Start another", deliver: "Confirm delivery",
+    open: "Open", another: "Start another", deliver: "Confirm delivery", deliverFailed: "Deliver failed",
     empty: "No dsh-l sessions yet — pass G1 on a candidate in the list and choose \"Start it myself\".",
   },
   roles: {
