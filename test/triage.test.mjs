@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseTriageOutput, buildPrompt, runTriage, resolveTriageSelection } from "../src/triage.mjs";
+import { parseTriageOutput, buildPrompt, runTriage } from "../src/triage.mjs";
+import { resolveAgentSelection } from "../src/agent-selection.mjs";
 
 const TICKS = "\u0060\u0060\u0060";
 const ROW = { key: "o/r#issue#1", validity: "high", urgency: "P1", action: "start", reason: "r" };
@@ -67,9 +68,9 @@ test("runTriage：超过 10 条抛错", async () => {
   await assert.rejects(runTriage(fakeWorld(() => []), { candidates: Array(11).fill(cand), lang: "zh-CN" }), /limit/);
 });
 
-test("resolveTriageSelection：未设置跟随宿主默认（含 reasoningEffort）；设置后用设定值且不继承默认的 effort", () => {
+test("resolveAgentSelection：未设置跟随宿主默认（含 reasoningEffort）；设置后用设定值且不继承默认的 effort", () => {
   const defaults = { provider: "p0", model: "m0", reasoningEffort: "high" };
-  assert.deepEqual(resolveTriageSelection(null, defaults), { provider: "p0", model: "m0", reasoningEffort: "high" });
-  assert.deepEqual(resolveTriageSelection({ provider: "p1", model: "m1" }, defaults), { provider: "p1", model: "m1", reasoningEffort: undefined });
-  assert.deepEqual(resolveTriageSelection({ provider: "", model: "m1" }, defaults), { provider: "p0", model: "m0", reasoningEffort: "high" });
+  assert.deepEqual(resolveAgentSelection(null, defaults), { provider: "p0", model: "m0", reasoningEffort: "high" });
+  assert.deepEqual(resolveAgentSelection({ provider: "p1", model: "m1" }, defaults), { provider: "p1", model: "m1", reasoningEffort: undefined });
+  assert.deepEqual(resolveAgentSelection({ provider: "", model: "m1" }, defaults), { provider: "p0", model: "m0", reasoningEffort: "high" });
 });

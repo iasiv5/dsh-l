@@ -16,7 +16,9 @@ export const name = "dsh-l";
 export const isPlugin = true; // guizang lib/client.js:75 同款导出
 // 客户端 cordis 插件的 inject 列表来自模块自身导出（quota-watch src/client.mjs:10-14 判例）；
 // package.json dsh.client.inject 只负责把宿主模块打进行包。缺此导出即报 cannot get property "slots" without inject。
-export const inject = ["slots"];
+// 开工会话（Task 5/R1-7）：uiWorkspace 供 openSession 导航，sessions 供列表成员守卫——cordis 对未 inject
+// 属性的 get 即抛，可选链挡不住 getter throw，故 M1 一次到位注入 + 守卫整体 try/catch。
+export const inject = ["slots", "uiWorkspace", "sessions"];
 
 function PanelIcon(props) {
   const s = (props && props.size) || 18;
@@ -31,13 +33,26 @@ export function apply(ctx) {
     return badge.count > 0 ? makeT(lang.get())("badge.pending").replace("{n}", String(badge.count)) + " · " + base : base;
   };
 
+  // 开工会话导航守卫（schedule 面板判例）：sessions.list 的 ids 含该 id 才启用；守卫整体 try/catch
+  // （inject 错配的宿主降级为 false → 行内 openPending chip 兜底），不向面板外写 DOM。
+  const openWorkSession = (sessionId) => {
+    try {
+      const ids = ctx.sessions?.list?.getSnapshot?.()?.ids;
+      if (Array.isArray(ids) && ids.includes(sessionId)) {
+        ctx.uiWorkspace.openSession(sessionId);
+        return true;
+      }
+    } catch (e) { console.warn("[dsh-l] openSession guard:", e); }
+    return false;
+  };
+
   function WorkbenchPanel() {
     const ref = React.useRef(null);
     React.useEffect(() => {
       const host = ref.current;
       if (!host) return undefined;
       const shadow = host.shadowRoot ?? host.attachShadow({ mode: "open" });
-      const view = mountWorkbench(shadow, { getLang: lang.get, build: BUILD, extend: installActions({ getLang: lang.get }) });
+      const view = mountWorkbench(shadow, { getLang: lang.get, build: BUILD, extend: installActions({ getLang: lang.get, openWorkSession }) });
       const off = lang.subscribe(() => view.relabel());
       return () => { off(); view.dispose(); };
     }, []);

@@ -132,5 +132,11 @@ export const en = {
     workspaceCloning: "Cloning workspace",
   },
   gateV1Hint: "Loop v2: G1/G2 human gates; the G3 release gate opens later",
-  settings: { title: "Settings", intervalMinutes: "Auto-refresh interval (minutes, 0 = off)", save: "Save", triageModel: "Triage model", followDefault: "Follow host default", notInCatalog: "(not in catalog)" },
+  work: {
+    startBtn: "Start it myself",
+    openBtn: "Open session",
+    openPending: "Session is still syncing into the list — open it from the session list shortly.",
+    startFailed: "Start failed",
+  },
+  settings: { title: "Settings", intervalMinutes: "Auto-refresh interval (minutes, 0 = off)", save: "Save", triageModel: "Triage model", followDefault: "Follow host default", notInCatalog: "(not in catalog)", workModel: "Work session model", workPreset: "Work session preset", workPolicy: "Work approval policy (new sessions only)", policyAsk: "Ask every time", policyNever: "Auto-approve", policyNeverConfirm: "With \"Auto-approve\", tool calls in newly created work sessions run without per-call confirmation. Save anyway?" },
 }

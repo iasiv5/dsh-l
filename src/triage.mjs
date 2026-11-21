@@ -30,14 +30,7 @@ export function parseTriageOutput(text) {
   }
 }
 
-// bridge.ts kindOf/textOf 同款：reason 为带 kind 的对象或字符串；文本取 text 块拼接。
-// 设置了且字段齐全才用设定值；否则跟随宿主默认。设定值不继承默认的 reasoningEffort（不同模型的可选值不同）。
-export function resolveTriageSelection(triageModel, defaults) {
-  const valid = triageModel && typeof triageModel.provider === "string" && triageModel.provider !== ""
-    && typeof triageModel.model === "string" && triageModel.model !== "";
-  if (valid) return { provider: triageModel.provider, model: triageModel.model, reasoningEffort: undefined };
-  return { provider: defaults?.provider ?? "", model: defaults?.model ?? "", reasoningEffort: defaults?.reasoningEffort };
-}
+// 模型选择解析已抽出至 agent-selection.mjs（resolveAgentSelection，分诊与开工会话共用）。
 
 const kindOf = (reason) => (typeof reason === "string" ? reason : String(reason?.kind ?? "unknown"));
 const textOf = (message) => {

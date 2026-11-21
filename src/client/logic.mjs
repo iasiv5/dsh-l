@@ -59,6 +59,25 @@ export function settingsPatch(initial, form) {
   return { ...patch, triageModel: { provider: form.modelValue.slice(0, cut), model: form.modelValue.slice(cut + 1) } };
 }
 
+// 开工会话三键的表单增量（Task 6）：与前键同幂等语义——未变不提交（API 设过的 effort 不被 UI 无意抹除）。
+export function workSessionSettingsPatch(initial, form, base = {}) {
+  const patch = { ...base };
+  if (form.workModelValue !== undefined && form.workModelValue !== modelValueOf(initial.workSessionModel)) {
+    if (form.workModelValue === "") patch.workSessionModel = null;
+    else {
+      const cut = form.workModelValue.indexOf("\n");
+      patch.workSessionModel = { provider: form.workModelValue.slice(0, cut), model: form.workModelValue.slice(cut + 1) };
+    }
+  }
+  if (form.workPreset !== undefined && form.workPreset !== (initial.workSessionPreset ?? "")) {
+    patch.workSessionPreset = form.workPreset === "" ? null : form.workPreset;
+  }
+  if (form.workPolicy !== undefined && form.workPolicy !== (initial.workSessionApprovalPolicy ?? "")) {
+    patch.workSessionApprovalPolicy = form.workPolicy === "" ? null : form.workPolicy;
+  }
+  return patch;
+}
+
 // 工作流条数据（design-v2 §8）：前环 4 chip 复用 stageCounts 计数口径；环内段取首个模板的节点 meta，
 // 按 runs 摘要的 currentNodeIds 计在途数（count>0 才亮，评审 R1-15/R2-2）；无 workflow meta 时 fallback=true。
 export function stripCells({ candidates, workflow, runs = [] } = {}) {

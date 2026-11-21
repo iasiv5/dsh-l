@@ -9,7 +9,7 @@ test("manifest 形状", () => {
   assert.equal(pkg.dsh.engines.dsh, ">=0.2.2-rc.1");
   assert.equal(pkg.dsh.bundle.patch, "./cordis.patch.yml");
   assert.equal(pkg.dsh.client.platform, "web");
-  assert.deepEqual(pkg.dsh.client.inject, ["slots"]);
+  assert.deepEqual(pkg.dsh.client.inject, ["slots", "@deepseek-ai/dsh-client-ui-workspace", "@deepseek-ai/dsh-api-session-controller"]);
   assert.equal(pkg.dependencies, undefined);
 });
 

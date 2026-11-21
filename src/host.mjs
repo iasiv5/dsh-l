@@ -2,7 +2,11 @@ import { execFile as execFileCb, spawn as spawnCb } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { runTriage, resolveTriageSelection } from "./triage.mjs";
+import { runTriage } from "./triage.mjs";
+import { resolveAgentSelection } from "./agent-selection.mjs";
+import { composeWorkWorld, startWorkSession } from "./worksession.mjs";
+import { homedir } from "node:os";
+import { statSync } from "node:fs";
 import { dataDir } from "./paths.mjs";
 import { createStore } from "./store.mjs";
 import { loadTemplates } from "./workflows/loader.mjs";
@@ -23,13 +27,13 @@ const UNWIRED = { runTriage: async () => ({ updated: [], failed: "triage-not-wir
 export const name = "dsh-l";
 // 评审 R1-12：approval/workingDirectory 为 runtime rc.2/rc.3 的 cordis 声明式服务（类型声明实证），
 // M2 执行器的审批策略与工作目录注入依赖二者——不声明 inject 则 ctx 访问即抛错（fail-fast，非静默降级）。
-export const inject = ["webServer", "credentials", "agents", "agentDefaultModel", "timer", "llm", "approval", "workingDirectory"];
+export const inject = ["webServer", "credentials", "agents", "agentDefaultModel", "timer", "llm", "approval", "workingDirectory", "agentPresets"];
 
 const makeTriage = (ctx, dir) => {
   const world = {
     async createAgent(sessionId, { model } = {}) {
       // autoloop dsh/src/host.ts:83-97：程序化会话须在 setup 里显式选模，宿主默认选择补齐。
-      const configured = resolveTriageSelection(model, ctx.agentDefaultModel?.currentSelection?.() ?? { provider: "", model: "" });
+      const configured = resolveAgentSelection(model, ctx.agentDefaultModel?.currentSelection?.() ?? { provider: "", model: "" });
       return ctx.agents.create({
         sessionId,
         meta: { cwd: dir },
@@ -47,7 +51,7 @@ const makeTriage = (ctx, dir) => {
 // M2 执行器 world（makeTriage 同款 + 审批/工作目录直调——inject 已声明，缺失会在激活期抛错而非静默）。
 const makeExecWorld = (ctx, dir) => ({
   async createAgent(sessionId, { model } = {}) {
-    const configured = resolveTriageSelection(model, ctx.agentDefaultModel?.currentSelection?.() ?? { provider: "", model: "" });
+    const configured = resolveAgentSelection(model, ctx.agentDefaultModel?.currentSelection?.() ?? { provider: "", model: "" });
     return ctx.agents.create({
       sessionId,
       meta: { cwd: dir },
@@ -67,6 +71,15 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
   const store = createStore({ filePath: join(dir, "store.json") });
   const workspace = makeWorkspace({ dataDir: dir, ghBin: join(dir, "bin", "gh"), execFile });
   const executor = makeExecutor({ world: makeExecWorld(ctx, dir), spawn: spawnCb, ghBin: join(dir, "bin", "gh") });
+  // 开工会话 world（GLOSSARY「开工会话」；Task 4 装配）：调用序红线在 composeWorkWorld 内。
+  const workWorld = composeWorkWorld({
+    agents: ctx.agents,
+    workingDirectory: ctx.workingDirectory,
+    approval: ctx.approval,
+    agentDefaultModel: ctx.agentDefaultModel,
+    settings: store.getSettings(),
+    userMessage: (text) => ({ id: randomUUID(), role: "user", content: [{ type: "text", text }], source: { kind: "user" } }),
+  });
   // 飞书通知（design-v2 §13.3/§13.4）：webhook 经 credentials 存取（ref=DSH_L_FEISHU_WEBHOOK_URL）；
   // emit → formatNotice → sendNotice，fire-and-forget（尽力而为，通知失败不影响引擎）。
   const getWebhook = async () => {
@@ -98,6 +111,16 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     engine,
     feishu: { notifier, setWebhook },
     templates: templateDefs,   // M4 T6/R1-1②：引用守卫数据源（templates 全量定义）
+    // 开工会话（Work Session）：composeWorkWorld 以 ctx 服务装配（settings 快照引用 store 活对象，改设置即生效）；
+    // startWork 绑定 world 后交 handlers（测试注 fake）。home/stat 承载本地检出默认命中；workspace 供托管克隆。
+    startWork: (deps, params) => startWorkSession(workWorld, deps, params),
+    home: homedir(),
+    stat: (p) => statSync(p),
+    workspace,
+    // preset 名册（Task 6）：agentPresets.list() 直读，异常降级空名册（UI 只显「跟随部署默认」）。
+    listPresets: async () => {
+      try { return await ctx.agentPresets.list(); } catch { return []; }
+    },
   });
   const table = {
     "/dsh-l/health": { GET: async () => ({ ok: true, name, build: BUILD, dataDir: dir }) },
@@ -110,6 +133,7 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     "/dsh-l/candidate/stage": { POST: handlers.postStage },
     "/dsh-l/candidate/gate": { POST: handlers.postGate },
     "/dsh-l/run/start": { POST: handlers.postRunStart },
+    "/dsh-l/work/start": { POST: handlers.postWorkStart },
     "/dsh-l/run/gate": { POST: handlers.postRunGate },
     "/dsh-l/run/cancel": { POST: handlers.postRunCancel },
     "/dsh-l/run/retry": { POST: handlers.postRunRetry },

@@ -820,3 +820,188 @@ test("feishu 路由：webhook 写入 credentials、测试发送走注入通知�
   const noFeishu = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
   assert.equal((await noFeishu.postFeishuTest()).error, "feishu-not-wired");
 });
+
+// ---- 开工会话（Work Session）Task 4：postWorkStart 守卫序与装配 ----
+
+const WS_ACTIVE = (sessionId = "dsh-l:work-x", cwd = "/w") => ({ sessionId, cwd, approvalPolicy: null, createdAt: "t", updatedAt: "t" });
+const fakeStartWork = (out = null) => {
+  const calls = [];
+  const fn = async (deps, params) => {
+    calls.push({ deps, params });
+    if (out && out.throw) throw Object.assign(new Error(out.message ?? "boom"), out.err ?? {});
+    return out ?? { sessionId: "dsh-l:work-new", reused: false };
+  };
+  fn._calls = calls;
+  return fn;
+};
+const wsHome = () => mkdtempSync(join(tmpdir(), "dsh-l-wsh-"));
+
+test("postWorkStart：未登录 401；stage 非 gating 且无活跃行 409", async () => {
+  const store = openStore(); seed(store);
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine: { hasAliveRun: () => false }, startWork: fakeStartWork() });
+  assert.equal((await h.postWorkStart({ key: "o/r#issue#1" })).error, "auth-required");
+  login(store);
+  assert.equal((await h.postWorkStart({ key: "o/r#issue#1" })).error, "gate-requires-gating");
+});
+
+test("postWorkStart：fresh + 引擎活跃 run → 409 且不动候选", async () => {
+  const store = openStore(); login(store); seed(store);
+  await store.setStage("o/r#issue#1", "gating", "");
+  const engine = { hasAliveRun: () => true, startRun: () => { throw new Error("startRun-must-not-be-called"); } };
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine, startWork: fakeStartWork(), home: wsHome(), stat: () => null });
+  const r = await h.postWorkStart({ key: "o/r#issue#1" });
+  assert.equal(r.error, "run-already-active");
+  assert.equal(store.getCandidate("o/r#issue#1").stage, "gating");
+  assert.equal(store.getCandidate("o/r#issue#1").gates.G1, null);
+});
+
+test("postWorkStart：fresh + local 未命中 → 422 早守卫（G1 不记账）", async () => {
+  const store = openStore(); login(store); seed(store);
+  await store.setStage("o/r#issue#1", "gating", "");
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine: { hasAliveRun: () => false }, startWork: fakeStartWork(), home: wsHome(), stat: () => null });
+  const r = await h.postWorkStart({ key: "o/r#issue#1" });
+  assert.equal(r.error, "workspace-not-found");
+  assert.equal(r.status, 422);
+  assert.equal(store.getCandidate("o/r#issue#1").gates.G1, null);
+});
+
+test("postWorkStart：fresh 成功 → G1 记账 + building + startWork 收 cwd + 响应含包；engine.startRun 未被调", async () => {
+  const store = openStore(); login(store); seed(store);
+  store.setRepoFacts("o/r", { defaultBranch: "trunk", cloneUrl: "git@github.com:o/r.git" });
+  await store.setStage("o/r#issue#1", "gating", "");
+  let startRunCalled = false;
+  const engine = { hasAliveRun: () => false, startRun: () => { startRunCalled = true; } };
+  const home = wsHome();
+  const sw = fakeStartWork();
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine, startWork: sw, home, stat: () => ({ isDirectory: () => true }) });
+  const r = await h.postWorkStart({ key: "o/r#issue#1" });
+  assert.equal(r.ok, true);
+  assert.equal(r.sessionId, "dsh-l:work-new");
+  assert.equal(r.reused, false);
+  assert.equal(r.taskPackage.kind, "dsh-l.task-package");
+  assert.equal(store.getCandidate("o/r#issue#1").gates.G1.decision, "pass");
+  assert.equal(store.getCandidate("o/r#issue#1").stage, "building");
+  assert.equal(startRunCalled, false);
+  assert.equal(sw._calls.length, 1);
+  assert.equal(sw._calls[0].params.key, "o/r#issue#1");
+  assert.equal(sw._calls[0].params.cwd, join(home, "workspace", "r"));
+  assert.equal(sw._calls[0].params.another, false);
+});
+
+test("postWorkStart：reuse 活跃行同 cwd（无 cwd 入参）→ 200 reused 零记账零 startWork", async () => {
+  const store = openStore(); login(store); seed(store);
+  store.appendWorkSession("o/r#issue#1", WS_ACTIVE("dsh-l:work-x", "/w"));
+  const sw = fakeStartWork();
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine: { hasAliveRun: () => false }, startWork: sw, home: wsHome(), stat: () => null });
+  const r = await h.postWorkStart({ key: "o/r#issue#1" });
+  assert.equal(r.ok, true);
+  assert.equal(r.sessionId, "dsh-l:work-x");
+  assert.equal(r.reused, true);
+  assert.equal(r.taskPackage, null);
+  assert.equal(sw._calls.length, 0);
+  assert.equal(store.getCandidate("o/r#issue#1").gates.G1, null);
+});
+
+test("postWorkStart：another 需 G1 pass；G1-pass+building → 200 新会话含包；不重复记账", async () => {
+  const store = openStore(); login(store); seed(store);
+  store.setRepoFacts("o/r", { defaultBranch: "trunk", cloneUrl: "git@github.com:o/r.git" });
+  await store.setStage("o/r#issue#1", "building", "G1 pass");
+  const sw = fakeStartWork();
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine: { hasAliveRun: () => false }, startWork: sw, home: wsHome(), stat: () => ({ isDirectory: () => true }) });
+  assert.equal((await h.postWorkStart({ key: "o/r#issue#1", another: true })).error, "gate-requires-gating");
+  store.setGate("o/r#issue#1", "G1", "pass", "", null, "workbench-ui");
+  const r = await h.postWorkStart({ key: "o/r#issue#1", another: true });
+  assert.equal(r.ok, true);
+  assert.equal(r.reused, false);
+  assert.equal(r.taskPackage.kind, "dsh-l.task-package");
+  assert.equal(sw._calls[0].params.another, true);
+  assert.ok(store.getCandidate("o/r#issue#1").history.filter((h2) => h2.event === "gate.G1").length >= 1);
+});
+
+test("postWorkStart：managed 通道 → ensure 分支命名 + startWork 收托管目录", async () => {
+  const store = openStore(); login(store); seed(store);
+  store.setRepoFacts("o/r", { defaultBranch: "trunk", cloneUrl: "git@github.com:o/r.git" });
+  await store.setStage("o/r#issue#1", "gating", "");
+  const ensureCalls = [];
+  const workspace = { ensure: async (req) => { ensureCalls.push(req); return { dir: "/managed/dir" }; } };
+  const sw = fakeStartWork();
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine: { hasAliveRun: () => false }, startWork: sw, workspace, home: wsHome(), stat: () => null });
+  const r = await h.postWorkStart({ key: "o/r#issue#1", workspace: "managed" });
+  assert.equal(r.ok, true);
+  assert.equal(ensureCalls[0].branch, "work-issue-1");
+  assert.equal(ensureCalls[0].repo, "o/r");
+  assert.equal(sw._calls[0].params.cwd, "/managed/dir");
+});
+
+test("postWorkStart：another+managed+引擎活跃 → 409；another+local+引擎活跃 → 放行", async () => {
+  const store = openStore(); login(store); seed(store);
+  store.setRepoFacts("o/r", { defaultBranch: "trunk", cloneUrl: "git@github.com:o/r.git" });
+  await store.setStage("o/r#issue#1", "building", "G1 pass");
+  store.setGate("o/r#issue#1", "G1", "pass", "", null, "workbench-ui");
+  const engine = { hasAliveRun: () => true };
+  const hw = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine, startWork: fakeStartWork(), workspace: { ensure: async () => ({ dir: "/m" }) }, home: wsHome(), stat: () => null });
+  const blocked = await hw.postWorkStart({ key: "o/r#issue#1", another: true, workspace: "managed" });
+  assert.equal(blocked.error, "run-already-active");
+  const home = wsHome();
+  const sw2 = fakeStartWork();
+  const hl = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine, startWork: sw2, home, stat: () => ({ isDirectory: () => true }) });
+  const ok = await hl.postWorkStart({ key: "o/r#issue#1", another: true });
+  assert.equal(ok.error, undefined);
+  assert.equal(sw2._calls[0].params.another, true);
+});
+
+test("getState：候选 digest 并入 work 摘要（有活跃行/无活跃行两态）", async () => {
+  const store = openStore(); login(store); seed(store, 1); seed(store, 2);
+  store.appendWorkSession("o/r#issue#1", WS_ACTIVE("dsh-l:work-x", "/w"));
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
+  const st = await h.getState();
+  const c1 = st.candidates.find((c) => c.key === "o/r#issue#1");
+  const c2 = st.candidates.find((c) => c.key === "o/r#issue#2");
+  assert.equal(c1.work.sessionId, "dsh-l:work-x");
+  assert.equal(c1.work.cwd, "/w");
+  assert.equal(c2.work, null);
+});
+
+// ---- 开工会话（Work Session）Task 6：getModels presets + putSettings 三键白名单 ----
+
+test("getModels：presets 名册并入响应（listPresets 注入）", async () => {
+  const store = openStore(); login(store);
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, listCatalog: async () => [{ provider: "p", name: "P", models: [{ id: "m", name: "M" }] }], listPresets: async () => [{ id: "std" }, { id: "dev" }] });
+  const r = await h.getModels();
+  assert.deepEqual(r.presets, ["std", "dev"]);
+  assert.equal(r.hostDefault, null);
+});
+
+const wsSettings = (h, patch) => h.putSettings(patch);
+
+test("putSettings workSessionModel：合法目录内接受（含 effort 透传）、目录外拒绝、坏形状拒绝", async () => {
+  const store = openStore(); login(store);
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, listCatalog: async () => [{ provider: "p", name: "P", models: [{ id: "m", name: "M" }] }] });
+  assert.equal((await wsSettings(h, { workSessionModel: { provider: "p", model: "m", reasoningEffort: "low" } })).error, undefined);
+  assert.deepEqual(store.getSettings().workSessionModel, { provider: "p", model: "m", reasoningEffort: "low" });
+  assert.equal((await wsSettings(h, { workSessionModel: null })).error, undefined);
+  assert.equal(store.getSettings().workSessionModel, null);
+  assert.equal((await wsSettings(h, { workSessionModel: { provider: "x", model: "m" } })).error, "model-not-in-catalog");
+  assert.equal((await wsSettings(h, { workSessionModel: { provider: "p" } })).error, "invalid settings");
+});
+
+test("putSettings workSessionPreset：null 或名册内接受、名册外拒绝", async () => {
+  const store = openStore(); login(store);
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, listPresets: async () => [{ id: "std" }] });
+  assert.equal((await wsSettings(h, { workSessionPreset: null })).error, undefined);
+  assert.equal((await wsSettings(h, { workSessionPreset: "std" })).error, undefined);
+  assert.equal(store.getSettings().workSessionPreset, "std");
+  assert.equal((await wsSettings(h, { workSessionPreset: "nope" })).error, "preset-not-in-roster");
+  assert.equal((await wsSettings(h, { workSessionPreset: "" })).error, "invalid settings");
+});
+
+test("putSettings workSessionApprovalPolicy：null/ask/never 接受、其它拒绝", async () => {
+  const store = openStore(); login(store);
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
+  assert.equal((await wsSettings(h, { workSessionApprovalPolicy: "never" })).error, undefined);
+  assert.equal(store.getSettings().workSessionApprovalPolicy, "never");
+  assert.equal((await wsSettings(h, { workSessionApprovalPolicy: "ask" })).error, undefined);
+  assert.equal((await wsSettings(h, { workSessionApprovalPolicy: null })).error, undefined);
+  assert.equal(store.getSettings().workSessionApprovalPolicy, null);
+  assert.equal((await wsSettings(h, { workSessionApprovalPolicy: "yolo" })).error, "invalid settings");
+});

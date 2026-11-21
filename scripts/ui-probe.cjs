@@ -16,7 +16,7 @@ const path = require("path");
     const page = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();
     page.on("console", (m) => log("console." + m.type() + " " + m.text()));
     await page.goto(url, { waitUntil: "domcontentloaded" });
-    const entry = page.getByRole("button", { name: /Loop Engineering/ });
+    const entry = page.getByRole("button", { name: /Loop Forge|Loop Engineering/ });
     await entry.first().waitFor({ timeout: 45000 });
     log("PASS sidebar entry visible");
     // R2-01：相对路径解析基准取证——工作台首屏 state 请求必须 2xx，并记下实际解析出的 URL。
@@ -73,7 +73,7 @@ const path = require("path");
       mpage.on("console", (m) => log("m.console." + m.type() + " " + m.text()));
       await mpage.goto(url, { waitUntil: "domcontentloaded" });
       await mpage.getByRole("button", { name: /^(Continue|继续)$/ }).first().click({ timeout: 3000 }).catch(() => {});
-      const mentry = mpage.getByRole("button", { name: /Loop Engineering/ });
+      const mentry = mpage.getByRole("button", { name: /Loop Forge|Loop Engineering/ });
       await mentry.first().click({ timeout: 6000 });
       const mcard = mpage.locator("article.gate").first();
       const mbox = await mcard.boundingBox();

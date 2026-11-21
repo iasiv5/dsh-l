@@ -3,6 +3,7 @@ import { scopesOk } from "./github.mjs";   // scope 规则单一来源（纯函�
 import { summarizeRun } from "./engine/scheduler.mjs";
 import { BUILTIN_ROLES, resolveRole } from "./workflows/roles.mjs";
 import { LOOP_V1 } from "./workflows/builtin.mjs";
+import { resolveLocalWorkspace } from "./worksession.mjs";
 
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/;
 const ACCOUNT_RE = /^[A-Za-z0-9-]{1,39}$/;
@@ -53,7 +54,7 @@ export function buildTaskPackage(candidate, repoInfo = null, now = () => new Dat
   return pkg;
 }
 
-export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, githubClientId = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null, workflowCatalog = { templates: [], warnings: [] }, engine = null, feishu = null, templates = {} }) {
+export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, githubClientId = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null, workflowCatalog = { templates: [], warnings: [] }, engine = null, feishu = null, templates = {}, startWork = null, home = null, stat = null, workspace = null, listPresets = async () => [] }) {
   // 两级 token 链（gh-as-source 2026-11-20）：credentials 引用覆写 → gh 登录态兜底；token 只存 gh 凭据库。
   const token = () => provider.resolveToken({ credentials, tokenRef, execFile, ghPath: ghBin });
   // 任务包 v2 生产接线（M4 契约补全，M5 后落账）：makeRunId 先行 + 首个 agent 节点角色 + workflow 块；
@@ -105,7 +106,7 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
   return {
     async getState() {
       const c = store.getCredential();
-      return { watch: store.getWatch(), snapshots: store.getSnapshots(), settings: store.getSettings(), candidates: store.listCandidates(), ingestLog: store.getIngestLog(),
+      return { watch: store.getWatch(), snapshots: store.getSnapshots(), settings: store.getSettings(), candidates: store.listCandidates().map((cd) => ({ ...cd, work: store.getWorkSession(cd.key) })), ingestLog: store.getIngestLog(),
         auth: { ...store.getAuth(), credential: { configured: Boolean(c.source || c.verifiedAt), healthy: c.healthy !== false, verifiedAt: c.verifiedAt ?? null, rateLimitedUntil } },
         runs: store.listRuns().map(summarizeRun), workflow: workflowCatalog };
     },
@@ -334,7 +335,10 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       } finally { refreshInFlight = false; }
     },
     async getModels() {
-      return { providers: await listCatalog(), hostDefault: hostDefault() };
+      // presets（Task 6）：开工会话 preset 下拉数据源（agentPresets 名册，host 注入 listPresets）；
+      // 规整为 id 串（AgentPreset 对象取 id，字符串直通——与 putSettings 校验同一规整）。
+      const roster = (await listPresets()).map((x) => (typeof x === "string" ? x : x?.id)).filter(Boolean);
+      return { providers: await listCatalog(), hostDefault: hostDefault(), presets: roster };
     },
     async getWatch() { return store.getWatch(); },
     async putWatch(body) {
@@ -442,6 +446,52 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
         engine.startRun(key, { taskPackage: pkg, templateId, runId });
         return { ok: true, taskPackage: pkg, runId, workspace: "cloning" };
       } catch (e) { return fail(String(e?.message ?? e), e?.status ?? 400); }
+    },
+    // ---- 开工会话（GLOSSARY「开工会话」）：G1 双出口之二「我来开」。守卫序（架构快照 1-7）：
+    // auth → 404 → 活跃行复用快路径（零记账零 startWork）→ cwd 冲突 409 → another 需 G1 pass →
+    // 引擎互斥（fresh 恒查；another 仅 managed——托管目录与引擎 run 共享 dirOf(key) 同树，R3-1）→
+    // fresh stage 守卫 → 工作区解析（422/502 早守卫先于记账）→ fresh 记账（setGate+setStage）→
+    // startWork 创建事务（create→send→索引；send 失败回滚，评审 R1-3）。
+    async postWorkStart(body) {
+      if (!startWork) return fail("work-not-wired", 503);
+      const gate = requireAuth(); if (gate) return gate;
+      const key = body?.key;
+      const c = store.getCandidate(key);
+      if (!c) return fail("not found", 404);
+      const another = body?.another === true;
+      const managed = body?.workspace === "managed";
+      const cwdIn = typeof body?.cwd === "string" && body.cwd ? body.cwd : null;
+      const active = store.getWorkSession(key);
+      if (active && !another && (!cwdIn || cwdIn === active.cwd)) {
+        return { ok: true, sessionId: active.sessionId, reused: true, taskPackage: null };
+      }
+      if (active && !another && cwdIn && cwdIn !== active.cwd) return fail("work-cwd-conflict", 409);
+      if (another && c.gates?.G1?.decision !== "pass") return fail("gate-requires-gating", 409);
+      const engineBusy = engine ? engine.hasAliveRun(key) : false;
+      if (engineBusy && (!another || managed)) return fail("run-already-active", 409);
+      if (!another && c.stage !== "gating") return fail("gate-requires-gating", 409);
+      let cwd = cwdIn;
+      if (!cwd) {
+        if (managed) {
+          try {
+            const r = await workspace.ensure({ key, repo: c.repo, branch: "work-" + c.type + "-" + c.number });
+            cwd = r.dir;
+          } catch (e) { return fail("managed-clone-failed: " + String(e?.message ?? e), 502); }
+        } else {
+          cwd = resolveLocalWorkspace(c.repo, { home, stat });
+          if (!cwd) return fail("workspace-not-found", 422);
+        }
+      }
+      const runId = makeRunId(now);
+      const pkg = buildTaskPackage(c, store.getRepoFacts(c.repo), now, buildV2Ctx(LOOP_V1, runId));
+      if (!another) {
+        store.setGate(key, "G1", "pass", body?.note ?? "", pkg, "workbench-ui");
+        store.setStage(key, "building", "G1 pass");
+      }
+      try {
+        const out = await startWork({ store, lang: body?.lang === "en" ? "en" : "zh-CN", now }, { key, cwd, another, pkg });
+        return { ok: true, sessionId: out.sessionId, reused: out.reused, taskPackage: out.reused ? null : pkg };
+      } catch (e) { return fail(String(e?.code ?? e?.message ?? e), e?.status ?? 500); }
     },
     async postRunGate(body) {
       if (!engine) return fail("engine-not-wired", 503);
@@ -567,6 +617,40 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
         const d = body.workspaceRetentionDays;
         if (!Number.isInteger(d) || d < 1 || d > 90) return fail("invalid settings");
         patch.workspaceRetentionDays = d;
+      }
+      // 开工会话三键（Task 6）：逐键白名单 + 校验（workSessionModel 复用 triageModel 目录校验先例；
+      // effort 可选 string 在场即存——v1 UI 不提供 effort 控件仅 API 可设；preset ∈ listPresets 名册）。
+      if (body && "workSessionModel" in body) {
+        const sel = body.workSessionModel;
+        if (sel === null) {
+          patch.workSessionModel = null;
+        } else {
+          if (!sel || typeof sel.provider !== "string" || typeof sel.model !== "string") return fail("invalid settings");
+          if (sel.reasoningEffort !== undefined && typeof sel.reasoningEffort !== "string") return fail("invalid settings");
+          const catalog = await listCatalog();
+          const listed = catalog.some((p) => p.provider === sel.provider && p.models.some((m) => m.id === sel.model));
+          if (!listed) return fail("model-not-in-catalog");
+          patch.workSessionModel = sel.reasoningEffort !== undefined
+            ? { provider: sel.provider, model: sel.model, reasoningEffort: sel.reasoningEffort }
+            : { provider: sel.provider, model: sel.model };
+        }
+      }
+      if (body && "workSessionPreset" in body) {
+        const p = body.workSessionPreset;
+        if (p === null) {
+          patch.workSessionPreset = null;
+        } else if (typeof p !== "string" || p === "") {
+          return fail("invalid settings");
+        } else {
+          const roster = (await listPresets()).map((x) => (typeof x === "string" ? x : x?.id)).filter(Boolean);
+          if (!roster.includes(p)) return fail("preset-not-in-roster");
+          patch.workSessionPreset = p;
+        }
+      }
+      if (body && "workSessionApprovalPolicy" in body) {
+        const pol = body.workSessionApprovalPolicy;
+        if (pol !== null && pol !== "ask" && pol !== "never") return fail("invalid settings");
+        patch.workSessionApprovalPolicy = pol;
       }
       if (Object.keys(patch).length === 0) return fail("invalid settings");
       store.setSettings(patch);

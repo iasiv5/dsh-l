@@ -42,7 +42,7 @@ const emptyDoc = (now) => ({
   snapshots: { lastIngestAt: null, perRepo: {} },
   repos: {},          // "owner/repo" → { defaultBranch, cloneUrl, fetchedAt }，任务包 repo 块数据源
   ingestLog: [],      // 每次摄取一条（上限 50，FIFO）——「刷新有历史可回溯」的载体
-  settings: { intervalMinutes: 0, triageModel: null, engineConcurrency: 2, workspaceRetentionDays: 7 },
+  settings: { intervalMinutes: 0, triageModel: null, engineConcurrency: 2, workspaceRetentionDays: 7, workSessionModel: null, workSessionPreset: null, workSessionApprovalPolicy: null },
   auth: { account: null, login: null, verifiedAt: null },  // 收活绑定：工作台级 GitHub 账号连接；退出=清空（不动本机 gh 登录态）
   credential: { ...EMPTY_CREDENTIAL },  // 凭据元数据（GLOSSARY「凭据」，gh-as-source）：来源/权限/校验健康；token 只存 gh 凭据库
 });
@@ -80,6 +80,10 @@ export function createStore({ filePath, now = () => new Date() }) {
   doc.settings ??= { intervalMinutes: 0, triageModel: null, engineConcurrency: 2, workspaceRetentionDays: 7 };
   doc.settings.engineConcurrency ??= 2;             // design-v2 §12.9：M2 引擎并发上限
   doc.settings.workspaceRetentionDays ??= 7;        // design-v2 §5：工作区保留期
+  doc.settings.workSessionModel ??= null;           // 开工会话（Work Session）：显式模型覆盖，null=宿主默认
+  doc.settings.workSessionPreset ??= null;          // 开工会话 agent preset，null=部署默认
+  doc.settings.workSessionApprovalPolicy ??= null;  // 开工会话初始审批策略，null=宿主部署默认（零 setPolicy）
+  doc.workSessions ??= {};                          // 开工会话索引：candidateKey → 行数组（末位=活跃）
   const need = (key) => {
     const c = doc.candidates[key];
     if (!c) throw Object.assign(new Error("candidate not found: " + key), { status: 404 });
@@ -138,6 +142,18 @@ export function createStore({ filePath, now = () => new Date() }) {
     },
     getSettings: () => doc.settings,
     setSettings(patch) { doc.settings = { ...doc.settings, ...patch }; persist(); },
+    // 开工会话索引（GLOSSARY「开工会话」）：append 追加行（末位=活跃）；get 取末位或 null（候选不存在不炸——
+    // 读路径无候选校验，写路径 need(key) 404）。
+    getWorkSession: (key) => {
+      const rows = doc.workSessions[key];
+      return rows && rows.length ? rows[rows.length - 1] : null;
+    },
+    appendWorkSession(key, row) {
+      need(key);
+      (doc.workSessions[key] ??= []).push({ ...row });
+      persist();
+    },
+    listWorkSessions: () => Object.entries(doc.workSessions).map(([key, rows]) => ({ key, rows })),
     getSnapshots: () => doc.snapshots,
     setSnapshots(perRepo) { doc.snapshots = { lastIngestAt: now().toISOString(), perRepo }; persist(); },
     // 摄取日志：追加一条并 FIFO 截到上限（design.md §2）。

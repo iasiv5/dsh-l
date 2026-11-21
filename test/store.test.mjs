@@ -267,3 +267,49 @@ test("旧档回填：roles 空对象不炸", () => {
   writeFileSync(file, JSON.stringify({ version: 2, watch: { repos: [], updatedAt: "T" }, candidates: {}, snapshots: {}, settings: {}, auth: {} }));
   assert.deepEqual(createStore({ filePath: file }).listRoles(), []);
 });
+
+// ---- 开工会话（Work Session）Task 1：settings 三键 + workSessions 索引块 ----
+
+test("settings 开工会话三键：新档缺省 null，旧档回填 null", () => {
+  const s = open();
+  assert.equal(s.getSettings().workSessionModel, null);
+  assert.equal(s.getSettings().workSessionPreset, null);
+  assert.equal(s.getSettings().workSessionApprovalPolicy, null);
+  const file = join(mkdtempSync(join(tmpdir(), "dsh-l-ws-")), "store.json");
+  writeFileSync(file, JSON.stringify({ version: 3, watch: { repos: [], updatedAt: "T" }, candidates: {}, snapshots: {}, settings: { intervalMinutes: 0, triageModel: null } }));
+  const old = createStore({ filePath: file });
+  assert.equal(old.getSettings().workSessionModel, null);
+  assert.equal(old.getSettings().workSessionPreset, null);
+  assert.equal(old.getSettings().workSessionApprovalPolicy, null);
+});
+
+test("workSessions：append 追加、getWorkSession 取末位活跃、listWorkSessions 含全部行", () => {
+  const s = open();
+  s.upsertCandidates([raw(1)]);
+  const key = candidateKey("iasiv5/dsh-skins", "issue", 1);
+  assert.deepEqual(s.listWorkSessions(), []);
+  assert.equal(s.getWorkSession(key), null);
+  s.appendWorkSession(key, { sessionId: "dsh-l:work-a", cwd: "/w/a", approvalPolicy: null, createdAt: "t1", updatedAt: "t1" });
+  s.appendWorkSession(key, { sessionId: "dsh-l:work-b", cwd: "/w/b", approvalPolicy: "never", createdAt: "t2", updatedAt: "t2" });
+  assert.equal(s.getWorkSession(key).sessionId, "dsh-l:work-b");
+  const listed = s.listWorkSessions();
+  assert.equal(listed.length, 1);
+  assert.equal(listed[0].key, key);
+  assert.equal(listed[0].rows.length, 2);
+  assert.equal(listed[0].rows[0].sessionId, "dsh-l:work-a");
+});
+
+test("workSessions：缺候选 404；持久化重开读回；候选不存在时 getWorkSession 为 null 不炸", () => {
+  const s = open();
+  s.upsertCandidates([raw(2)]);
+  const key = candidateKey("iasiv5/dsh-skins", "issue", 2);
+  s.appendWorkSession(key, { sessionId: "dsh-l:work-c", cwd: "/w/c", approvalPolicy: "ask", createdAt: "t", updatedAt: "t" });
+  assert.throws(() => s.appendWorkSession("o/none#issue#9", { sessionId: "x", cwd: "/x", approvalPolicy: null, createdAt: "t", updatedAt: "t" }), (e) => e.status === 404);
+  const filePath = join(mkdtempSync(join(tmpdir(), "dsh-l-wsp-")), "store.json");
+  const seed = createStore({ filePath });
+  seed.upsertCandidates([raw(2)]);
+  seed.appendWorkSession(key, { sessionId: "dsh-l:work-c", cwd: "/w/c", approvalPolicy: "ask", createdAt: "t", updatedAt: "t" });
+  const reopened = createStore({ filePath });
+  assert.equal(reopened.getWorkSession(key).sessionId, "dsh-l:work-c");
+  assert.equal(reopened.getWorkSession(candidateKey("iasiv5/dsh-skins", "issue", 99)), null);
+});

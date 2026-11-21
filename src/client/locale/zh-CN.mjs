@@ -132,5 +132,11 @@ export const zhCN = {
     workspaceCloning: "工作区克隆中",
   },
   gateV1Hint: "执行环 v2：G1/G2 人工放行；G3 发版闸于后续版本开放",
-  settings: { title: "设置", intervalMinutes: "自动刷新间隔（分钟，0 = 关闭）", save: "保存", triageModel: "分诊模型", followDefault: "跟随宿主默认", notInCatalog: "（不在目录中）" },
+  work: {
+    startBtn: "我来开",
+    openBtn: "打开会话",
+    openPending: "会话仍在列表同步中，稍后从会话列表打开。",
+    startFailed: "开工失败",
+  },
+  settings: { title: "设置", intervalMinutes: "自动刷新间隔（分钟，0 = 关闭）", save: "保存", triageModel: "分诊模型", followDefault: "跟随宿主默认", notInCatalog: "（不在目录中）", workModel: "开工会话模型", workPreset: "开工会话 Preset", workPolicy: "开工审批策略（仅对新会话生效）", policyAsk: "每次询问", policyNever: "自动放行", policyNeverConfirm: "设为「自动放行」后，新开工会话内的工具调用将不再逐条询问、自动执行。确认保存？" },
 }

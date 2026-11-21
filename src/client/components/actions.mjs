@@ -1,5 +1,5 @@
 import { api } from "../api.mjs";
-import { pickTriageBatch, gateState, settingsPatch, runBlock } from "../logic.mjs";
+import { pickTriageBatch, gateState, settingsPatch, workSessionSettingsPatch, runBlock } from "../logic.mjs";
 import { openRepoPicker } from "./repoPicker.mjs";
 import { renderStrip } from "./pipelineStrip.mjs";
 
@@ -30,36 +30,70 @@ export function openSettings(shadow, { t, current, onSaved }) {
   modelSel.setAttribute("aria-label", t("settings.triageModel"));
   const initialModel = current?.triageModel ?? null;
   const valueOf = (sel) => (sel ? sel.provider + "\n" + sel.model : "");
-  const fill = (providers, hostDefault) => {
-    modelSel.innerHTML = "";
+  // Task 6：模型选择器工厂化——分诊模型与开工会话模型同一 fill 形态（含目录外回落 option）。
+  const makeModelSelect = (ariaLabel, initial) => {
+    const s = document.createElement("select");
+    s.setAttribute("aria-label", ariaLabel);
+    const fill = (providers, hostDefault) => {
+      s.innerHTML = "";
+      const follow = document.createElement("option");
+      follow.value = "";
+      follow.textContent = t("settings.followDefault") + "（" + (hostDefault ? hostDefault.provider + " / " + hostDefault.model : "—") + "）";
+      s.append(follow);
+      let listed = false;
+      for (const p of providers) {
+        const og = document.createElement("optgroup");
+        og.label = p.name || p.provider;
+        for (const m of p.models) {
+          const o = document.createElement("option");
+          o.value = p.provider + "\n" + m.id;
+          o.textContent = m.name || m.id;
+          if (initial && p.provider === initial.provider && m.id === initial.model) listed = true;
+          og.append(o);
+        }
+        s.append(og);
+      }
+      if (initial && !listed) {
+        const o = document.createElement("option");
+        o.value = valueOf(initial);
+        o.textContent = initial.provider + " / " + initial.model + " " + t("settings.notInCatalog");
+        s.append(o);
+      }
+      s.value = valueOf(initial);
+    };
+    fill([], null);
+    return { select: s, fill };
+  };
+  const triageSelObj = makeModelSelect(t("settings.triageModel"), initialModel);
+  const workSelObj = makeModelSelect(t("settings.workModel"), current?.workSessionModel ?? null);
+  const workModelSel = workSelObj.select;
+  const presetSel = document.createElement("select");
+  presetSel.setAttribute("aria-label", t("settings.workPreset"));
+  const fillPresets = (presets, currentPreset) => {
+    presetSel.innerHTML = "";
     const follow = document.createElement("option");
     follow.value = "";
-    follow.textContent = t("settings.followDefault") + "（" + (hostDefault ? hostDefault.provider + " / " + hostDefault.model : "—") + "）";
-    modelSel.append(follow);
-    let listed = false;
-    for (const p of providers) {
-      const og = document.createElement("optgroup");
-      og.label = p.name || p.provider;
-      for (const m of p.models) {
-        const o = document.createElement("option");
-        o.value = p.provider + "\n" + m.id;
-        o.textContent = m.name || m.id;
-        if (initialModel && p.provider === initialModel.provider && m.id === initialModel.model) listed = true;
-        og.append(o);
-      }
-      modelSel.append(og);
-    }
-    if (initialModel && !listed) {
+    follow.textContent = t("settings.followDefault");
+    presetSel.append(follow);
+    for (const p of presets) { const o = document.createElement("option"); o.value = p; o.textContent = p; presetSel.append(o); }
+    if (currentPreset && !presets.includes(currentPreset)) {
       const o = document.createElement("option");
-      o.value = valueOf(initialModel);
-      o.textContent = initialModel.provider + " / " + initialModel.model + " " + t("settings.notInCatalog");
-      modelSel.append(o);
+      o.value = currentPreset;
+      o.textContent = currentPreset + " " + t("settings.notInCatalog");
+      presetSel.append(o);
     }
-    modelSel.value = valueOf(initialModel);
+    presetSel.value = currentPreset ?? "";
   };
-  fill([], null);
+  fillPresets([], current?.workSessionPreset ?? null);
+  const policySel = sel([
+    ["", t("settings.followDefault")],
+    ["ask", t("settings.policyAsk")],
+    ["never", t("settings.policyNever")],
+  ], current?.workSessionApprovalPolicy ?? "");
   api.models().then((r) => {
-    fill(r.providers, r.hostDefault);
+    triageSelObj.fill(r.providers, r.hostDefault);
+    workSelObj.fill(r.providers, r.hostDefault);
+    fillPresets(r.presets ?? [], current?.workSessionPreset ?? null);
     hostDefaultRow.textContent = "默认模型：" + (r.hostDefault ? r.hostDefault.provider + " / " + r.hostDefault.model : "（宿主未配置）");
   }).catch(() => {});
   const hostDefaultRow = document.createElement("div");
@@ -67,6 +101,12 @@ export function openSettings(shadow, { t, current, onSaved }) {
   hostDefaultRow.textContent = "默认模型：（加载中）";
   const modelLabel = document.createElement("label");
   modelLabel.textContent = t("settings.triageModel");
+  const workModelLabel = document.createElement("label");
+  workModelLabel.textContent = t("settings.workModel");
+  const workPresetLabel = document.createElement("label");
+  workPresetLabel.textContent = t("settings.workPreset");
+  const workPolicyLabel = document.createElement("label");
+  workPolicyLabel.textContent = t("settings.workPolicy");
   const err = document.createElement("div");
   err.style.cssText = "font-size:12px;display:none";
   const save = document.createElement("button");
@@ -77,7 +117,13 @@ export function openSettings(shadow, { t, current, onSaved }) {
     save.disabled = true;
     err.style.display = "none";
     try {
-      await api.putSettings(settingsPatch(current ?? {}, { intervalMinutes: Number(input.value), modelValue: modelSel.value, engineConcurrency: Number(concInput.value) }));
+      const base = settingsPatch(current ?? {}, { intervalMinutes: Number(input.value), modelValue: modelSel.value, engineConcurrency: Number(concInput.value) });
+      const patch = workSessionSettingsPatch(current ?? {}, { workModelValue: workModelSel.value, workPreset: presetSel.value, workPolicy: policySel.value }, base);
+      // 'never' 二次确认（Q16a）：写明会话内工具调用将自动放行；已处于 never 的保存不再重复打扰。
+      if (patch.workSessionApprovalPolicy === "never" && (current?.workSessionApprovalPolicy ?? null) !== "never") {
+        if (!window.confirm(t("settings.policyNeverConfirm"))) { save.disabled = false; return; }
+      }
+      await api.putSettings(patch);
       close(); onSaved?.();
     } catch (e) {
       err.textContent = e.message;
@@ -114,7 +160,7 @@ export function openSettings(shadow, { t, current, onSaved }) {
     } catch (e) { feishuMsg.textContent = e.message; }
   }));
   feishuRow.append(feishuMsg);
-  dialog.append(title, concLabel, concInput, label, input, modelLabel, modelSel, hostDefaultRow, err, save, feishuLabel, feishuInput, feishuRow);
+  dialog.append(title, concLabel, concInput, label, input, modelLabel, modelSel, hostDefaultRow, workModelLabel, workModelSel, workPresetLabel, presetSel, workPolicyLabel, policySel, err, save, feishuLabel, feishuInput, feishuRow);
   overlay.append(dialog);
   shadow.append(overlay);
   input.focus();
@@ -134,7 +180,7 @@ const sel = (pairs, value) => {
 const row = () => { const d = document.createElement("div"); d.style.cssText = "display:flex;gap:6px;flex-wrap:wrap;align-items:center"; return d; };
 const copy = (obj) => navigator.clipboard?.writeText(JSON.stringify(obj, null, 2)).catch(() => {});
 
-export function installActions({ getLang }) {
+export function installActions({ getLang, openWorkSession = () => false }) {
   let lastRuns = [];   // strip 钩子先于行渲染被调（workbench 组装顺序），行内 run 区块由此取 runs 摘要
   const run = (view) => async (fn) => {
     try { await fn(); } catch (e) { console.warn("[dsh-l]", e); }
@@ -175,6 +221,36 @@ export function installActions({ getLang }) {
       const gates = row();
       const g = gateState(c);
       const run = runBlock(c, lastRuns);
+      // 开工会话（GLOSSARY「开工会话」）：双入口——「打开会话」（有活跃行，任意 stage，直达 openSession）
+      // 与「我来开」（fresh：gating 未放行；重试态：G1 pass + building 且无活跃行——kickoff 失败恢复出口，
+      // 评审 R3-2；文案统一中性，评审建议①）。openWorkSession 守卫失败/开工失败就地 chip 呈现。
+      const workRow = row();
+      const workChip = (text, warn = false) => {
+        const chip = document.createElement("span");
+        chip.className = "chip";
+        chip.style.opacity = warn ? "1" : ".8";
+        if (warn) chip.style.color = "crimson";
+        chip.textContent = text;
+        return chip;
+      };
+      if (c.work?.sessionId) {
+        workRow.append(btn(t("work.openBtn"), () => {
+          if (!openWorkSession(c.work.sessionId)) workRow.append(workChip(t("work.openPending")));
+        }));
+      }
+      const freshReady = g.G1 === true;
+      const retryReady = c.gates?.G1?.decision === "pass" && c.stage === "building" && !c.work;
+      if (freshReady || retryReady) {
+        workRow.append(btn(t("work.startBtn"), () => go(async () => {
+          const r = await api.workStart(c.key, null, retryReady && !freshReady, lang);
+          if (r?.ok && r.sessionId) {
+            if (!r.reused && !openWorkSession(r.sessionId)) workRow.append(workChip(t("work.openPending")));
+          } else if (r?.error) {
+            workRow.append(workChip(t("work.startFailed") + " (" + r.error + ")", true));
+          }
+        })));
+      }
+      if (workRow.childNodes.length > 0) detail.append(workRow);
       // M8 T2/D3：模型观测展示（entries join " · "——runRow chip join 先例；字面量不译）
       const modelEntries = Object.entries(run?.models ?? {});
       if (modelEntries.length > 0) {

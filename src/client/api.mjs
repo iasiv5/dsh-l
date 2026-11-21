@@ -34,6 +34,7 @@ export const api = {
   runCancel: (runId, reason = "user") => send("dsh-l/run/cancel", { runId, reason }),
   runRetry: (runId, nodeId) => send("dsh-l/run/retry", { runId, nodeId }),
   releaseConfirm: (key, note = "") => send("dsh-l/release/confirm", { key, note }),
+  workStart: (key, cwd = null, another = false, lang = "zh-CN") => send("dsh-l/work/start", { key, cwd, another, lang }),
   rolesList: () => get("dsh-l/roles"),
   rolesUpsert: (role) => send("dsh-l/roles", { role }),
   rolesDelete: (id) => send("dsh-l/roles/delete", { id }),
