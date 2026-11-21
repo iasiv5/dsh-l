@@ -148,15 +148,16 @@ test("composeWorkWorld 三分支：显式模型→agentOptions+select；preset �
   assert.equal(create2.meta.agentPreset, "preset-y");
   assert.deepEqual(s2._ops.find((o) => o[0] === "policy")[1], "ask");
 
-  // 分支 3：皆无 → 不传、不 select、零 setPolicy
+  // 分支 3：皆无 → 安装宿主默认模型（实机 2026-11-21 定谳：程序化会话不显式 select 即无模型，
+  // 首请求落 deepseek-official 兜底路由 → MISSING_CREDENTIAL——截图证据；autoloop/makeTriage 判例同款恒传）
   const s3 = makeServices({ settings: {} });
   const w3 = composeWorkWorld(s3);
   await w3.createAgent("s3", { cwd: "/w" });
   const create3 = s3._ops.find((o) => o[0] === "create")[1];
-  assert.equal(create3.agentOptions, undefined);
-  assert.equal(create3.setup, undefined);
+  assert.deepEqual(create3.agentOptions, { provider: "p0", model: "m0", reasoningEffort: "high" });
   assert.equal(create3.meta.agentPreset, undefined);
-  assert.equal(s3._ops.filter((o) => o[0] === "policy").length, 0);
+  assert.ok(create3.setup, "分支 3 也 select 宿主默认");
+  assert.ok(s3._ops.some((o) => o[0] === "select"));
 });
 
 test("composeWorkWorld：显式 effort 在场即透传（覆盖设定）", async () => {

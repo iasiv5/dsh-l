@@ -91,6 +91,12 @@ export function composeWorkWorld({ agents, workingDirectory, approval, agentDefa
       if (explicit) {
         agentOptions = resolveAgentSelection(model, hostDefault());
         setup = (_agentCtx, agent) => { agent.model?.select?.(agentOptions); };
+      } else if (!preset) {
+        // 分支 3（实机 2026-11-21 截图定谳）：程序化会话必须显式安装宿主默认模型（autoloop/makeTriage
+        // 判例同款恒传）——不传 agentOptions 不 select 的会话无模型，首请求落 deepseek-official 兜底
+        // 路由 → MISSING_CREDENTIAL 失败。preset 分支仍不传（R1-6：不压制 preset 自带模型）。
+        agentOptions = resolveAgentSelection(null, hostDefault());
+        setup = (_agentCtx, agent) => { agent.model?.select?.(agentOptions); };
       }
       const handle = await agents.create({
         sessionId,
