@@ -170,6 +170,7 @@ const CSS = [
     "button:active:not(:disabled){opacity:.72}",
     ".row{min-height:48px}",
     "input,select{font-size:16px}",
+    "input{min-height:36px;padding:8px 10px}",   // 验收③：override 理由框等 31px→36（ux-accept 终判缺口）
     "*{touch-action:manipulation}",
     // P0（与宽度无关）：shadow host 被 React 内联 overflow:hidden 裁剪——!important 越权（评审 r9 实证）；
     // fine pointer 永不命中 coarse，桌面零风险。平板(coarse+宽)同样由此恢复可达。

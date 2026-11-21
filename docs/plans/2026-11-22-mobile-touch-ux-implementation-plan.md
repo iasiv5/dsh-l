@@ -37,7 +37,7 @@
 
 ## 全局约束
 
-- 桌面红线判据（R1-10 落地）：**实现前重采桌面基线截图**（评审基线与复核日 HEAD 同源；实现期间 HEAD 可能前进，防御性重采）+ 实现后同视口截图**逐像素 diff == 0**（playwright 截图比对脚本，落盘 scratch）+ ui-probe exit 0。
+- 桌面红线判据（R1-10 落地，验收 R3 精化）：**实现前重采桌面基线截图** + 实现后同视口截图比对——**数据驱动区（stats 条计数、列表行文本、上次刷新时间戳、行情胶囊）天然漂移，不纳入像素判据**；判据 = 静态区（header/闸门按钮区/tabs）零差异 + ui-probe exit 0 + 双拍确定性自检（同态连拍逐字节相等）。验收实测：base-vs-post 2151px 全部落于 stats 条（漂移带外 0%），数据漂移定谳成立。
 - 触控下限判据（R1-7 口径钉死）：**「可见（getClientRects 非空）∧ 未 disabled ∧ tag∈{button,select} 的元素盒高 ≥44」**；chip 组显式纳入 44（统一，不豁免）；文本 input 豁免 44（文本录入非点选目标）但 ≥36 且 font-size ≥16（P7）；**0×0 隐藏元素过滤**（连接卡隐藏按钮不假红）。
 - 遮挡判据（R1-3 落地）：探针运行时扫描 fixed/sticky 底部元素取最小 top = capTop，断言最深可交互元素 bottom ≤ capTop − 8；CSS 预留 = `calc(56px + env(safe-area-inset-bottom))`（胶囊实测 26px + 余量 30px；iOS 底部安全区由 env 承担）。
 - 双语键：新增 1 键 `actions.overrideGroup`（人工推翻折叠摘要）+ chevron 用字面量 ▾/▸（无新键）。
