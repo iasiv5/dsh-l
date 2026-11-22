@@ -955,3 +955,67 @@ test("workbench 清单双空态：过滤空给清除过滤按钮，真空给 bac
   assert.ok(empties2.length === 1 && empties2[0].textContent.includes(t("emptyStates.backlog")), "真空态 backlog 文案");
   assert.ok(!empties2[0].textContent.includes(t("emptyStates.filtered")), "真空态不出现过滤空文案");
 });
+
+test("rowActions 吞错就地呈现：stage 失败写 errLine，成功清除（P0-5c）", async () => {
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  let fail = true;
+  const hooks = installActions({
+    getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [],
+    deps: { api: { stage: async () => { if (fail) throw new Error("boom"); return {}; } } },
+  });
+  const view = { reload: async () => {}, shadow: new FakeElement("shadow") };
+  const d = new FakeElement("div");
+  hooks.rowActions(d, mkCandidate("triaged"), { t, view, lang: "zh-CN" });
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+  const errLine = () => find(d, (n) => n.className === "rowerr")[0];
+  assert.ok(errLine(), "errLine 就位（detail 顶部）");
+  assert.equal(errLine().style.display, "none", "初始不可见");
+  const narrow = [...d.children].find((n) => n.className.includes("ux-narrow"));
+  const chipsRow = [...narrow.children].find((n) => n.className.includes("stage-chips"));
+  const moveBtn = [...chipsRow.children].find((b) => b.textContent.includes(t("groups.gating")));
+  moveBtn.onclick();
+  await settle();
+  assert.equal(errLine().style.display, "block", "失败后可见");
+  assert.ok(errLine().textContent.includes(t("errors.actionFailed")) && errLine().textContent.includes("boom"), "错误文案=操作失败+消息");
+  fail = false;
+  moveBtn.onclick();
+  await settle();
+  assert.equal(errLine().style.display, "none", "成功后清除");
+});
+
+test("review/kanban 吞错就地呈现：rverr 与 kberr（P0-5c）", async () => {
+  const { renderReview } = await import("../src/client/components/review.mjs");
+  const { renderKanban } = await import("../src/client/components/kanban.mjs");
+  let fail = true;
+  const gateStub = { runGate: async () => { if (fail) throw new Error("boom"); }, releaseConfirm: async () => {}, runCancel: async () => {} };
+  const cand = { key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t", stage: "building", currentRunId: "run-1" };
+  const run = { id: "run-1", candidateKey: "o/r#issue#1", status: "waiting", waitingGate: "g2", waitingGateId: "G2", currentNodeIds: ["g2"], failedNodeIds: [], cancelledNodeIds: [], templateId: null, error: null };
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+  const wrap = new FakeElement("div");
+  renderReview(wrap, { t, candidates: [cand], runs: [run], view: { reload: async () => {} }, templates: [], deps: { api: gateStub } });
+  const card = find(wrap, (n) => n.className === "rvcard")[0];
+  const errEls = () => find(card, (n) => n.className === "rverr");
+  const passBtn = find(card, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent.includes(t("review.passBtn")))[0];
+  passBtn.onclick();
+  await settle();
+  const shown = errEls().find((n) => n.style.display === "block");
+  assert.ok(shown && shown.textContent.includes(t("errors.actionFailed")), "runGate 失败写卡片 rverr");
+  fail = false;
+  passBtn.onclick();
+  await settle();
+  assert.ok(!errEls().some((n) => n.style.display === "block"), "成功后清除");
+  // kanban：stage 失败 → 卡内 kberr chip；成功移除
+  let kfail = true;
+  const kwrap = new FakeElement("div");
+  renderKanban(kwrap, { t, candidates: [{ key: "o/r#issue#2", repo: "o/r", type: "issue", number: 2, title: "T", stage: "inbox", triage: null }], view: { reload: async () => {} }, deps: { api: { stage: async () => { if (kfail) throw new Error("boom"); return {}; } } } });
+  const kcard = find(kwrap, (n) => n.className === "kbcard")[0];
+  const adv = find(kcard, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("kanban.advance"))[0];
+  adv.onclick();
+  await settle();
+  const kberr = find(kcard, (n) => n.className === "kberr")[0];
+  assert.ok(kberr && kberr.textContent.includes(t("errors.actionFailed")), "stage 失败写 kberr");
+  kfail = false;
+  adv.onclick();
+  await settle();
+  assert.equal(find(kcard, (n) => n.className === "kberr").length, 0, "成功后移除 kberr");
+});

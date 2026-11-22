@@ -21,6 +21,13 @@ const MANUAL = ["inbox", "triaged", "gating", "shipped", "held", "closed"];
 
 export function renderKanban(container, { t, candidates, view, deps = {} } = {}) {
   const a = deps.api ?? api;
+  const showKbErr = (cardEl, e) => {   // P0-5c：迁移失败就地呈现（原 catch 静默占位在此转正）
+    let err = cardEl.children.find((n) => n.className === "kberr");
+    if (!err) { err = el("span", "kberr"); cardEl.append(err); }
+    err.style.cssText = "color:color-mix(in srgb,#d1242f 85%,currentColor);font-size:11px";
+    err.textContent = t("errors.actionFailed") + " (" + (e?.message ?? e) + ")";
+  };
+  const clearKbErr = (cardEl) => { const err = cardEl.children.find((n) => n.className === "kberr"); if (err) err.remove(); };
   const { columns } = kanbanColumns({ candidates });
   const wrap = el("div", "kb");
   for (const col of columns) {
@@ -44,7 +51,7 @@ export function renderKanban(container, { t, candidates, view, deps = {} } = {})
         if (next) {
           const adv = el("button", "kbadvance", t("kanban.advance"));
           adv.type = "button";
-          adv.onclick = () => { a.stage(card.key, next, "看板推进").then(() => view.reload()).catch(() => {}); };
+          adv.onclick = () => { a.stage(card.key, next, "看板推进").then(() => { clearKbErr(cardEl); view.reload(); }).catch((e) => showKbErr(cardEl, e)); };
           cardEl.append(adv);
         }
         const menu = el("details", "kbmove");
@@ -53,7 +60,7 @@ export function renderKanban(container, { t, candidates, view, deps = {} } = {})
           const label = target === "held" ? t("recommendedActions.hold") : t("groups." + target);
           const b = el("button", "kbmovebtn", t("actions.moveTo") + " " + label);
           b.type = "button";
-          b.onclick = () => { a.stage(card.key, target, "看板迁移").then(() => view.reload()).catch(() => {}); };
+          b.onclick = () => { a.stage(card.key, target, "看板迁移").then(() => { clearKbErr(cardEl); view.reload(); }).catch((e) => showKbErr(cardEl, e)); };
           menu.append(b);
         }
         cardEl.append(menu);

@@ -241,7 +241,8 @@ export function pickWorkspace(shadow, { t, candidate, ui = {}, status = async ()
   });
 }
 
-export function installActions({ getLang, openWorkSession = () => false, pickDirectory = null, sessionsFeed = null }) {
+export function installActions({ getLang, openWorkSession = () => false, pickDirectory = null, sessionsFeed = null, deps = {} } = {}) {
+  const a = deps.api ?? api;   // deps seam（计划 §3-10）：覆盖受测路径（rowActions/bar/startAnother），openSettings 等未受测路径维持模块 api
   let lastRuns = [];   // strip 钩子先于行渲染被调（workbench 组装顺序），行内 run 区块由此取 runs 摘要
   const run = (view) => async (fn) => {
     try { await fn(); } catch (e) { console.warn("[dsh-l]", e); }
@@ -251,7 +252,7 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
     // Task 12：会话板块 hooks——openWorkSession（导航）、sessionsFeed（sessions.list 投影）、startAnother（另开）。
     openWorkSession,
     sessionsFeed: () => (sessionsFeed ? sessionsFeed() : []),
-    startAnother: (key, cwd) => api.workStart(key, cwd ?? null, true, getLang()),
+    startAnother: (key, cwd) => a.workStart(key, cwd ?? null, true, getLang()),
     header(header, { t, state, view }) {
       const b = btn(t("settings.title"), () => openSettings(view.shadow, { t, current: state?.settings ?? { intervalMinutes: 0 }, onSaved: () => view.reload() }));
       b.setAttribute("aria-label", t("settings.title"));
@@ -268,26 +269,35 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
     },
     bar(bar, { t, state, filters, view }) {
       const keys = pickTriageBatch(state?.candidates ?? [], filters);
-      bar.append(btn(t("actions.triageBatch") + " (" + keys.length + ")", () => run(view)(() => api.triage(keys, getLang())), keys.length === 0));
+      bar.append(btn(t("actions.triageBatch") + " (" + keys.length + ")", () => run(view)(() => a.triage(keys, getLang())), keys.length === 0));
     },
     rowActions(detail, c, { t, view, lang }) {
-      const go = run(view);
+      const errLine = document.createElement("small");
+      errLine.className = "rowerr";   // P0-5c：行内错误就地呈现位（吞错路径统一走 go）
+      errLine.style.cssText = "color:color-mix(in srgb,#d1242f 85%,currentColor);font-size:12px";
+      errLine.style.display = "none";
+      detail.prepend(errLine);
+      const go = async (fn) => {
+        try { await fn(); errLine.textContent = ""; errLine.style.display = "none"; }
+        catch (e) { errLine.textContent = t("errors.actionFailed") + " (" + (e?.message ?? e) + ")"; errLine.style.display = "block"; }
+        await view.reload();
+      };
       const tr = c.triage ?? { validity: "medium", urgency: "P2", action: "hold", reason: "" };
       const v = sel(["high", "medium", "low"].map((x) => [x, t("validity." + x)]), tr.validity);
       const u = sel(["P0", "P1", "P2", "P3"].map((x) => [x, t("urgency." + x)]), tr.urgency);
-      const a = sel(["start", "feedback", "close", "hold"].map((x) => [x, t("recommendedActions." + x)]), tr.action);
+      const actSel = sel(["start", "feedback", "close", "hold"].map((x) => [x, t("recommendedActions." + x)]), tr.action);   // 原名 a——与 deps seam 变量撞名遮蔽（Task 9 实测揪出）
       const reason = document.createElement("input");
       reason.value = tr.reason ?? "";
       reason.placeholder = t("actions.reason");
       // ── 人工推翻 + 阶段迁移（桌面既有行，ux-wide；窄视口由 ux-narrow 折叠/chips 接管——评审 Task 3 双渲染）──
       const override = row();
       override.className += " ux-wide";
-      override.append(v, u, a, reason, btn(t("actions.override"), () => go(() => api.override({ key: c.key, validity: v.value, urgency: u.value, action: a.value, reason: reason.value, lang }))));
+      override.append(v, u, actSel, reason, btn(t("actions.override"), () => go(() => a.override({ key: c.key, validity: v.value, urgency: u.value, action: actSel.value, reason: reason.value, lang }))));
       const stages = row();
       stages.className += " ux-wide";
       for (const s of ["triaged", "gating", "held", "closed"]) {
         const label = s === "held" ? t("recommendedActions.hold") : t("groups." + s);
-        stages.append(btn(t("actions.moveTo") + " " + label, () => go(() => api.stage(c.key, s, "")), c.stage === s));
+        stages.append(btn(t("actions.moveTo") + " " + label, () => go(() => a.stage(c.key, s, "")), c.stage === s));
       }
       const gates = row();
       const g = gateState(c);
@@ -311,8 +321,8 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
         if (pick === null) return;
         const anotherFlag = c.gates?.G1?.decision === "pass" && c.stage === "building";
         const r = pick === "managed"
-          ? await api.workStart(c.key, null, anotherFlag, lang, "managed")
-          : await api.workStart(c.key, pick, anotherFlag, lang);
+          ? await a.workStart(c.key, null, anotherFlag, lang, "managed")
+          : await a.workStart(c.key, pick, anotherFlag, lang);
         if (r?.ok && r.sessionId) {
           if (!r.reused && !openWorkSession(r.sessionId)) workChip(target, t("work.openPending"));
         } else if (r?.error) {
@@ -320,8 +330,8 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
         }
       }));
       const mkG1Pair = () => [
-        btn("G1 " + t("gates.G1") + " · " + t("actions.pass"), () => go(async () => { const r = await api.gate(c.key, "G1", "pass", ""); if (r.taskPackage) await copy(r.taskPackage); }), !g.G1),
-        btn("G1 · " + t("actions.reject"), () => go(() => api.gate(c.key, "G1", "reject", "")), !g.G1),
+        btn("G1 " + t("gates.G1") + " · " + t("actions.pass"), () => go(async () => { const r = await a.gate(c.key, "G1", "pass", ""); if (r.taskPackage) await copy(r.taskPackage); }), !g.G1),
+        btn("G1 · " + t("actions.reject"), () => go(() => a.gate(c.key, "G1", "reject", "")), !g.G1),
       ];
       const workRow = row();
       workRow.className += " ux-wide";
@@ -337,7 +347,7 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
       // 开工路径可发现性（disc 评审）：白名单源阶段 → 首位「移到 待拍板」（gating 态不插——我来开已是主动作；
       // building/verifying 排除——禁手工迁移口径 + 开工成功产生的 building 行不得出现首位按钮）。
       if (["inbox", "triaged", "held", "closed", "shipped"].includes(c.stage)) {
-        uxPrimary.append(btn(t("actions.moveTo") + " " + t("groups.gating"), () => go(() => api.stage(c.key, "gating", ""))));
+        uxPrimary.append(btn(t("actions.moveTo") + " " + t("groups.gating"), () => go(() => a.stage(c.key, "gating", ""))));
       }
       if (c.work?.sessionId) uxPrimary.append(mkOpen(uxPrimary));
       if (freshReady || retryReady) uxPrimary.append(mkStart(uxPrimary));
@@ -346,7 +356,7 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
       const uxChips = row(); uxChips.className = "stage-chips";
       for (const s of ["triaged", "gating", "held", "closed"]) {
         const label = s === "held" ? t("recommendedActions.hold") : t("groups." + s);
-        uxChips.append(btn(t("actions.moveTo") + " " + label, () => go(() => api.stage(c.key, s, "")), c.stage === s));
+        uxChips.append(btn(t("actions.moveTo") + " " + label, () => go(() => a.stage(c.key, s, "")), c.stage === s));
       }
       const details = document.createElement("details");
       details.className = "override-box";
@@ -360,7 +370,7 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
       const reason2 = document.createElement("input");
       reason2.value = tr.reason ?? "";
       reason2.placeholder = t("actions.reason");
-      uxOverride.append(v2, u2, a2, reason2, btn(t("actions.override"), () => go(() => api.override({ key: c.key, validity: v2.value, urgency: u2.value, action: a2.value, reason: reason2.value, lang }))));
+      uxOverride.append(v2, u2, a2, reason2, btn(t("actions.override"), () => go(() => a.override({ key: c.key, validity: v2.value, urgency: u2.value, action: a2.value, reason: reason2.value, lang }))));
       details.append(uxOverride);
       uxNarrow.append(uxPrimary, uxChips, details);
       detail.append(uxNarrow);
@@ -374,10 +384,10 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
       }
       const g2Ready = runInfo?.waitingGate === "g2";   // 评审 D6/R1-19：G2 从字面量禁用改为挂起激活；G3 仍禁用（M3 发版分区）
       gates.append(
-        btn("G1 " + t("gates.G1") + " · " + t("actions.pass"), () => go(async () => { const r = await api.gate(c.key, "G1", "pass", ""); if (r.taskPackage) await copy(r.taskPackage); }), !g.G1),
-        btn("G1 · " + t("actions.reject"), () => go(() => api.gate(c.key, "G1", "reject", "")), !g.G1),
-        btn("G2 " + t("gates.G2") + " · " + t("actions.pass"), () => go(() => api.runGate(runInfo.id, "g2", "pass", "")), !g2Ready),
-        btn("G2 · " + t("actions.reject"), () => go(() => api.runGate(runInfo.id, "g2", "reject", "")), !g2Ready),
+        btn("G1 " + t("gates.G1") + " · " + t("actions.pass"), () => go(async () => { const r = await a.gate(c.key, "G1", "pass", ""); if (r.taskPackage) await copy(r.taskPackage); }), !g.G1),
+        btn("G1 · " + t("actions.reject"), () => go(() => a.gate(c.key, "G1", "reject", "")), !g.G1),
+        btn("G2 " + t("gates.G2") + " · " + t("actions.pass"), () => go(() => a.runGate(runInfo.id, "g2", "pass", "")), !g2Ready),
+        btn("G2 · " + t("actions.reject"), () => go(() => a.runGate(runInfo.id, "g2", "reject", "")), !g2Ready),
         btn("G3 " + t("gates.G3"), () => {}, true),
       );
       if (c.taskPackage) gates.append(btn(t("actions.copyPackage"), () => copy(c.taskPackage)));
@@ -393,8 +403,8 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
         }
         if (runInfo.error) { const err = document.createElement("span"); err.className = "chip"; err.style.color = "crimson"; err.textContent = runInfo.error; runRow.append(err); }
         runRow.append(
-          btn(t("actions.retryRun"), () => go(() => api.runRetry(runInfo.id, [...(runInfo.failedNodeIds ?? []), ...(runInfo.cancelledNodeIds ?? [])][0] ?? "")), !((runInfo.status === "failed" || runInfo.status === "cancelled") && [...(runInfo.failedNodeIds ?? []), ...(runInfo.cancelledNodeIds ?? [])].length > 0)),   // M7/§18.3：数据源扩 cancelled（retryNode 已支持——M2 R1-9）；failedNodeIds 沿 M2 产出评审问题 1
-          btn(t("actions.cancelRun"), () => go(() => api.runCancel(runInfo.id, "user")), !(runInfo.status === "running" || runInfo.status === "waiting")),
+          btn(t("actions.retryRun"), () => go(() => a.runRetry(runInfo.id, [...(runInfo.failedNodeIds ?? []), ...(runInfo.cancelledNodeIds ?? [])][0] ?? "")), !((runInfo.status === "failed" || runInfo.status === "cancelled") && [...(runInfo.failedNodeIds ?? []), ...(runInfo.cancelledNodeIds ?? [])].length > 0)),   // M7/§18.3：数据源扩 cancelled（retryNode 已支持——M2 R1-9）；failedNodeIds 沿 M2 产出评审问题 1
+          btn(t("actions.cancelRun"), () => go(() => a.runCancel(runInfo.id, "user")), !(runInfo.status === "running" || runInfo.status === "waiting")),
         );
         detail.append(runRow);
       }
