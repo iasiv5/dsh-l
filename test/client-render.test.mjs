@@ -1136,3 +1136,56 @@ test("过滤升级：type 计数 chips + stage 下拉 + strip 点击联动 + 清
   await settle();
   assert.equal(rows().length, 2, "同值再点取消");
 });
+
+test("pinned filters：保存/应用/删除/跨 mount 持久（P1-3 后半）", async () => {
+  const { mountWorkbench } = await import("../src/client/components/workbench.mjs");
+  const c1 = { key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t1", stage: "inbox", triage: { urgency: "P0" } };
+  const storage = (() => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k) }; })();
+  const apiStub = {
+    state: async () => ({ auth: { account: "iasiv5", login: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }, watch: { repos: ["o/r"] }, snapshots: { lastIngestAt: null, perRepo: {} }, settings: { intervalMinutes: 0 }, candidates: [c1], runs: [], workflow: { templates: [] }, ingestLog: [] }),
+    auth: async () => ({ gates: { ghInstalled: true, ghLogin: true, credentialOk: true }, viewerLogin: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }),
+    workSessions: async () => ({ items: [] }),
+    refresh: async () => ({ authenticated: true }),
+  };
+  const settle = () => new Promise((r) => setTimeout(r, 5));
+  const mkShadow = () => { const s = new FakeElement("shadow"); s.host = new FakeElement("host"); return s; };
+  const shadow = mkShadow();
+  mountWorkbench(shadow, { getLang: () => "zh-CN", build: "t", deps: { api: apiStub }, storage });
+  await settle();
+  const saveBtn = () => find(shadow, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("filters.saveCurrent"))[0];
+  assert.ok(saveBtn(), "存为常用按钮在场");
+  assert.equal(saveBtn().disabled, true, "默认过滤时禁用");
+  const urgencySel = find(shadow, (n) => String(n.tagName).toUpperCase() === "SELECT" && n.getAttribute("aria-label") === t("filters.urgency"))[0];
+  urgencySel.value = "P0";
+  urgencySel.onchange();
+  await settle();
+  assert.equal(saveBtn().disabled, false, "有过滤后可存");
+  saveBtn().onclick();
+  await settle();
+  const pinChips = () => find(shadow, (n) => typeof n.className === "string" && String(n.className).includes("pinchip"));
+  assert.equal(pinChips().length, 1, "pin chip 出现");
+  assert.ok(pinChips()[0].textContent.includes(t("urgency.P0")), "label 含紧急度");
+  // 应用
+  urgencySel.value = "all";
+  urgencySel.onchange();
+  await settle();
+  pinChips()[0].onclick();
+  await settle();
+  const urgencySel2 = find(shadow, (n) => String(n.tagName).toUpperCase() === "SELECT" && n.getAttribute("aria-label") === t("filters.urgency"))[0];   // paint 全量重建，需重查
+  assert.equal(urgencySel2.value, "P0", "点 pin 应用过滤");
+  // 删除
+  const rm = find(shadow, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("filters.pinRemove"))[0];
+  rm.onclick();
+  await settle();
+  assert.equal(pinChips().length, 0, "删除后 pin 消失");
+  // 持久：重新保存 → 新 mount 同 storage 仍在
+  urgencySel.value = "P0";
+  urgencySel.onchange();
+  await settle();
+  saveBtn().onclick();
+  await settle();
+  const shadow2 = mkShadow();
+  mountWorkbench(shadow2, { getLang: () => "zh-CN", build: "t", deps: { api: apiStub }, storage });
+  await settle();
+  assert.equal(find(shadow2, (n) => typeof n.className === "string" && String(n.className).includes("pinchip")).length, 1, "跨 mount 持久");
+});

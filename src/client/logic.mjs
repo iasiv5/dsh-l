@@ -254,3 +254,29 @@ export function sortGateRunsByWait(runs) {
     return ta - tb;
   });
 }
+
+// ---- P1-3 后半：pinned filters 本地持久化（键固定；storage 注入，缺失降级会话内存）----
+const PIN_KEY = "dsh-l.pinnedFilters.v1";
+let memoryStore = null;
+const memoryStorage = () => (memoryStore ??= (() => {
+  const m = new Map();
+  return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k) };
+})());
+
+export function loadPins(storage) {
+  const st = storage ?? memoryStorage();
+  let raw = null;
+  try { raw = st.getItem(PIN_KEY); } catch { return []; }
+  if (!raw) return [];
+  try { const v = JSON.parse(raw); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+
+export function savePins(storage, pins) {
+  const st = storage ?? memoryStorage();
+  try { st.setItem(PIN_KEY, JSON.stringify(pins ?? [])); } catch { /* 尽力而为：配额/隐私模式静默降级 */ }
+  return pins ?? [];
+}
+
+export function makePinId() {
+  return "pin-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+}

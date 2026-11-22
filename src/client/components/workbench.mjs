@@ -1,5 +1,5 @@
 import { makeT } from "../i18n.mjs";
-import { groupCandidates, filterCandidates, needsReview, shouldShowStartHint, runBlock, facetCounts } from "../logic.mjs";
+import { groupCandidates, filterCandidates, needsReview, shouldShowStartHint, runBlock, facetCounts, loadPins, savePins, makePinId } from "../logic.mjs";
 import { api } from "../api.mjs";
 import { badge } from "../badge.mjs";
 import { renderRow } from "./candidateRow.mjs";
@@ -242,7 +242,7 @@ const el = (tag, cls, text) => {
   return n;
 };
 
-export function mountWorkbench(shadow, { getLang, build, extend, deps = {} } = {}) {
+export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, storage = null } = {}) {
   const a = deps?.api ?? api;   // deps seam（计划 §3-10）：mount 自身的 state/auth/workSessions/refresh 可注入桩
   let state = null;
   let authInfo = null;
@@ -367,6 +367,43 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {} } = {
       select([["all", t("filters.urgency")], ...["P0", "P1", "P2", "P3"].map((u) => [u, t("urgency." + u) + " (" + (facets.urgency[u] ?? 0) + ")"])], filters.urgency, (v) => { filters.urgency = v; paint(); }, t("filters.urgency")),
     );
     extend?.bar?.(bar, { t, state, filters, view });
+    // P1-3 后半：pinned filters（storage 注入；缺失降级内存；取值防抛在调用方 safeStorage）
+    const pins = loadPins(storage);
+    const filtersActiveNow = filters.type !== "all" || filters.repo !== "all" || filters.urgency !== "all" || filters.stage !== "all";
+    const pinLabel = (f) => {
+      const parts = [];
+      if (f.type !== "all") parts.push(f.type === "issue" ? t("filters.issues") : t("filters.pullRequests"));
+      if (f.repo !== "all") parts.push(f.repo);
+      if (f.urgency !== "all") parts.push(t("urgency." + f.urgency));
+      if (f.stage !== "all") parts.push(t("groups." + f.stage));
+      return parts.join(" · ") || "—";
+    };
+    const savePinBtn = el("button", "chip pinsave", t("filters.saveCurrent"));
+    savePinBtn.type = "button";
+    savePinBtn.disabled = !filtersActiveNow;
+    savePinBtn.title = t("filters.saveCurrent");
+    savePinBtn.onclick = () => {
+      const next = [...loadPins(storage), { id: makePinId(), label: pinLabel(filters), filters: { ...filters } }];
+      savePins(storage, next);
+      paint();
+    };
+    bar.append(savePinBtn);
+    if (pins.length > 0) {
+      const pinWrap = el("span", "pinrow");
+      pinWrap.setAttribute("aria-label", t("filters.pins"));
+      for (const p of pins) {
+        const chipBtn = el("button", "chip pinchip" + (JSON.stringify(filters) === JSON.stringify(p.filters) ? " is-active" : ""), p.label);
+        chipBtn.type = "button";
+        chipBtn.onclick = () => { Object.assign(filters, p.filters); paint(); };
+        pinWrap.append(chipBtn);
+        const rm = el("button", "chip pinrm", t("filters.pinRemove"));
+        rm.type = "button";
+        rm.setAttribute("aria-label", t("filters.pinRemove"));
+        rm.onclick = () => { savePins(storage, loadPins(storage).filter((x) => x.id !== p.id)); paint(); };
+        pinWrap.append(rm);
+      }
+      bar.append(pinWrap);
+    }
     const main = el("main");
     // 主栏 tab bar（design-v2 §13.5/D6）：三视图互斥显隐（评审 P10）。
     const tabsBar = el("div", "tabsbar");

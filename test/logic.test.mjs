@@ -271,3 +271,19 @@ test("facetCounts 计数口径：stage 按桶、其余原值、仅计出现键�
   assert.deepEqual(fc.stage, { inbox: 2, triaged: 1, building: 1, closed: 1 });
   assert.deepEqual(fc.repo, { "o/r": 5 });
 });
+
+// ---- P1-3 后半：pinned filters 本地持久化 ----
+test("loadPins/savePins/makePinId：注入 storage、坏 JSON 与缺失回退（P1-3）", async () => {
+  const { loadPins, savePins, makePinId } = await import("../src/client/logic.mjs");
+  const mkStorage = () => { const m = new Map(); return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)), removeItem: (k) => m.delete(k) }; };
+  const st = mkStorage();
+  assert.deepEqual(loadPins(st), [], "空存储 → []");
+  const pin = { id: makePinId(), label: "P0", filters: { type: "all", repo: "all", urgency: "P0", stage: "all" } };
+  assert.ok(/^pin-\d+-/.test(pin.id), "id 形态");
+  savePins(st, [pin]);
+  assert.deepEqual(loadPins(st), [pin], "round-trip");
+  st.setItem("dsh-l.pinnedFilters.v1", "{broken");
+  assert.deepEqual(loadPins(st), [], "坏 JSON → []");
+  st.setItem("dsh-l.pinnedFilters.v1", JSON.stringify({ not: "array" }));
+  assert.deepEqual(loadPins(st), [], "非数组 → []");
+});
