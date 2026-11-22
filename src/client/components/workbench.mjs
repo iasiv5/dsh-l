@@ -1,5 +1,5 @@
 import { makeT } from "../i18n.mjs";
-import { groupCandidates, filterCandidates, needsReview, shouldShowStartHint, runBlock } from "../logic.mjs";
+import { groupCandidates, filterCandidates, needsReview, shouldShowStartHint, runBlock, facetCounts } from "../logic.mjs";
 import { api } from "../api.mjs";
 import { badge } from "../badge.mjs";
 import { renderRow } from "./candidateRow.mjs";
@@ -269,7 +269,7 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {} } = {
   let disposed = false;
   let activeTab = "list";   // 评审 P10：tab 互斥显隐（list|board|review），闭包状态——paint 全量重建时保持，不进 store
   let sessionsItems = [];   // Task 12：会话板块数据（GET /dsh-l/work/sessions，reload 并行拉取）
-  const filters = { type: "all", repo: "all", urgency: "all" };
+  const filters = { type: "all", repo: "all", urgency: "all", stage: "all" };   // P1-3：stage 维度
   const expanded = new Set();
   const seenRuns = new Set();   // P0-2 unread 语义：展开过终态 run 的行记已读（内存态，页面刷新归零——有意取舍）
   let credMount = null;   // 紧凑连接卡挂载点（原隐式全局：产物非严格加载侥幸可用，node ESM 严格模式必炸——Task 8 测试揪出）
@@ -347,13 +347,24 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {} } = {
     const last = state?.snapshots?.lastIngestAt;
     header.append(el("span", "meta", t("meta.lastRefreshAt") + ": " + (last ? new Date(last).toLocaleString(getLang()) : "—")));
     const strip = el("div", "strip");
-    extend?.strip?.(strip, { t, state });
+    extend?.strip?.(strip, { t, state, stagePick: (bucket) => { filters.stage = filters.stage === bucket ? "all" : bucket; paint(); }, stageFilter: filters.stage });   // P1-6：strip 点击联动
     const bar = el("div", "bar");
     const repos = [...new Set((state?.candidates ?? []).map((c) => c.repo))].sort();
+    const facets = facetCounts(state?.candidates ?? []);   // P1-3 计数数据源
+    // P1-3：type 计数 chips 替代 type 下拉（点击设置 filters.type；全部=复位）
+    const total = (state?.candidates ?? []).length;
+    for (const [val, label, count] of [["all", t("filters.all"), total], ["issue", t("filters.issues"), facets.type.issue ?? 0], ["pull", t("filters.pullRequests"), facets.type.pull ?? 0]]) {
+      const chipBtn = el("button", "chip typechip" + (filters.type === val ? " is-active" : ""), label + " (" + count + ")");
+      chipBtn.type = "button";
+      chipBtn.setAttribute("aria-pressed", String(filters.type === val));
+      chipBtn.onclick = () => { filters.type = val; paint(); };
+      bar.append(chipBtn);
+    }
+    const stagePairs = [["all", t("filters.all")], ...["inbox", "triaged", "gating", "building", "shipped", "closed"].map((s) => [s, t("groups." + s) + " (" + (facets.stage[s] ?? 0) + ")"])];
     bar.append(
-      select([["all", t("filters.all")], ["issue", t("filters.issues")], ["pull", t("filters.pullRequests")]], filters.type, (v) => { filters.type = v; paint(); }, t("filters.all")),
-      select([["all", t("filters.repo")], ...repos.map((r) => [r, r])], filters.repo, (v) => { filters.repo = v; paint(); }, t("filters.repo")),
-      select([["all", t("filters.urgency")], ...["P0", "P1", "P2", "P3"].map((u) => [u, t("urgency." + u)])], filters.urgency, (v) => { filters.urgency = v; paint(); }, t("filters.urgency")),
+      select(stagePairs, filters.stage, (v) => { filters.stage = v; paint(); }, t("filters.stage")),
+      select([["all", t("filters.repo")], ...repos.map((r) => [r, r + " (" + (facets.repo[r] ?? 0) + ")"])], filters.repo, (v) => { filters.repo = v; paint(); }, t("filters.repo")),
+      select([["all", t("filters.urgency")], ...["P0", "P1", "P2", "P3"].map((u) => [u, t("urgency." + u) + " (" + (facets.urgency[u] ?? 0) + ")"])], filters.urgency, (v) => { filters.urgency = v; paint(); }, t("filters.urgency")),
     );
     extend?.bar?.(bar, { t, state, filters, view });
     const main = el("main");
@@ -421,13 +432,13 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {} } = {
     if (notice) triage.append(el("div", "error", notice));
     const list = filterCandidates(state?.candidates ?? [], filters);
     if (list.length === 0) {
-      const filtersActive = filters.type !== "all" || filters.repo !== "all" || filters.urgency !== "all";
+      const filtersActive = filters.type !== "all" || filters.repo !== "all" || filters.urgency !== "all" || filters.stage !== "all";   // P1-3/S4：纳入 stage
       const emptyBox = el("div", "empty");
       if (filtersActive) {
         emptyBox.append(el("span", null, t("emptyStates.filtered")));
         const clearBtn = el("button", null, t("emptyStates.clearFilters"));
         clearBtn.type = "button";
-        clearBtn.onclick = () => { filters.type = "all"; filters.repo = "all"; filters.urgency = "all"; paint(); };
+        clearBtn.onclick = () => { filters.type = "all"; filters.repo = "all"; filters.urgency = "all"; filters.stage = "all"; paint(); };
         emptyBox.append(clearBtn);
       } else {
         emptyBox.append(el("span", null, t("emptyStates.backlog")));

@@ -92,6 +92,7 @@ export const zhCN = {
     pullRequests: "PR",
     repo: "仓库",
     urgency: "紧急度",
+    stage: "阶段",
   },
   urgency: { P0: "P0 立即", P1: "P1 高", P2: "P2 中", P3: "P3 低" },
   validity: { high: "可信", medium: "存疑", low: "不可信", none: "未评" },

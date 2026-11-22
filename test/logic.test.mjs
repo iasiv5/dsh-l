@@ -250,3 +250,24 @@ test("sortGateRunsByWait：waitingSince 升序（最久优先），缺省沉底�
   assert.deepEqual(sortGateRunsByWait(runs).map((r) => r.id), ["c", "a", "b"]);
   assert.deepEqual(sortGateRunsByWait(null), []);
 });
+
+// ---- P1-3/P1-6：stage 过滤维度与 facet 计数 ----
+test("filterCandidates stage 维度：bucketOf 归桶，缺省全量（P1-3）", async () => {
+  const { filterCandidates } = await import("../src/client/logic.mjs");
+  const list = [c("inbox"), c("triaged"), c("building"), c("verifying"), c("held"), c("shipped")];
+  assert.equal(filterCandidates(list, { stage: "building" }).length, 2, "building 归并 verifying");
+  assert.equal(filterCandidates(list, { stage: "closed" }).length, 1, "held 归 closed");
+  assert.equal(filterCandidates(list, { stage: "inbox" }).length, 1);
+  assert.equal(filterCandidates(list, {}).length, list.length, "缺省全量");
+  assert.equal(filterCandidates(list, { stage: "all" }).length, list.length);
+});
+
+test("facetCounts 计数口径：stage 按桶、其余原值、仅计出现键（P1-3）", async () => {
+  const { facetCounts } = await import("../src/client/logic.mjs");
+  const list = [c("inbox"), c("inbox"), c("building"), c("held"), { ...c("triaged"), type: "pull", triage: { urgency: "P1" } }];
+  const fc = facetCounts(list);
+  assert.deepEqual(fc.type, { issue: 4, pull: 1 });
+  assert.deepEqual(fc.urgency, { P1: 1 });
+  assert.deepEqual(fc.stage, { inbox: 2, triaged: 1, building: 1, closed: 1 });
+  assert.deepEqual(fc.repo, { "o/r": 5 });
+});

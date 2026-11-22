@@ -259,9 +259,9 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
     intake(container, { t, state, view }) {
       container.append(btn(t("watchedRepos"), () => openRepoPicker(view.shadow, { t, current: state?.watch?.repos ?? [], onSaved: () => view.refresh() })));
     },
-    strip(container, { t, state }) {
+    strip(container, { t, state, stagePick, stageFilter }) {
       lastRuns = state?.runs ?? [];   // 评审 R1-15：着色数据源
-      renderStrip(container, { t, candidates: state?.candidates ?? [], workflow: state?.workflow, runs: lastRuns });
+      renderStrip(container, { t, candidates: state?.candidates ?? [], workflow: state?.workflow, runs: lastRuns, onStagePick: stagePick, stageFilter });   // P1-6：透传联动回调
     },
     bar(bar, { t, state, filters, view }) {
       const errLine = document.createElement("small");

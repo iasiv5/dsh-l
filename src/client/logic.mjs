@@ -15,11 +15,26 @@ export function groupCandidates(list, t) {
   return groups;
 }
 
-export function filterCandidates(list, { type = "all", repo = "all", urgency = "all" } = {}) {
+export function filterCandidates(list, { type = "all", repo = "all", urgency = "all", stage = "all" } = {}) {
   return (list ?? []).filter((c) =>
     (type === "all" || c.type === type)
     && (repo === "all" || c.repo === repo)
-    && (urgency === "all" || (c.triage?.urgency ?? "") === urgency));
+    && (urgency === "all" || (c.triage?.urgency ?? "") === urgency)
+    && (stage === "all" || bucketOf(c.stage) === stage));   // P1-3：stage 维度（bucketOf 归桶，与清单分组同口径）
+}
+
+// facet 计数（P1-3）：type/repo/urgency 按原值，stage 按 bucketOf 归桶；仅计出现过的键。
+export function facetCounts(list) {
+  const out = { type: {}, urgency: {}, repo: {}, stage: {} };
+  for (const c of list ?? []) {
+    out.type[c.type] = (out.type[c.type] ?? 0) + 1;
+    const u = c.triage?.urgency;
+    if (u) out.urgency[u] = (out.urgency[u] ?? 0) + 1;
+    if (c.repo) out.repo[c.repo] = (out.repo[c.repo] ?? 0) + 1;
+    const b = bucketOf(c.stage);
+    out.stage[b] = (out.stage[b] ?? 0) + 1;
+  }
+  return out;
 }
 
 export function pickTriageBatch(list, filters = {}) {

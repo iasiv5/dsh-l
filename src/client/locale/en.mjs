@@ -92,6 +92,7 @@ export const en = {
     pullRequests: "PRs",
     repo: "Repository",
     urgency: "Urgency",
+    stage: "Stage",
   },
   urgency: { P0: "P0 now", P1: "P1 high", P2: "P2 medium", P3: "P3 low" },
   validity: { high: "credible", medium: "doubtful", low: "not credible", none: "unrated" },

@@ -1077,3 +1077,62 @@ test("sessionsView 交付失败 chip 语义色统一（P1 小债 B）", async ()
   const errChip = row.children.find((n) => n.className === "chip" && String(n.style.color).includes("color-mix"));
   assert.ok(errChip && errChip.textContent === "boom", "交付失败 chip 就地呈现且走 color-mix 语义色");
 });
+
+test("过滤升级：type 计数 chips + stage 下拉 + strip 点击联动 + 清除含 stage（P1-3/P1-6/S4）", async () => {
+  const { mountWorkbench } = await import("../src/client/components/workbench.mjs");
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  const c1 = { key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t1", stage: "inbox", triage: null };
+  const c2 = { key: "o/r#pull#2", repo: "o/r", type: "pull", number: 2, title: "t2", stage: "triaged", triage: null };
+  const mkStub = (candidates) => ({
+    state: async () => ({ auth: { account: "iasiv5", login: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }, watch: { repos: ["o/r"] }, snapshots: { lastIngestAt: null, perRepo: {} }, settings: { intervalMinutes: 0 }, candidates, runs: [], workflow: { templates: [{ id: "loop-v1", name: "Loop v1", nodes: [{ id: "g1", name: "G1", type: "gate" }, { id: "build", name: "build", type: "agent" }] }] }, ingestLog: [] }),
+    auth: async () => ({ gates: { ghInstalled: true, ghLogin: true, credentialOk: true }, viewerLogin: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }),
+    workSessions: async () => ({ items: [] }),
+    refresh: async () => ({ authenticated: true }),
+  });
+  const settle = () => new Promise((r) => setTimeout(r, 5));
+  const mkShadow = () => { const s = new FakeElement("shadow"); s.host = new FakeElement("host"); return s; };
+  const shadow = mkShadow();
+  const apiStub = mkStub([c1, c2]);
+  mountWorkbench(shadow, { getLang: () => "zh-CN", build: "t", deps: { api: apiStub }, extend: installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [], deps: { api: apiStub } }) });   // strip/bar 钩子经 extend 渲染
+  await settle();
+  const rows = () => find(shadow, (n) => n.className === "row");
+  // type 计数 chips
+  const chips = find(shadow, (n) => typeof n.className === "string" && String(n.className).includes("typechip"));
+  assert.equal(chips.length, 3, "三枚 type chips");
+  assert.ok(chips[0].textContent.includes("2") && chips[1].textContent.includes("1") && chips[2].textContent.includes("1"), "计数正确");
+  chips[2].onclick();
+  await settle();
+  assert.equal(rows().length, 1, "PR chip 过滤后只剩 1 行");
+  chips[0].onclick();
+  await settle();
+  assert.equal(rows().length, 2, "全部 chip 复位");
+  // stage 下拉
+  const stageSel = find(shadow, (n) => String(n.tagName).toUpperCase() === "SELECT" && n.getAttribute("aria-label") === t("filters.stage"))[0];
+  assert.ok(stageSel, "stage 下拉在场");
+  stageSel.value = "triaged";
+  stageSel.onchange();
+  await settle();
+  assert.equal(rows().length, 1, "stage=triaged 剩 1 行");
+  // 清除过滤纳入 stage（S4）
+  const urgencySel = find(shadow, (n) => String(n.tagName).toUpperCase() === "SELECT" && n.getAttribute("aria-label") === t("filters.urgency"))[0];
+  urgencySel.value = "P0";
+  urgencySel.onchange();
+  await settle();
+  const emptyBox = find(shadow, (n) => n.className === "empty")[0];
+  const clearBtn = find(emptyBox, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("emptyStates.clearFilters"))[0];
+  clearBtn.onclick();
+  await settle();
+  const stageSel2 = find(shadow, (n) => String(n.tagName).toUpperCase() === "SELECT" && n.getAttribute("aria-label") === t("filters.stage"))[0];
+  assert.equal(stageSel2.value, "all", "清除过滤复位 stage");
+  assert.equal(rows().length, 2, "清除后全量");
+  // strip 点击联动（backlog chip → stage=inbox，同值再点取消）
+  const backlogChip = find(shadow, (n) => typeof n.className === "string" && String(n.className).includes("stripchip") && n.textContent.includes(t("stages.backlog")))[0];
+  assert.ok(backlogChip, "strip backlog 可点 chip 在场");
+  backlogChip.onclick();
+  await settle();
+  assert.equal(rows().length, 1, "strip 联动 stage=inbox");
+  assert.ok(String(find(shadow, (n) => typeof n.className === "string" && String(n.className).includes("stripchip"))[0].className).includes("is-active"), "active 态");
+  find(shadow, (n) => typeof n.className === "string" && String(n.className).includes("stripchip"))[0].onclick();
+  await settle();
+  assert.equal(rows().length, 2, "同值再点取消");
+});
