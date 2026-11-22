@@ -1,5 +1,6 @@
 import { api } from "../api.mjs";
 import { pickTriageBatch, gateState, settingsPatch, workSessionSettingsPatch, runBlock } from "../logic.mjs";
+import { renderRunDetail } from "./runDetail.mjs";
 import { openRepoPicker } from "./repoPicker.mjs";
 import { renderStrip } from "./pipelineStrip.mjs";
 
@@ -409,7 +410,15 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
           btn(t("actions.retryRun"), () => go(() => a.runRetry(runInfo.id, [...(runInfo.failedNodeIds ?? []), ...(runInfo.cancelledNodeIds ?? [])][0] ?? "")), !((runInfo.status === "failed" || runInfo.status === "cancelled") && [...(runInfo.failedNodeIds ?? []), ...(runInfo.cancelledNodeIds ?? [])].length > 0)),   // M7/§18.3：数据源扩 cancelled（retryNode 已支持——M2 R1-9）；failedNodeIds 沿 M2 产出评审问题 1
           btn(t("actions.cancelRun"), () => go(() => a.runCancel(runInfo.id, "user")), !(runInfo.status === "running" || runInfo.status === "waiting")),
         );
+        const detailWrap = document.createElement("div");   // P1-5：run 详情两槽位（节点/历史）
+        detailWrap.style.display = "none";
+        runRow.append(btn(t("run.detail"), () => {
+          const open = detailWrap.style.display !== "none";
+          detailWrap.style.display = open ? "none" : "";
+          if (!open && detailWrap.children.length === 0) renderRunDetail(detailWrap, { t, run: runInfo });
+        }));
         detail.append(runRow);
+        detail.append(detailWrap);
       }
       const hint = document.createElement("small");
       hint.textContent = t("gateV1Hint");

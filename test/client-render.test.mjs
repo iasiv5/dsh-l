@@ -28,7 +28,7 @@ class FakeElement {
   append(...ns) { for (const n of ns) { if (n == null) continue; n._parent = this; this.children.push(n); } }
   prepend(n) { if (n != null) { n._parent = this; this.children.unshift(n); } }
   insertBefore(n, ref) { if (n == null) return n; n._parent = this; const i = ref ? this.children.indexOf(ref) : -1; if (i < 0) this.children.push(n); else this.children.splice(i, 0, n); return n; }
-  addEventListener() {}   // 防自动填充 unroof 监听在 stub 上为 no-op
+  addEventListener(k, fn) { (this._listeners ??= []).push([k, fn]); }   // P1 起记账（keynav 挂载断言用）；原 no-op 加法升级
   remove() { if (this._parent) this._parent.children = this._parent.children.filter((c) => c !== this); }
   setAttribute(k, v) { this.attrs[k] = v; }
   getAttribute(k) { return this.attrs[k] ?? null; }
@@ -39,6 +39,7 @@ class FakeElement {
   set placeholder(v) { this.attrs.placeholder = v; }
   set href(v) { this.attrs.href = v; }
   get href() { return this.attrs.href ?? ""; }
+  focus() { this.focusCalls = (this.focusCalls ?? 0) + 1; }   // P1 起计数（焦点保留断言用）
 }
 Object.defineProperty(globalThis, "document", { value: { createElement: (tag) => new FakeElement(tag) }, configurable: true, writable: true });
 Object.defineProperty(globalThis, "navigator", { value: { clipboard: { writeText: async () => {} } }, configurable: true, writable: true });
@@ -1231,4 +1232,50 @@ test("sessionsView P1-4：相对时间/unread/在途节点/终态折叠/onOpen �
   assert.equal(opens[0][0], "dsh-l:work-a", "onOpen 传 id");
   assert.equal(opens[0][1].sessionId, "dsh-l:work-a", "onOpen 传 item（runId 记账数据源）");
   function summary(el) { return el.children.find((n) => String(n.tagName).toUpperCase() === "SUMMARY"); }
+});
+
+test("runDetail 节点/历史两槽位：静态键标签/倒序/空态（P1-5）", async () => {
+  const { renderRunDetail } = await import("../src/client/components/runDetail.mjs");
+  const run = {
+    id: "run-1", status: "running",
+    nodeStatuses: [
+      { id: "g1", name: "G1", type: "gate", status: "succeeded", error: null },
+      { id: "build", name: "build", type: "agent", status: "failed", error: "boom" },
+      { id: "verify", name: "verify", type: "script", status: "pending", error: null },
+    ],
+    history: [{ at: "t1", event: "e1", detail: "" }, { at: "t2", event: "e2", detail: "d2" }],
+  };
+  const wrap = new FakeElement("div");
+  renderRunDetail(wrap, { t, run });
+  assert.deepEqual(find(wrap, (n) => n.className === "rvnname").map((n) => n.textContent), ["G1", "build", "verify"]);
+  assert.ok(wrap.textContent.includes(t("run.status.succeeded")), "白名单态走 run.status.* 静态键");
+  assert.ok(wrap.textContent.includes(t("nodeState.pending")), "pending 走 nodeState.* 静态键（B2）");
+  assert.ok(wrap.textContent.includes("boom"), "failed error 文本在场");
+  const histTab = find(wrap, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("run.tabHistory"))[0];
+  histTab.onclick();
+  assert.ok(wrap.textContent.indexOf("e2") !== -1 && wrap.textContent.indexOf("e2") < wrap.textContent.indexOf("e1"), "历史倒序（新事件在前）");
+  assert.ok(wrap.textContent.includes("d2"), "detail 呈现");
+  const wrap2 = new FakeElement("div");
+  renderRunDetail(wrap2, { t, run: { nodeStatuses: [], history: [] } });
+  find(wrap2, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("run.tabHistory"))[0].onclick();
+  assert.ok(wrap2.textContent.includes(t("run.emptyHistory")), "空历史文案");
+});
+
+test("actions runRow 详情 toggle 展开/收起（P1-5）", async () => {
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [] });
+  const state = { candidates: [{ ...mkCandidate("building"), currentRunId: "run-1" }], runs: [{ id: "run-1", candidateKey: "o/r#issue#1", status: "running", waitingGate: null, waitingGateId: null, currentNodeIds: ["build"], failedNodeIds: [], cancelledNodeIds: [], models: {}, templateId: "loop-v1", error: null, waitingSince: null, history: [{ at: "t1", event: "e1", detail: "" }], nodeStatuses: [{ id: "build", name: "build", type: "agent", status: "running", error: null }] }], workflow: { templates: [] } };
+  const stripEl = new FakeElement("div");
+  hooks.strip(stripEl, { t, state });   // lastRuns 数据源（rowActions runBlock 依赖）
+  const d = new FakeElement("div");
+  hooks.rowActions(d, { ...mkCandidate("building"), currentRunId: "run-1" }, { t, view: { reload: async () => {} }, lang: "zh-CN" });
+  const detailBtn = find(d, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("run.detail"))[0];
+  assert.ok(detailBtn, "详情 toggle 按钮在场");
+  assert.equal(find(d, (n) => n.className === "rundetail").length, 0, "初始收起");
+  detailBtn.onclick();
+  const panel = find(d, (n) => n.className === "rundetail")[0];
+  assert.ok(panel && panel.textContent.includes("build"), "展开渲染节点视图");
+  assert.notEqual(panel._parent.style.display, "none", "展开可见");
+  detailBtn.onclick();
+  assert.equal(panel._parent.style.display, "none", "再点收起（toggle 在外层 detailWrap）");
 });

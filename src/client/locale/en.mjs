@@ -150,7 +150,12 @@ export const en = {
   run: {
     status: { running: "Running", waiting: "Waiting for you", succeeded: "Delivered", failed: "Failed", cancelled: "Cancelled" },
     workspaceCloning: "Cloning workspace",
+    tabNodes: "Nodes",
+    tabHistory: "History",
+    detail: "Details",
+    emptyHistory: "No history events",
   },
+  nodeState: { pending: "Pending", ready: "Ready", skipped: "Skipped" },
   gateV1Hint: "Loop v2: G1/G2 human gates; the G3 release gate opens later",
   work: {
     startBtn: "Start it myself",

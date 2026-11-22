@@ -150,7 +150,12 @@ export const zhCN = {
   run: {
     status: { running: "执行中", waiting: "待你放行", succeeded: "已交付", failed: "失败", cancelled: "已取消" },
     workspaceCloning: "工作区克隆中",
+    tabNodes: "节点",
+    tabHistory: "历史",
+    detail: "详情",
+    emptyHistory: "暂无历史事件",
   },
+  nodeState: { pending: "待调度", ready: "就绪", skipped: "已跳过" },
   gateV1Hint: "执行环 v2：G1/G2 人工放行；G3 发版闸于后续版本开放",
   work: {
     startBtn: "我来开",
