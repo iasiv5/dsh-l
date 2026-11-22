@@ -242,7 +242,8 @@ const el = (tag, cls, text) => {
   return n;
 };
 
-export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
+export function mountWorkbench(shadow, { getLang, build, extend, deps = {} } = {}) {
+  const a = deps?.api ?? api;   // deps seam（计划 §3-10）：mount 自身的 state/auth/workSessions/refresh 可注入桩
   let state = null;
   let authInfo = null;
   // 紧凑卡 UI 态由卡内管理（连接卡句柄化重构：开关零 DOM 重建）；服务动作经 compactOn 抛错给卡呈现。
@@ -271,6 +272,7 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
   const filters = { type: "all", repo: "all", urgency: "all" };
   const expanded = new Set();
   const seenRuns = new Set();   // P0-2 unread 语义：展开过终态 run 的行记已读（内存态，页面刷新归零——有意取舍）
+  let credMount = null;   // 紧凑连接卡挂载点（原隐式全局：产物非严格加载侥幸可用，node ESM 严格模式必炸——Task 8 测试揪出）
   const view = {};
 
   const select = (pairs, value, onChange, label) => {
@@ -419,7 +421,18 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
     if (notice) triage.append(el("div", "error", notice));
     const list = filterCandidates(state?.candidates ?? [], filters);
     if (list.length === 0) {
-      triage.append(el("div", "empty", t("emptyStates.backlog")));
+      const filtersActive = filters.type !== "all" || filters.repo !== "all" || filters.urgency !== "all";
+      const emptyBox = el("div", "empty");
+      if (filtersActive) {
+        emptyBox.append(el("span", null, t("emptyStates.filtered")));
+        const clearBtn = el("button", null, t("emptyStates.clearFilters"));
+        clearBtn.type = "button";
+        clearBtn.onclick = () => { filters.type = "all"; filters.repo = "all"; filters.urgency = "all"; paint(); };
+        emptyBox.append(clearBtn);
+      } else {
+        emptyBox.append(el("span", null, t("emptyStates.backlog")));
+      }
+      triage.append(emptyBox);
     } else {
       for (const group of groupCandidates(list, t)) {
         if (group.items.length === 0) continue;
@@ -474,9 +487,9 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
     try {
       do {
         reloadQueued = false;
-        const [s, a, w] = await Promise.allSettled([api.state(), api.auth(), api.workSessions()]);
+        const [s, w, au] = await Promise.allSettled([a.state(), a.workSessions(), a.auth()]);
         if (s.status === "fulfilled") { state = s.value; error = null; } else { error = s.reason?.message ?? String(s.reason); }
-        authInfo = a.status === "fulfilled" ? a.value : null;
+        authInfo = au.status === "fulfilled" ? au.value : null;
         sessionsItems = w.status === "fulfilled" ? (w.value.items ?? []) : [];
         paint();
       } while (reloadQueued);
@@ -485,7 +498,7 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
   view.refresh = async () => {
     busy = true; paint();
     try {
-      const r = await api.refresh();
+      const r = await a.refresh();
       notice = r.authenticated === false ? makeT(getLang())("errors.noToken") : null;
     } catch (e) { error = e.message; }
     busy = false;

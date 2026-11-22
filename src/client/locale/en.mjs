@@ -109,6 +109,8 @@ export const en = {
   emptyStates: {
     backlog: "No candidates. Refresh, or check the watched-repo list.",
     kanbanCol: "Nothing at this stage",
+    filtered: "No candidates match the current filters.",
+    clearFilters: "Clear filters",
   },
   errors: {
     refreshFailed: "Refresh failed. Please retry later.",

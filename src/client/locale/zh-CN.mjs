@@ -109,6 +109,8 @@ export const zhCN = {
   emptyStates: {
     backlog: "没有候选。刷新一下，或检查监看仓库列表。",
     kanbanCol: "此阶段暂无候选",
+    filtered: "当前过滤下没有候选。",
+    clearFilters: "清除过滤",
   },
   errors: {
     refreshFailed: "刷新失败，请稍后重试。",

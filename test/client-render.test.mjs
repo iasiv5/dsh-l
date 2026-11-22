@@ -919,3 +919,39 @@ test("review 模板未命中走 gateWaitGeneric 兜底；G3 卡人话标题+备�
   find(card, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent.includes(t("review.confirm")))[0].onclick();
   assert.deepEqual(calls[0], ["iasiv5/dsh-l#issue#7", "npm 已发"], "确认发版带备注");
 });
+
+test("workbench 清单双空态：过滤空给清除过滤按钮，真空给 backlog 文案（P0-4）", async () => {
+  const { mountWorkbench } = await import("../src/client/components/workbench.mjs");
+  const cand = { key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t", stage: "inbox", triage: null };
+  const mkStub = (candidates) => ({
+    state: async () => ({ auth: { account: "iasiv5", login: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }, watch: { repos: ["o/r"] }, snapshots: { lastIngestAt: null, perRepo: {} }, settings: { intervalMinutes: 0 }, candidates, runs: [], workflow: { templates: [] }, ingestLog: [] }),
+    auth: async () => ({ gates: { ghInstalled: true, ghLogin: true, credentialOk: true }, viewerLogin: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }),
+    workSessions: async () => ({ items: [] }),
+    refresh: async () => ({ authenticated: true }),
+  });
+  const settle = () => new Promise((r) => setTimeout(r, 5));
+  const mkShadow = () => { const s = new FakeElement("shadow"); s.host = new FakeElement("host"); return s; };   // paint 写 shadow.host.dataset 指纹
+  // 过滤空：urgency=P0 而候选无 triage
+  const shadow1 = mkShadow();
+  const view1 = mountWorkbench(shadow1, { getLang: () => "zh-CN", build: "t", deps: { api: mkStub([cand]) } });
+  await settle();
+  assert.equal(find(shadow1, (n) => n.className === "empty").length, 0, "默认过滤下无空态");
+  const urgencySel = find(shadow1, (n) => String(n.tagName).toUpperCase() === "SELECT" && n.getAttribute("aria-label") === t("filters.urgency"))[0];
+  urgencySel.value = "P0";
+  urgencySel.onchange();
+  await settle();
+  const empties = find(shadow1, (n) => n.className === "empty");
+  assert.ok(empties.length === 1 && empties[0].textContent.includes(t("emptyStates.filtered")), "过滤空文案");
+  const clearBtn = find(empties[0], (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("emptyStates.clearFilters"))[0];
+  assert.ok(clearBtn, "清除过滤按钮在场");
+  clearBtn.onclick();
+  await settle();
+  assert.equal(find(shadow1, (n) => n.className === "empty").length, 0, "清除过滤后空态消失");
+  // 真空：无任何候选
+  const shadow2 = mkShadow();
+  mountWorkbench(shadow2, { getLang: () => "zh-CN", build: "t", deps: { api: mkStub([]) } });
+  await settle();
+  const empties2 = find(shadow2, (n) => n.className === "empty");
+  assert.ok(empties2.length === 1 && empties2[0].textContent.includes(t("emptyStates.backlog")), "真空态 backlog 文案");
+  assert.ok(!empties2[0].textContent.includes(t("emptyStates.filtered")), "真空态不出现过滤空文案");
+});
