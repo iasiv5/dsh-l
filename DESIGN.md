@@ -96,6 +96,7 @@ Don't:
 Do:
 - Do 全部 UI 文案走 zh-CN / en 双字典（i18n + locale-parity 守护）；`cred.*` 键在组件内静态字面量引用。
 - Do 状态语义一律复用 `st-*` 六态 token（running/gating/unread/done/failed/idle；键走 `stateDot.*` 静态 switch）；新视图不得自造状态色（P0-2 起）。
+- Do 新增动效一律引 `--dshl-*` token（--dshl-dur-1/dur-2/ease），且必须 reduced-motion 成对降级（P1-8 起）。
 - Do 错误文案同时命名问题与恢复动作；限流文案必须声明「不影响凭据有效性，无需重新授权」。
 - Do 修改任何 UI 前先 `npm run build` + 跑 i18n/locale-parity 守护。
 - Do 大标题用产品金句「连接代码库，让 Agent 自主交付」；品牌区只留大标题。
