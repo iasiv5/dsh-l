@@ -154,5 +154,5 @@ export const zhCN = {
     dirtyHint: "该目录有未提交改动——不会被动到，但开工前请自行确认。",
     pickBrowseFailed: "目录选择不可用，请改用其它方式。",
   },
-  settings: { title: "设置", intervalMinutes: "自动刷新间隔（分钟，0 = 关闭）", save: "保存", triageModel: "分诊模型", followDefault: "跟随宿主默认", notInCatalog: "（不在目录中）", workModel: "开工会话模型", workPreset: "开工会话 Preset", workPolicy: "开工审批策略（仅对新会话生效）", policyAsk: "每次询问", policyNever: "自动放行", policyNeverConfirm: "设为「自动放行」后，新开工会话内的工具调用将不再逐条询问、自动执行。确认保存？" },
+  settings: { title: "设置", intervalMinutes: "自动刷新间隔（分钟，0 = 关闭）", save: "保存", triageModel: "分诊模型", followDefault: "跟随宿主默认", notInCatalog: "（不在目录中）", workModel: "开工会话模型", workPreset: "开工会话 Preset", workPolicy: "开工审批策略（仅对新会话生效）", policyAsk: "每次询问", policyNever: "自动放行", policyNeverConfirm: "设为「自动放行」后，新开工会话内的工具调用将不再逐条询问、自动执行。确认保存？", concurrency: "并发上限（1–4）", hostDefault: "默认模型：", hostDefaultLoading: "加载中…", hostDefaultNone: "（宿主未配置）" },
 }

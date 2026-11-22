@@ -15,7 +15,7 @@ export function openSettings(shadow, { t, current, onSaved }) {
   title.style.margin = "0";
   // M8 T1/评审问题3：并发上限（1–4 实文双钉）；硬编码 zh-CN 字面量（D7 零新键直接后果——i18n 权衡已声明）
   const concLabel = document.createElement("label");
-  concLabel.textContent = "并发上限（1–4）";
+  concLabel.textContent = t("settings.concurrency");
   const concInput = document.createElement("input");
   concInput.type = "number";
   concInput.min = "1"; concInput.max = "4"; concInput.step = "1";
@@ -94,11 +94,11 @@ export function openSettings(shadow, { t, current, onSaved }) {
     triageSelObj.fill(r.providers, r.hostDefault);
     workSelObj.fill(r.providers, r.hostDefault);
     fillPresets(r.presets ?? [], current?.workSessionPreset ?? null);
-    hostDefaultRow.textContent = "默认模型：" + (r.hostDefault ? r.hostDefault.provider + " / " + r.hostDefault.model : "（宿主未配置）");
+    hostDefaultRow.textContent = t("settings.hostDefault") + (r.hostDefault ? r.hostDefault.provider + " / " + r.hostDefault.model : t("settings.hostDefaultNone"));
   }).catch(() => {});
   const hostDefaultRow = document.createElement("div");
   hostDefaultRow.style.cssText = "font-size:12px;opacity:.75";
-  hostDefaultRow.textContent = "默认模型：（加载中）";
+  hostDefaultRow.textContent = t("settings.hostDefault") + t("settings.hostDefaultLoading");
   const modelLabel = document.createElement("label");
   modelLabel.textContent = t("settings.triageModel");
   const workModelLabel = document.createElement("label");

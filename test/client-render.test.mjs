@@ -762,3 +762,18 @@ test("rolesTab 对话框归位 Shadow DOM：新增角色弹层挂 container、ca
   const box = overlay.children[0];
   assert.ok(box && String(box.style.cssText).includes("background:canvas"), "卡底色走 canvas 语义 token（无浅色硬编码兜底）");
 });
+
+test("设置面板文案全部走 i18n（P0-5b）：actions.mjs 无硬编码中文回潮 + 双字典四键齐备", async () => {
+  const fs = await import("node:fs");
+  const src = fs.readFileSync(new URL("../src/client/components/actions.mjs", import.meta.url), "utf8");
+  for (const literal of ["并发上限（1–4）", "默认模型：", "（加载中）", "（宿主未配置）"]) {
+    assert.ok(!src.includes(literal), "硬编码字面量应删除: " + literal);
+  }
+  const { zhCN } = await import("../src/client/locale/zh-CN.mjs");
+  const { en } = await import("../src/client/locale/en.mjs");
+  const flat = (d, p = "") => Object.entries(d).flatMap(([k, v]) => (typeof v === "string" ? [p + k] : flat(v, p + k + ".")));
+  const zhKeys = flat(zhCN); const enKeys = flat(en);
+  for (const key of ["settings.concurrency", "settings.hostDefault", "settings.hostDefaultLoading", "settings.hostDefaultNone"]) {
+    assert.ok(zhKeys.includes(key) && enKeys.includes(key), "双字典缺键: " + key);
+  }
+});
