@@ -2,6 +2,16 @@ import { needsReview, gateWaitInfo, prettyKey, formatDuration, sortGateRunsByWai
 import { api } from "../api.mjs";
 import { withPending } from "./uiFeedback.mjs";
 
+// 节点类型标签（P2 Task 5）：静态 switch（B2 纪律——动态前缀撞白名单守护）
+function nodeTypeLabel(type, t) {
+  switch (type) {
+    case "agent": return t("nodeType.agent");
+    case "script": return t("nodeType.script");
+    case "gate": return t("nodeType.gate");
+    default: return type;
+  }
+}
+
 // 待我确认视图（design-v2 §13.5 基础上 P0-3 升级）：
 // - 卡片标题人话化：prettyKey(key) + 候选标题（不再裸 candidateKey）。
 // - gate 卡三行解释：上游已完成节点（gateWaitInfo 推导）→ 放行后果（后续节点）→ 驳回后果（通用文案，
@@ -83,7 +93,22 @@ export function renderReview(container, { t, candidates, runs, view, templates =
       ? t("review.gateWait").replace("{nodes}", info.upstreamNames.join(", ")).replace("{gate}", gateLabel)
       : t("review.gateWaitGeneric").replace("{gate}", gateLabel);
     cardEl.append(el("div", "rvline", line1));
-    if (info.nextNames.length > 0) cardEl.append(el("div", "rvline", t("review.gatePassEffect").replace("{next}", info.nextNames.join(" → "))));
+    if (info.nextNames.length > 0) {
+      cardEl.append(el("div", "rvline", t("review.gatePassEffect").replace("{next}", info.nextNames.join(" → "))));
+      if (info.nextNodes.length > 0) {
+        // P2 Task 5：staged 逐节点列表（类型标签）——汇总行保留消费（S6 裁决）
+        const nodesWrap = el("div", "rvnextnodes");
+        nodesWrap.style.cssText = "display:flex;flex-direction:column;gap:4px";
+        for (const n of info.nextNodes) {
+          const row = el("div", "rvnextnode");
+          row.style.cssText = "display:flex;gap:6px;align-items:center";
+          row.append(el("span", "rvnextname", n.name));
+          row.append(el("span", "chip", nodeTypeLabel(n.type, t)));
+          nodesWrap.append(row);
+        }
+        cardEl.append(nodesWrap);
+      }
+    }
     cardEl.append(el("div", "rvline", t("review.gateRejectGeneric")));
     const actionsRow = el("div", "rvactions");
     btn(actionsRow, t("review.passBtn"), act(() => a.runGate(r.id, r.waitingGate, "pass", note.value), errEl));

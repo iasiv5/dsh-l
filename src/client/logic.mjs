@@ -225,7 +225,8 @@ export function gateWaitInfo({ run, template } = {}) {
   const blocked = new Set([...(run?.failedNodeIds ?? []), ...(run?.cancelledNodeIds ?? [])]);
   const upstreamNames = nodes.slice(0, i).filter((n) => n.type !== "gate" && !blocked.has(n.id)).map((n) => n.name ?? n.id);
   const nextNames = nodes.slice(i + 1).filter((n) => n.type !== "gate").map((n) => n.name ?? n.id);
-  return { gateId, upstreamNames, nextNames };
+  const nextNodes = nodes.slice(i + 1).filter((n) => n.type !== "gate").map((n) => ({ name: n.name ?? n.id, type: n.type }));   // P2 Task 5：逐节点 staged 列表
+  return { gateId, upstreamNames, nextNames, nextNodes };
 }
 
 // 候选键美化（P0-3）：owner/repo#type#number → owner/repo#number；畸形键原样返回。

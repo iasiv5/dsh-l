@@ -306,3 +306,17 @@ test("sortGateRunsByWait：畸形 waitingSince 不崩且沉底（P2 Task 1）", 
   const runs = [{ id: "a", waitingSince: "not-a-date" }, { id: "b", waitingSince: "2026-01-01T00:00:00Z" }, { id: "c" }];
   assert.deepEqual(sortGateRunsByWait(runs).map((r) => r.id), ["b", "a", "c"]);
 });
+
+// ---- P2 Task 5：gateWaitInfo nextNodes 投影 ----
+test("gateWaitInfo nextNodes：name+type 投影，nextNames 兼容保留（P2 Task 5）", async () => {
+  const { gateWaitInfo } = await import("../src/client/logic.mjs");
+  const tpl = { nodes: LOOP_V1.nodes.map(({ id, name, type }) => ({ id, name, type })) };
+  const info = gateWaitInfo({ run: { waitingGate: "g2", waitingGateId: "G2", failedNodeIds: [], cancelledNodeIds: [] }, template: tpl });
+  assert.deepEqual(info.nextNodes, [
+    { name: "发起 MR", type: "agent" },
+    { name: "推送检查", type: "script" },
+    { name: "MR 检查", type: "script" },
+    { name: "交付汇总", type: "script" },
+  ]);
+  assert.deepEqual(info.nextNames, ["发起 MR", "推送检查", "MR 检查", "交付汇总"], "nextNames 兼容保留");
+});

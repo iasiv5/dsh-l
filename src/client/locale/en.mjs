@@ -161,6 +161,7 @@ export const en = {
   nodeState: { pending: "Pending", ready: "Ready", skipped: "Skipped" },
   palette: { title: "Command palette", placeholder: "Type to filter actions…", empty: "No matching actions" },
   peek: { title: "Candidate preview", close: "Close", history: "Recent activity", gates: "Gates", package: "Task package", none: "Not created" },
+  nodeType: { agent: "agent node", script: "script node", gate: "human gate" },
   kbd: { title: "Keyboard shortcuts", jk: "j / k: move up/down", enter: "Enter / Space: expand or collapse", x: "x: toggle row selection", peek: "p: preview current row", digits: "Digits 1–5: switch views", help: "?: this help", close: "Close" },
   gateV1Hint: "Loop v2: G1/G2 human gates; the G3 release gate opens later",
   work: {

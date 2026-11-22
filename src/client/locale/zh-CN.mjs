@@ -161,6 +161,7 @@ export const zhCN = {
   nodeState: { pending: "待调度", ready: "就绪", skipped: "已跳过" },
   palette: { title: "命令面板", placeholder: "输入以筛选动作…", empty: "没有匹配的动作" },
   peek: { title: "候选预览", close: "关闭", history: "最近动态", gates: "闸门", package: "任务包", none: "未生成" },
+  nodeType: { agent: "agent 节点", script: "script 节点", gate: "人工闸门" },
   kbd: { title: "键盘快捷键", jk: "j / k：上下移动", enter: "Enter / Space：展开或收起", x: "x：勾选当前行", peek: "p：预览当前行", digits: "数字 1–5：切换视图", help: "?：本帮助", close: "关闭" },
   gateV1Hint: "执行环 v2：G1/G2 人工放行；G3 发版闸于后续版本开放",
   work: {

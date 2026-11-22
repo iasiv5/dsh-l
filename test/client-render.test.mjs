@@ -1686,3 +1686,20 @@ test("runDetail 工件槽：有工件可切/全空 disabled（P2 Task 4）", asy
   assert.equal(artTab2.disabled, true, "全空工件 tab disabled");
   assert.equal(artTab2.title, t("run.emptyArtifacts"), "disabled title 说明");
 });
+
+test("review G2 staged 逐节点列表 + 类型标签（P2 Task 5）", async () => {
+  const { renderReview } = await import("../src/client/components/review.mjs");
+  const { LOOP_V1 } = await import("../src/workflows/builtin.mjs");
+  const gateStub = { runGate: async () => {}, releaseConfirm: async () => {}, runCancel: async () => {} };
+  const tpl = { id: "loop-v1", name: "Loop v1", nodes: LOOP_V1.nodes.map(({ id, name, type }) => ({ id, name, type })) };
+  const cand = { key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t", stage: "building", currentRunId: "run-1" };
+  const run = { id: "run-1", candidateKey: "o/r#issue#1", status: "waiting", waitingGate: "g2", waitingGateId: "G2", currentNodeIds: ["g2"], failedNodeIds: [], cancelledNodeIds: [], templateId: "loop-v1", error: null };
+  const wrap = new FakeElement("div");
+  renderReview(wrap, { t, candidates: [cand], runs: [run], view: { reload: async () => {} }, templates: [tpl], deps: { api: gateStub } });
+  const card = find(wrap, (n) => n.className === "rvcard")[0];
+  const nodeRows = find(card, (n) => n.className === "rvnextnode");
+  assert.equal(nodeRows.length, 4, "四个后续节点行");
+  assert.ok(nodeRows[0].textContent.includes("发起 MR") && nodeRows[0].textContent.includes(t("nodeType.agent")), "类型标签 agent");
+  assert.ok(nodeRows[1].textContent.includes(t("nodeType.script")), "类型标签 script");
+  assert.ok(card.textContent.includes("发起 MR → 推送检查"), "gatePassEffect 汇总行保留（S6 裁决）");
+});
