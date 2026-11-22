@@ -1351,7 +1351,6 @@ test("多选 + 批量动作：勾选/批量关闭/批量推翻统一理由/部�
   const shadow = new FakeElement("shadow"); shadow.host = new FakeElement("host");
   mountWorkbench(shadow, { getLang: () => "zh-CN", build: "t", deps: { api: apiStub }, extend: installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [], deps: { api: apiStub } }) });
   await settle();
-  const reloadCount = () => reloads;   // view.reload 间谍注入 mkStub——见下方 reloads 包装
   const checks = find(shadow, (n) => String(n.getAttribute("role")) === "checkbox");
   assert.equal(checks.length, 2, "两行复选框");
   assert.equal(find(shadow, (n) => n.className === "batchbar").length, 0, "空选择无批量栏");
