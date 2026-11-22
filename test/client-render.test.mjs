@@ -1042,3 +1042,38 @@ test("review 等待时长行 + 最久优先排序（P1 小债 D）", async () =>
   assert.ok(cards[0].textContent.includes(t("review.waited").replace("{d}", "2h")), "最久等待卡在前（已等待 2h）");
   assert.ok(cards[1].textContent.includes(t("review.waited").replace("{d}", "30m")), "次卡已等待 30m");
 });
+
+test("bar 批量分诊吞错就地呈现（P1 小债 A）", async () => {
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  let fail = true;
+  let reloads = 0;
+  const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [], deps: { api: { triage: async () => { if (fail) throw new Error("boom"); return {}; } } } });
+  const bar = new FakeElement("div");
+  hooks.bar(bar, { t, state: { candidates: [{ key: "o/r#issue#1", stage: "inbox", type: "issue", repo: "o/r", triage: null }] }, filters: { type: "all", repo: "all", urgency: "all" }, view: { reload: async () => { reloads++; } } });
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+  const errLine = () => find(bar, (n) => n.className === "rowerr")[0];
+  const batchBtn = find(bar, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent.includes(t("actions.triageBatch")))[0];
+  batchBtn.onclick();
+  await settle();
+  assert.ok(errLine().style.display === "block" && errLine().textContent.includes("boom"), "失败就地呈现");
+  assert.equal(reloads, 0, "失败不 reload");
+  fail = false;
+  batchBtn.onclick();
+  await settle();
+  assert.equal(errLine().style.display, "none", "成功清除");
+  assert.equal(reloads, 1, "成功 reload");
+});
+
+test("sessionsView 交付失败 chip 语义色统一（P1 小债 B）", async () => {
+  const { renderSessionsView } = await import("../src/client/components/sessionsView.mjs");
+  const items = [{ kind: "work", key: "o/r#issue#1", sessionId: "dsh-l:work-a", runId: null, cwd: "/w", approvalPolicy: null, createdAt: 1, updatedAt: 100, candidate: { repo: "o/r", number: 1, title: "T", stage: "building" } }];
+  const summaries = [{ id: "dsh-l:work-a", displayTitle: "a", running: false }];
+  const root = new FakeElement("div");
+  renderSessionsView(root, { t, items, summaries, onOpen: () => {}, onAnother: () => {}, onDeliver: async () => "boom" });
+  const row = root.children.find((n) => n._rowId === "dsh-l:work-a");
+  const deliverBtn = row.children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").find((b) => b.textContent.includes(t("sessions.deliver")));
+  deliverBtn.onclick();
+  await new Promise((r) => setTimeout(r, 0));
+  const errChip = row.children.find((n) => n.className === "chip" && String(n.style.color).includes("color-mix"));
+  assert.ok(errChip && errChip.textContent === "boom", "交付失败 chip 就地呈现且走 color-mix 语义色");
+});

@@ -244,10 +244,6 @@ export function pickWorkspace(shadow, { t, candidate, ui = {}, status = async ()
 export function installActions({ getLang, openWorkSession = () => false, pickDirectory = null, sessionsFeed = null, deps = {} } = {}) {
   const a = deps.api ?? api;   // deps seam（计划 §3-10）：覆盖受测路径（rowActions/bar/startAnother），openSettings 等未受测路径维持模块 api
   let lastRuns = [];   // strip 钩子先于行渲染被调（workbench 组装顺序），行内 run 区块由此取 runs 摘要
-  const run = (view) => async (fn) => {
-    try { await fn(); } catch (e) { console.warn("[dsh-l]", e); }
-    await view.reload();
-  };
   return {
     // Task 12：会话板块 hooks——openWorkSession（导航）、sessionsFeed（sessions.list 投影）、startAnother（另开）。
     openWorkSession,
@@ -268,8 +264,16 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
       renderStrip(container, { t, candidates: state?.candidates ?? [], workflow: state?.workflow, runs: lastRuns });
     },
     bar(bar, { t, state, filters, view }) {
+      const errLine = document.createElement("small");
+      errLine.className = "rowerr";   // P1 小债 A：批量分诊失败就地呈现（原 run(view) console.warn 吞错清偿）
+      errLine.style.cssText = "color:color-mix(in srgb,#d1242f 85%,currentColor);font-size:12px";
+      errLine.style.display = "none";
       const keys = pickTriageBatch(state?.candidates ?? [], filters);
-      bar.append(btn(t("actions.triageBatch") + " (" + keys.length + ")", () => run(view)(() => a.triage(keys, getLang())), keys.length === 0));
+      bar.append(btn(t("actions.triageBatch") + " (" + keys.length + ")", async () => {
+        try { await a.triage(keys, getLang()); errLine.textContent = ""; errLine.style.display = "none"; await view.reload(); }
+        catch (e) { errLine.textContent = t("errors.actionFailed") + " (" + (e?.message ?? e) + ")"; errLine.style.display = "block"; }   // 失败不 reload（P0 不变式）
+      }, keys.length === 0));
+      bar.append(errLine);
     },
     rowActions(detail, c, { t, view, lang }) {
       const errLine = document.createElement("small");
