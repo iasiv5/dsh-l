@@ -42,7 +42,7 @@
 ## 3. 全局约束（P0 计划 §3 全量继承 + 增补）
 
 1. 继承：Host-Theme Rule / One Voice Rule / Inherited Voice / reduced-motion 成对 / i18n 静态键与动态前缀白名单（段内禁加键、注释禁写 `t(` 模式）/ 零新依赖 / main 直提已授权 / docs 独立 commit / lib 随任务重建入库。
-2. **host 触碰边界（仅限两处，均带 golden）**：①`scheduler.mjs gateArrive` 增第三可选参 `waitingSince`（run 级单字段，与 waitingGate 同形；引擎 `makeEngine` 增 `now` 选项默认 `() => new Date().toISOString()`，装配处 engine.mjs:100 传入）；②`summarizeRun` 投影扩展 `waitingSince/history(nodeStatuses)`。**store schema、`/dsh-l/*` 路由形状、handlers 签名零改动**。
+2. **host 触碰边界（仅限两处，均带 golden；rev-plan B1 修正稿）**：①`engine.mjs:100` 的 `gateArrive(run, nodeId)` → `gateArrive(run, nodeId, now().toISOString())`——**`makeEngine` 的 `now` 选项早已存在（engine.mjs:46，返回 Date，供 store `.toISOString()` 消费），禁止改动其默认值与语义**；②`summarizeRun` 投影扩展 `waitingSince/history(nodeStatuses)`。**store schema、`/dsh-l/*` 路由形状、handlers 签名零改动**。
 3. **验证纪律增补（P0 Task 8 教训）**：`npm test`/`npm run build` 输出重定向后必须显式 `echo $?`，**退出码非 0 禁止 commit**；禁止依赖 grep 管道退出码做提交门。
 4. 测试注入缝扩展：`renderSessionsView`/`renderRunDetail`/`renderStrip`/`keynav` 均带可选参数注入（`nowMs`/`storage`/回调），默认路径零行为变化；`localStorage` 一律经 `storage` 参数访问，不得直引全局（node 环境缺失）。
 5. 每任务一个 checkpoint commit（Task 0 无提交）；新增组件文件放 `src/client/components/`。
@@ -50,21 +50,21 @@
 
 ## 4. 基线处理（Task 0：只核验，无提交）
 
-`git status --short` 应干净、`npm test` 324 全绿（HEAD `b722cd6`）。若出现计划外 pending，停下报告，不自行落账。
+`git status --short` 空、`npm test` 324 全绿、HEAD=`d8d2430`（或其后仅含本计划实施 commit——rev-plan B3）。若出现计划外 pending，停下报告，不自行落账。
 
 ## 5. 文件结构与职责
 
 | 文件 | 动作 | 职责 |
 |---|---|---|
 | `src/engine/scheduler.mjs` | 修改 | `gateArrive(run, nodeId, waitingSince = null)` 第三参落 `waitingSince`；`summarizeRun` 增 `waitingSince/history/nodeStatuses` |
-| `src/engine/engine.mjs` | 修改 | `makeEngine` 增 `now` 选项；gateArrive 调用点传入 `now()` |
+| `src/engine/engine.mjs` | 修改 | 仅 engine.mjs:100 的 gateArrive 调用点传入 `now().toISOString()`（`now` 选项已存在返回 Date，勿动；rev-plan B1） |
 | `src/client/logic.mjs` | 修改 | `formatDuration(ms)`、`formatRelative(updatedAtMs, nowMs)`、`filterCandidates` 增 stage 维度、`facetCounts(list)`、`sortGateRunsByWait(runs)`、`loadPins(storage)/savePins(storage, pins)/makePinId()` |
 | `src/client/components/workbench.mjs` | 修改 | stage 过滤维度 + facet chips + pinned UI + 批量栏/勾选 + 键盘接线 + paint 焦点滚动保留 + tabs 指示条 + motion token + strip 点击接线 + sessions 传参扩充 |
 | `src/client/components/pipelineStrip.mjs` | 修改 | pre 三 chip 可点化（onStagePick 回调）+ loop chip title 计数 |
 | `src/client/components/sessionsView.mjs` | 修改 | 相对时间、在途节点、unread、终态折叠、crimson→color-mix |
 | `src/client/components/review.mjs` | 修改 | gate 卡等待行 + 最久优先排序 |
 | `src/client/components/runDetail.mjs` | **新建** | 节点/历史两槽位 tab 视图 |
-| `src/client/components/keynav.mjs` | **新建** | `createKeyHandler(ctx)` + `openHelp(shadow, t)` 帮助浮层 |
+| `src/client/components/keynav.mjs` | **新建** | `createKeyHandler(ctx)` + `openHelp(anchorEl, t)` 帮助浮层（挂锚元素子树——rev-plan S6） |
 | `src/client/components/uiFeedback.mjs` | **新建** | `withPending(btn, fn)` pending 态包装 |
 | `src/client/components/actions.mjs` | 修改 | bar() errLine；rowActions 勾选回调透传（checkbox 由 workbench 决定是否注入）|
 | `src/client/components/candidateRow.mjs` | 修改 | opts 增 `selectable/selected/onToggleSelect` 渲染复选框 |
@@ -82,9 +82,9 @@
 - `loadPins(storage)`/`savePins(storage, pins)`：JSON 数组 `[{id, label, filters:{type,repo,urgency,stage}}]`，键 `dsh-l.pinnedFilters.v1`；解析失败 → `[]`；`storage` 缺失 → 内存 Map（模块级 fallback）。`makePinId()` = `pin-` + Date.now() + 4 位随机。
 - `keynav.createKeyHandler({ getRows, rowAction, rowSelect, tabSwitch, help, typingTarget })`：返回 `(e) => void`。守卫序：`e.ctrlKey||e.metaKey||e.altKey` → 忽略；`typingTarget(e.target)`（tagName ∈ INPUT/TEXTAREA/SELECT 或 `isContentEditable === true`）→ 忽略；`e.key` 分派：`j`/`J` 下移、`k`/`K` 上移、`Enter`/` `(Space) 展开切换、`x`/`X` 勾选切换、`?`（`shiftKey && key==="?"`）帮助、`1-5` 切 tab；`e.preventDefault()` 仅在已消费时调用。游标态由调用方持有（`cursorIndex` 传入 getRows 返回当前列表，处理函数计算 next index 回调）——keynav 不持 DOM。
 - `uiFeedback.withPending(btn, fn)`：返回包装 async；执行前置 `btn.disabled = true; btn.dataset.pending = "1"`；finally 恢复（仅当 `btn.isConnected !== false`；失败路径恢复后错误行已由 go/act 呈现）。
-- `runDetail.renderRunDetail(container, { t, run, template, deps = {} })`：`run` 为 summarizeRun 投影；节点视图 = `run.nodeStatuses`（dot: pending 灰/ready 灰/running 绿/waiting 黄/succeeded 暗绿点/failed 红/cancelled 灰，failed 附 error 文本）；历史视图 = `run.history` 倒序（`at` 原样 + event + detail）；tab 态闭包内切换，无外发。
-- `summarizeRun` 新字段：`waitingSince: run.waitingSince ?? null`；`history: (run.history ?? []).slice(-20)`；`nodeStatuses: (run.snapshot?.nodes ?? []).map(n => ({ id: n.id, name: n.name, type: n.type, status: run.nodeStates[n.id]?.status ?? "pending", error: run.nodeStates[n.id]?.error ?? null }))`。
-- `gateArrive(run, nodeId, waitingSince = null)`：`waitingSince` 为真值时 `...run, status:"waiting", waitingGate: nodeId, ...(waitingSince ? { waitingSince } : {}), nodeStates: …`；缺参时与现行为逐字节一致（golden 双断言）。
+- `runDetail.renderRunDetail(container, { t, run, deps = {} })`：`run` 为 summarizeRun 投影（**无 template 参数**——nodeStatuses 自带 name/type，rev-plan S10）。节点视图 = `run.nodeStatuses`（静态 switch 状态标签+dot：pending/ready/skipped 灰、running 绿、waiting 黄、succeeded 暗绿点、failed 红、cancelled 灰，failed 附 error 文本）；历史视图 = `run.history` 倒序（`at` 原样 + event + detail）；tab 态闭包内切换，无外发。**状态标签键映射（rev-plan B2）**：`running/waiting/succeeded/failed/cancelled` 五态静态复用 `run.status.*`（switch 内字面量，白名单安全）；`pending/ready/skipped` 三态走**新段** `nodeState.*` 静态字面量（非白名单前缀，守护安全）——禁止 `t("run.status." + status)` 动态拼接（白名单段值域仅 5、且不含节点三态）。
+- `summarizeRun` 新字段（rev-plan S1 收口：陈旧 waitingSince 不外泄）：`waitingSince: run.status === "waiting" ? (run.waitingSince ?? null) : null`；`history: (run.history ?? []).slice(-20)`；`nodeStatuses: (run.snapshot?.nodes ?? []).map(n => ({ id: n.id, name: n.name, type: n.type, status: run.nodeStates[n.id]?.status ?? "pending", error: run.nodeStates[n.id]?.error ?? null }))`。
+- `gateArrive(run, nodeId, waitingSince = null)`：`waitingSince` 为真值时 `...run, status:"waiting", waitingGate: nodeId, ...(waitingSince ? { waitingSince } : {}), nodeStates: …`；缺参时与现行为逐字节一致（golden 双断言）。`applyGateDecision` 不清 `waitingSince`（残留无碍——投影侧已按 status 收口）。
 - `renderSessionsView(container, { t, items, summaries, onOpen, onAnother, onDeliver, runs = [], seenRunIds = [], nowMs = null })`：新增三参缺省零行为变化（nowMs 缺省 `Date.now()`）。unread 判定：`item.kind === "run" ∧ item.runId ∧ summary(runs 按 id).status === "succeeded" ∧ !seenRunIds.includes(runId)`。在途节点：该 run 的 `currentNodeIds` join "/"。终态行（badgeGone ∨ candidate.stage==="closed" ∨ stage==="shipped"）收入 `<details class="ssarchive">`（summary=`已结束 · n`）。
 
 ## 7. i18n 新键表（zh / en 成对，全部静态消费）
@@ -106,6 +106,9 @@ run.detail           详情 / Details
 run.emptyHistory     暂无历史事件 / No history events
 sessions.ago         {t} 前 / {t} ago
 sessions.archive     已结束 / Finished
+nodeState.pending    待调度 / Pending
+nodeState.ready      就绪 / Ready
+nodeState.skipped    已跳过 / Skipped
 kbd.title            键盘快捷键 / Keyboard shortcuts
 kbd.jk               j / k：上下移动 / j / k: move up/down
 kbd.enter            Enter / Space：展开或收起 / Enter / Space: expand or collapse
@@ -115,20 +118,20 @@ kbd.help             ?：本帮助 / ?: this help
 kbd.close            关闭 / Close
 ```
 
-不新增动态前缀；`{n}/{d}/{t}/{nodes}` 沿手动 replace 惯例；`run.status.*` 复用既有白名单段（nodeStatuses 状态标签走该段，段键值域已含全部枚举）。
+不新增动态前缀；`{n}/{d}/{t}/{nodes}` 沿手动 replace 惯例；`run.status.*` 段值域仅 5（running/waiting/succeeded/failed/cancelled）——**nodeStatuses 的 pending/ready/skipped 不得走该段动态拼接**（rev-plan B2），一律走 `nodeState.*` 静态字面量 switch。
 
 ## 8. 任务清单（顺序执行；TDD；每任务 commit 前 `npm test`/`npm run build` 重定向后显式 echo 退出码，双 0 才提交）
 
 ### Task 0：基线核验（无提交）
 
-`git status --short` 空；`npm test` 324 全绿；HEAD=`b722cd6`。异常即停。
+`git status --short` 空；`npm test` 324 全绿；HEAD=`d8d2430`（或其后仅含本计划实施 commit）。异常即停。
 
 ### Task 1：等待时长（小债 D，host+logic+review）
 
-1. 红：`test/scheduler.test.mjs`——①`gateArrive({...run}, "g2", "2026-01-01T00:00:00Z")` 断言 `waitingSince` 落字且缺参调用不产生该键（双 golden）；②`summarizeRun` 断言 `waitingSince/history(截 20)/nodeStatuses(name/type/status/error)` 三新字段（构造 21 条 history 验证截断、snapshot 缺失 → nodeStatuses 空数组）。
+1. 红：`test/scheduler.test.mjs`——①`gateArrive({...run}, "g2", "2026-01-01T00:00:00Z")` 断言 `waitingSince` 落字（ISO 字符串）且缺参调用不产生该键（双 golden）；②`summarizeRun` 断言三新字段：`waitingSince`（waiting 态透传、**非 waiting 态恒 null**——rev-plan S1 收口）、`history`（构造 21 条验证截 20）、`nodeStatuses`（name/type/status/error；snapshot 缺失 → 空数组）。
 2. 红：`test/logic.test.mjs`——`formatDuration`（5 档：非法/1m/45m/3h/27d）与 `sortGateRunsByWait`（升序、缺省沉底稳定）。
-3. 红：`test/client-render.test.mjs`——review gate 卡（waitingSince 在场）渲染 `t("review.waited")` 替换产物；两条 gateRuns 按等待时长升序渲染（老的在前）。
-4. 绿：按 §6 契约实现 scheduler/engine（`makeEngine({..., now} = {})` 解构默认、engine.mjs:100 传 `now()`——实施者先核 engine.mjs 100 行上下文真实形参名）/logic/review/i18n（`review.waited`）。
+3. 红：`test/client-render.test.mjs`——review gate 卡（waitingSince 在场）渲染 `t("review.waited")` 替换产物；两条 gateRuns 按等待时长升序渲染（老的在前）。**renderReview 签名增 `nowMs = null`**（缺省 `Date.now()`，rev-plan S2——nowMs 注入点与 sessionsView 同模式）。
+4. 绿：按 §6 契约实现——scheduler（gateArrive 第三参 + summarizeRun 三字段含 S1 收口）/engine（**仅** engine.mjs:100 传 `now().toISOString()`，`now` 选项本身勿动）/logic/review（等待行 + sortGateRunsByWait + nowMs 参数）/i18n（`review.waited`）。
 5. 验证 + Commit：`feat(engine): gate 等待时长数据面（waitingSince+now 选项）+ review 呈现与最久优先（P1 小债 D）`
 
 ### Task 2：小债 A/B（bar 吞错 + crimson 统一）
@@ -141,21 +144,21 @@ kbd.close            关闭 / Close
 
 1. 红：logic.test——`filterCandidates` stage 维度（building 归并 verifying、closed 归并 held、"all" 全量、缺省兼容旧三维调用）；`facetCounts` 计数口径。
 2. 红：client-render——①过滤条 stage select（aria-label=`t("filters.stage")`，option 文案 `列名 (n)`）切换后清单只剩该桶；②type 计数 chips（三枚，文案含计数，点击切换 active 态）替换 type select；③`renderStrip` 带 `onStagePick` 时 pre 三枚 chip 为 button 且 count>0 才启用，点击回调收到 bucket id；strip chip active 态（filters.stage 对应时）；④loop chip title 含计数。
-3. 绿：logic 两纯函数；pipelineStrip 签名 `renderStrip(container, { t, candidates, workflow, runs, onStagePick = null, stageFilter = "all" })`（缺省回调时 chip 退化为 span——**workbench 既有调用零变化**）。**接线契约**：strip 由 actions.mjs `strip` 钩子渲染（workbench `extend?.strip?.(strip, { t, state, view })`），故 workbench 在 ctx 增 `stagePick: (bucket) => {...} / stageFilter: filters.stage` 两个键，actions.strip 透传 `onStagePick: ctx.stagePick, stageFilter: ctx.stageFilter`——既有 ctx 消费者零破坏（ctx 是开放对象）。workbench：filters 增 stage、过滤条加 stage select、type chips、onStagePick 点击同值取消；i18n `filters.stage`。
+3. 绿：logic 两纯函数；pipelineStrip 签名 `renderStrip(container, { t, candidates, workflow, runs, onStagePick = null, stageFilter = "all" })`（缺省回调时 chip 退化为 span——**workbench 既有调用零变化**）。**接线契约（rev-plan S8 引述修正）**：strip 由 actions.mjs `strip` 钩子渲染（workbench 实际调用 `extend?.strip?.(strip, { t, state })`，workbench.mjs:350），故 workbench 在 ctx 增 `stagePick: (bucket) => {...} / stageFilter: filters.stage` 两个键，actions.strip 解构并透传 `onStagePick: ctx.stagePick, stageFilter: ctx.stageFilter`——既有 ctx 消费者零破坏（ctx 是开放对象）。workbench：filters 增 stage、过滤条加 stage select、type chips、onStagePick 点击同值取消；**P0 清除过滤联动（rev-plan S4）**：`filtersActive` 判定与清除按钮复位三键处（workbench.mjs:424/430 一带）纳入 `filters.stage`，否则 stage 过滤空态会误判真空态。i18n `filters.stage`。
 4. 验证 + Commit：`feat(filters): stage 过滤维度 + type 计数 chips + 下拉计数 + strip 点击联动（P1-3 半/P1-6）`
 
 ### Task 4：pinned filters（P1-3 后半）
 
 1. 红：logic.test——`loadPins/savePins/makePinId`（存储缺失→[]；坏 JSON→[]；round-trip；storage 注入 fake）。
 2. 红：client-render——过滤条尾部「存为常用」按钮（全默认时 disabled）；保存后出现 pin chips（label=四维组合文本）；点 pin 应用过滤（selects/chips 同步）；pin 上删除钮移除；重启模拟（同 storage 重新 mount）pins 仍在。
-3. 绿：logic 三函数（`storage` 参数，fallback 模块级 Map）；workbench 过滤条尾 pinned UI（workbench 传 `storage: globalThis.localStorage`——生产环境存在；测试注入 fake）。
+3. 绿：logic 三函数（`storage` 参数，fallback 模块级 Map）；workbench 过滤条尾 pinned UI；**storage 取值防抛（rev-plan S11）**：`const safeStorage = (() => { try { return globalThis.localStorage ?? null; } catch { return null; } })();` 传参（沙箱 iframe/隐私模式访问 getter 本身可能 throw，测试注入 fake）。
 4. 验证 + Commit：`feat(filters): pinned filters 本地保存/应用/删除（P1-3）`
 
 ### Task 5：会话行升级 + unread（P1-4 + 小债 C）
 
 1. 红：logic.test——`formatRelative` 档位。
 2. 红：client-render——`renderSessionsView` 带 `runs/seenRunIds/nowMs`：①work 行相对时间文本（`t("sessions.ago")` 替换产物含 formatRelative 段）；②run 行 succeeded 未读 → 行尾 `st-unread` 独立小点、seen 后消失；③run 行在途节点名以 chip 呈现原文节点 id（无新键）；④终态行收进 `ssarchive` details（summary 含 `t("sessions.archive")` 与计数），活跃行在外。**终态判定**：`badgeGone`（上游已关闭）∨ `candidate.stage === "closed"` ∨（`stage === "shipped"` ∧ `release?.confirmedAt` 在场）——**shipped 未确认发版是活跃行**（待 G3，不得归档）。
-3. 绿：logic.formatRelative；sessionsView 签名扩三参（缺省零变化）+ 存档分组 + unread 点（复用 stateDotEl，行首已有六态点——unread 覆盖为状态判定的一部分：sessionState 不改，unread 独立小蓝点附于行尾元信息区）；workbench 调用点传 `runs/seenRunIds/nowMs: Date.now()`，onOpen 包装记账（item.runId → seenRuns.add）。
+3. 绿：logic.formatRelative；sessionsView 签名扩三参（缺省零变化）+ 存档分组 + unread 点（复用 stateDotEl，行首已有六态点——unread 覆盖为状态判定的一部分：sessionState 不改，unread 独立小蓝点附于行尾元信息区）；workbench 调用点传 `runs/seenRunIds/nowMs: Date.now()`，**onOpen 签名扩参（rev-plan S3）**：`onOpen(sessionId, item)`——orphan 行传 `onOpen(s.id, null)`，workbench 包装 `(id, item) => { if (item?.runId) seenRuns.add(item.runId); openWorkSession(id); }`（既有单参回调测试兼容）；CSS coarse 层补 `.ssarchive summary{min-height:44px;display:flex;align-items:center}`（rev-plan S7）。
 4. 验证 + Commit：`feat(sessions): 相对时间 + 在途节点 + 未读点 + 终态折叠（P1-4/小债 C）`
 
 ### Task 6：run 详情同槽位视图（P1-5）
@@ -172,20 +175,20 @@ kbd.close            关闭 / Close
 
 ### Task 8：多选 + 批量动作（P1-7）
 
-1. 红：logic.test——（无新纯函数；选择态在 workbench 闭包）client-render——①mount 后 renderRow 出现复选框（`selectable:true` 传入时），点击勾选 → 批量栏出现（`t("batch.selected")` 替换 n）+ 三个动作；②批量关闭 → `a.stage` 被调 n 次（allSettled）；③批量展开共享表单 → 提交 → `a.override` n 次且 reason 同值；④部分失败 → `t("batch.done")` 汇总 notice + 失败键的行仍可重试（不 assert 细节，断言汇总文案出现）；⑤空选择时批量栏不出现。
-2. 绿：workbench `selectedKeys` Set；renderRow 传 `selectable/selected/onToggleSelect`（生产路径恒 selectable:true——桌面窄屏都有；勾选框是 button 元素 `role="checkbox" aria-checked`，coarse 44px 继承）；批量栏（append 在 bar 之后、清单组之前）：三动作全部走 `a.*` + `Promise.allSettled` + `notice` 汇总（既有 notice 渲染位）+ 完成后 `selectedKeys.clear()`；i18n §7 batch.* 五键。
+1. 红：logic.test——（无新纯函数；选择态在 workbench 闭包）client-render——①mount 后 renderRow 出现复选框（`selectable:true` 传入时；**插入位钉死：六态点之后、type badge 之前**，button role="checkbox" aria-checked——既有 :749 断言「行内第一个 BUTTON=id 作 aria-labelledby」会因复选框成为第一个 BUTTON 而红，属语义变更，修断言为「跳过 role=checkbox 后取 title 按钮」并在 commit 注明，rev-plan S9）；②点击勾选 → 批量栏出现（`t("batch.selected")` 替换 n）+ 三个动作；③批量关闭 → `a.stage` 被调 n 次（allSettled）；④批量展开共享表单 → 提交 → `a.override` n 次且 reason 同值；⑤**部分失败语义（rev-plan B4 钉死）**：一失败一成功 → `t("batch.done")` 汇总出现 + **不 reload**（P0 不变式）+ **失败键仍在 selectedKeys 且勾选框 aria-checked=true**（原位重试），成功键已从选择集移除；⑥空选择时批量栏不出现。
+2. 绿：workbench `selectedKeys` Set；renderRow 传 `selectable/selected/onToggleSelect`（勾选框是 button 元素 `role="checkbox" aria-checked`，coarse 44px 继承）；批量栏（append 在 bar 之后、清单组之前）：三动作全部走 `a.*` + `Promise.allSettled`；**收尾语义（rev-plan B4）**：全部成功 → `selectedKeys.clear()` + `notice` 清空 + reload；部分失败 → **不 reload**、`notice = t("batch.done").replace({ok},{fail})` 汇总、仅从 selectedKeys 移除成功键（失败键保留勾选）；i18n §7 batch.* 四键。
 3. 验证 + Commit：`feat(batch): 行勾选 + 批量移到待拍板/关闭/批量推翻（P1-7）`
 
 ### Task 9：键盘体系（P1-1）
 
 1. 红：client-render——`createKeyHandler` 纯逻辑（伪造事件 `{key, ctrlKey:false, target:{tagName:"DIV"}}` 序列）：①j/k 移动游标（回调收到新 index、越界钳制）；②Enter/Space 触发当前行展开回调；③x 触发勾选回调；④1-5 触发 tab 切换回调；⑤`?` 触发帮助回调；⑥target tagName=INPUT 时全部忽略；⑦ctrl+j 忽略；⑧`preventDefault` 仅被消费键调用（fake 事件记调用数）。另：`openHelp` 挂载浮层含 `t("kbd.title")` 与键位行、关闭钮与 Esc 关闭。workbench 接线冒烟：mount 后 `shadow.host` 上 keydown 监听被安装（host._listeners 记账形态——FakeElement 增 addEventListener 记账）。
-2. 绿：新建 keynav.mjs（§6 契约）；workbench mount 时 `shadow.host?.addEventListener?.("keydown", handler)`（host 存在性守卫）+ 游标态闭包 + `getRows` 返回当前可视行元素数组（`main.querySelectorAll` 不可用——**改为 paint 时把行元素收集进 `rowEls` 数组闭包**，paint 重建后更新）；帮助浮层 `openHelp(shadow, t)`（position:fixed canvas 语义 + `kbd.*` 键位表 + Esc/按钮关闭）；i18n `kbd.*` 八键 + `run.detail`（Task 6 已入）。
+2. 绿：新建 keynav.mjs（§6 契约）；workbench mount 时 `shadow.host?.addEventListener?.("keydown", handler)`（host 存在性守卫）+ **dispose 对称（rev-plan S5）**：`view.dispose` 增 `shadow.host?.removeEventListener?.("keydown", handler)` 且 handler 首行 `if (disposed) return` 守卫（React remount 复用 host 防双监听）；游标态闭包 + paint 时把行元素收集进 `rowEls` 闭包数组（paint 重建后更新，规避无 querySelectorAll）；帮助浮层 **`openHelp(anchorEl, t)` 挂 `.workSurface` 子树**（rev-plan S6：对齐 P0 rtOverlay「遮罩收窄为面板区」裁决，shadow 根直系 fixed 会罩全应用视口）；i18n `kbd.*` 八键。
 3. 验证 + Commit：`feat(keynav): j/k/Enter/x/数字/? 键盘体系 + 帮助浮层（P1-1）`
 
 ### Task 10：动效系统化（P1-8）
 
 1. 红：client-render 静态断言——workbench CSS 文本含 `--dshl-dur-1/--dshl-dur-2/--dshl-ease` token、`@media (prefers-reduced-motion:reduce)` 块含三 token 置 0s、tabsbar 含指示条元素（mount 后 `byClass(shadow,"tabindicator")` 在场）。
-2. 绿：CSS `:host{--dshl-dur-1:160ms;--dshl-dur-2:240ms;--dshl-ease:cubic-bezier(.22,1,.36,1)}`；gate-in/success-turn/dot-breathe 改引 token（值不变）；tabsbar 增 `tabindicator` 元素（ResizeObserver 存在才启用 transform 滑动，否则静态 display none——**指示条缺省 display:none，仅 fine pointer 且 RO 可用时启用**，纯视觉增强不承载信息）；reduced-motion 块统一置 0s。
+2. 绿：CSS `:host{--dshl-dur-1:160ms;--dshl-dur-2:240ms;--dshl-ease:cubic-bezier(.22,1,.36,1)}`；gate-in/success-turn/dot-breathe 改引 token（值不变）；tabsbar 增 `tabindicator` 元素（**守卫补全（rev-plan S12）**：`typeof ResizeObserver !== "undefined" && globalThis.matchMedia?.("(pointer:fine)")?.matches` 双探测，否则 display:none 静态退化——纯视觉增强不承载信息）；reduced-motion 块统一置 0s。
 3. 验证 + Commit：`feat(motion): motion token + tabs 滑动指示条 + reduced-motion 全对账（P1-8）`
 
 ### Task 11：docs 同步 + 最终验证
