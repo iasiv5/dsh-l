@@ -1720,3 +1720,55 @@ test("sessionsView 卡住检测警示 chip（P2 Task 6）", async () => {
   assert.ok(stalledChip && stalledChip.textContent === t("sessions.stalled"), "卡住警示 chip（title=阈值说明）");
   assert.ok(!freshRow.children.some((n) => n.getAttribute?.("title") === t("sessions.stalledTitle")), "未超时无 chip");
 });
+
+test("角色创建向导：三步/预设起步/预填/保存/取消不落库（P2 Task 7）", async () => {
+  const { renderRolesTab } = await import("../src/client/components/rolesTab.mjs");
+  const upserts = [];
+  const apiStub = {
+    rolesList: async () => ({ roles: [] }),
+    rolesUpsert: async (role) => { upserts.push(role); return {}; },
+    rolesDelete: async () => {},
+  };
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+  const container = new FakeElement("div");
+  renderRolesTab(container, { t, workflow: { templates: [] }, view: { reload: async () => {} }, deps: { api: apiStub } });
+  await settle();
+  const newBtn = find(container, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("roles.new"))[0];
+  newBtn.onclick();
+  await settle();
+  const dlg = () => find(container, (n) => String(n.className).includes("rtOverlay"))[0];
+  // step1：五内置预设 + 空白起步
+  const presetCards = find(dlg(), (n) => n.className === "wzpreset");
+  assert.equal(presetCards.length, 6, "五内置预设 + 空白起步");
+  // 选预设 → step2 预填
+  const devCard = presetCards.find((c) => c.textContent.includes("devflow-developer"));
+  devCard.onclick();
+  await settle();
+  const idInput = find(dlg(), (n) => n.className === "wzid")[0];
+  assert.equal(idInput.value, "devflow-developer-copy", "roleId 预填 -copy");
+  const nameInput = find(dlg(), (n) => n.className === "wzname")[0];
+  assert.ok(nameInput.value.includes("开发者") && nameInput.value.includes(t("wizard.copySuffix")), "name 预填+副本后缀");
+  find(dlg(), (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("wizard.next"))[0].onclick();
+  await settle();
+  // step3 prompt 预填 + 回顾
+  const promptInput = find(dlg(), (n) => n.className === "wzprompt")[0];
+  assert.ok(promptInput.value.includes("按方案实现代码"), "prompt 预填预设");
+  assert.ok(dlg().textContent.includes("devflow-developer-copy"), "回顾含 roleId");
+  // 保存落库
+  find(dlg(), (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("roles.save"))[0].onclick();
+  await settle();
+  assert.equal(upserts.length, 1, "保存一次");
+  assert.equal(upserts[0].id, "devflow-developer-copy");
+  assert.ok(upserts[0].prompt.includes("按方案实现代码"));
+  assert.equal(upserts[0].executionPolicy, "ask", "policy 沿预设");
+  // 取消不落库
+  newBtn.onclick();
+  await settle();
+  const blankCard = find(dlg(), (n) => n.className === "wzpreset" && n.textContent.includes(t("wizard.blank")))[0];
+  blankCard.onclick();
+  await settle();
+  find(dlg(), (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("roles.cancel"))[0].onclick();
+  await settle();
+  assert.equal(upserts.length, 1, "取消不落库");
+  assert.equal(dlg(), undefined, "向导已关闭");
+});
