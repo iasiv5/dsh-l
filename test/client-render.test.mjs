@@ -1329,3 +1329,61 @@ test("paint 保留滚动位置与焦点（P1-2）", async () => {
   assert.ok(newTitle && newTitle !== rowTitle, "新树存在同 navKey 元素");
   assert.ok((newTitle.focusCalls ?? 0) >= 1, "焦点恢复（focus 被调）");
 });
+
+test("多选 + 批量动作：勾选/批量关闭/批量推翻统一理由/部分失败保留勾选（P1-7/B4）", async () => {
+  const { mountWorkbench } = await import("../src/client/components/workbench.mjs");
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  const c1 = { key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t1", stage: "triaged", triage: null };
+  const c2 = { key: "o/r#issue#2", repo: "o/r", type: "issue", number: 2, title: "t2", stage: "triaged", triage: null };
+  const calls = [];
+  let failKey = null;
+  const apiStub = {
+    state: async () => ({ auth: { account: "iasiv5", login: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }, watch: { repos: ["o/r"] }, snapshots: { lastIngestAt: null, perRepo: {} }, settings: { intervalMinutes: 0 }, candidates: [c1, c2], runs: [], workflow: { templates: [] }, ingestLog: [] }),
+    auth: async () => ({ gates: { ghInstalled: true, ghLogin: true, credentialOk: true }, viewerLogin: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }),
+    workSessions: async () => ({ items: [] }),
+    refresh: async () => ({ authenticated: true }),
+    stage: async (key, stage, note) => { if (key === failKey) throw new Error("boom"); calls.push(["stage", key, stage]); return {}; },
+    override: async (payload) => { if (payload.key === failKey) throw new Error("boom"); calls.push(["override", payload]); return {}; },
+  };
+  const settle = () => new Promise((r) => setTimeout(r, 5));
+  const shadow = new FakeElement("shadow"); shadow.host = new FakeElement("host");
+  mountWorkbench(shadow, { getLang: () => "zh-CN", build: "t", deps: { api: apiStub }, extend: installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [], deps: { api: apiStub } }) });
+  await settle();
+  const checks = find(shadow, (n) => String(n.getAttribute("role")) === "checkbox");
+  assert.equal(checks.length, 2, "两行复选框");
+  assert.equal(find(shadow, (n) => n.className === "batchbar").length, 0, "空选择无批量栏");
+  checks[0].onclick();
+  checks[1].onclick();
+  await settle();
+  const batchBar = find(shadow, (n) => n.className === "batchbar")[0];
+  assert.ok(batchBar && batchBar.textContent.includes(t("batch.selected").replace("{n}", "2")), "批量栏出现含计数");
+  // 批量关闭（全成功 → reload + 清勾选）
+  find(batchBar, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("batch.close"))[0].onclick();
+  await settle();
+  assert.equal(calls.filter((x) => x[0] === "stage").length, 2, "逐 key stage");
+  assert.ok(calls.filter((x) => x[0] === "stage").every((x) => x[2] === "closed"), "目标阶段 closed");
+  assert.equal(find(shadow, (n) => n.className === "batchbar").length, 0, "成功后批量栏消失（清勾选 + reload）");
+  // 批量推翻（部分失败：c2 失败）
+  failKey = "o/r#issue#2";
+  const checks2 = find(shadow, (n) => String(n.getAttribute("role")) === "checkbox");
+  checks2[0].onclick();
+  checks2[1].onclick();
+  await settle();
+  const batchBar2 = find(shadow, (n) => n.className === "batchbar")[0];
+  find(batchBar2, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("batch.override"))[0].onclick();
+  await settle();
+  const reason = find(shadow, (n) => n.className === "batchreason")[0];
+  reason.value = "统一理由";
+  const submit = find(shadow, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("actions.override"))[0];
+  submit.onclick();
+  await settle();
+  const ovCalls = calls.filter((x) => x[0] === "override");
+  assert.equal(ovCalls.length, 1, "逐 key override（stub 对失败键抛错前不记账，成功键=1）");
+  assert.equal(ovCalls[0][1].key, "o/r#issue#1", "成功键正确");
+  assert.ok(ovCalls.every((x) => x[1].reason === "统一理由"), "统一理由随包提交");
+  const noticeEl = find(shadow, (n) => n.className === "error")[0];
+  assert.ok(noticeEl && noticeEl.textContent.includes(t("batch.done").replace("{ok}", "1").replace("{fail}", "1")), "部分失败汇总 notice");
+  const checksAfter = find(shadow, (n) => String(n.getAttribute("role")) === "checkbox");
+  assert.equal(checksAfter.find((n) => n.dataset.key === "o/r#issue#1").getAttribute("aria-checked"), "false", "成功键移出选择集");
+  assert.equal(checksAfter.find((n) => n.dataset.key === "o/r#issue#2").getAttribute("aria-checked"), "true", "失败键保留勾选（原位重试，B4）");
+});

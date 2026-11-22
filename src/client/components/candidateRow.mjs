@@ -23,9 +23,21 @@ export function metaFootnote(candidate, t) {
   return el("span", "rowmeta", segs.join(" · "));
 }
 
-export function renderRow(container, candidate, t, { expanded = false, onToggle, actions, run = null, seen = false } = {}) {
+export function renderRow(container, candidate, t, { expanded = false, onToggle, actions, run = null, seen = false, selectable = false, selected = false, onToggleSelect = null, onCheckboxEl = null } = {}) {
   const row = el("div", "row" + (expanded ? " rowActive" : ""));   // rowActive 仅 coarse 层着色（桌面红线）
   row.append(stateDotEl(candidateState({ candidate, run, seen }), t));   // P0-2：六态点在行首
+  if (selectable) {
+    // P1-7：多选复选框（插入位钉死：六态点之后、type badge 之前——rev-plan S9）
+    const chk = el("button", "rowcheck");
+    chk.type = "button";
+    chk.setAttribute("role", "checkbox");
+    chk.setAttribute("aria-checked", String(!!selected));
+    chk.setAttribute("aria-label", candidate.key);
+    chk.dataset.key = candidate.key;
+    chk.onclick = () => onToggleSelect?.(candidate.key);
+    onCheckboxEl?.(chk);
+    row.append(chk);
+  }
   row.append(el("span", "badge " + candidate.type, candidate.type === "pull" ? "PR" : "Issue"));
   const title = el("button", "title", candidate.repo + "#" + candidate.number + "  " + candidate.title);
   title.type = "button";

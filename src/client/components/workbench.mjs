@@ -11,6 +11,7 @@ import { renderKanban } from "./kanban.mjs";
 import { renderReview } from "./review.mjs";
 import { renderSessionsView } from "./sessionsView.mjs";
 import { renderRolesTab } from "./rolesTab.mjs";
+import { withPending } from "./uiFeedback.mjs";
 
 const CSS = [
   ":host{display:flex;flex-direction:column;height:100%;font-size:14px;line-height:1.45;color:inherit}",
@@ -272,6 +273,10 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
   const filters = { type: "all", repo: "all", urgency: "all", stage: "all" };   // P1-3：stage 维度
   const expanded = new Set();
   const seenRuns = new Set();   // P0-2 unread 语义：展开过终态 run 的行记已读（内存态，页面刷新归零——有意取舍）
+  const selectedKeys = new Set();   // P1-7 多选集合
+  const checkboxEls = new Map();   // P1-7：勾选框元素登记（key → el，供批量部分失败后就地同步）
+  const checkboxElSink = (elc) => checkboxEls.set(elc.dataset.key, elc);
+  let batchFormOpen = false;   // P1-7 批量推翻共享表单开关（闭包态，paint 存续）
   let credMount = null;   // 紧凑连接卡挂载点（原隐式全局：产物非严格加载侥幸可用，node ESM 严格模式必炸——Task 8 测试揪出）
   const view = {};
 
@@ -282,6 +287,13 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
     s.value = value;
     s.onchange = () => onChange(s.value);
     return s;
+  };
+  const btn = (text, onClick, disabled = false) => {   // P1-7 批量栏引入：与 review/actions 同款 pending 包装
+    const b = el("button", null, text);
+    b.type = "button";
+    b.disabled = disabled;
+    b.onclick = withPending(b, onClick);
+    return b;
   };
 
   let prevMainEl = null;   // P1-2：上一棵树的滚动容器引用（重绘前快照 scrollTop）
@@ -470,6 +482,38 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
     triage.append(el("h3", null, t("sections.triage")));
     if (shouldShowStartHint(state ?? {})) triage.append(el("div", "start-hint", t("work.startHint")));
     triage.append(strip, bar);
+    // P1-7 批量栏（B4 收尾语义）：全成 → 清勾选 + reload；部分失败 → 不 reload、汇总 notice、失败键保留勾选
+    if (selectedKeys.size > 0) {
+      const batchBar = el("div", "batchbar");
+      batchBar.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0 0";
+      batchBar.append(el("span", "chip", t("batch.selected").replace("{n}", String(selectedKeys.size))));
+      const batchGo = async (fn) => {
+        const keys = [...selectedKeys];
+        if (keys.length === 0) return;
+        const results = await Promise.allSettled(keys.map((k) => fn(k)));
+        let ok = 0;
+        const failedKeys = [];
+        results.forEach((res, i) => { if (res.status === "fulfilled") { ok++; selectedKeys.delete(keys[i]); } else failedKeys.push(keys[i]); });
+        if (failedKeys.length === 0) { notice = null; await view.reload(); }
+        else { notice = t("batch.done").replace("{ok}", String(ok)).replace("{fail}", String(failedKeys.length)); paint(); }
+      };
+      batchBar.append(btn(t("actions.moveTo") + " " + t("groups.gating"), () => batchGo((k) => a.stage(k, "gating", ""))));
+      batchBar.append(btn(t("batch.close"), () => batchGo((k) => a.stage(k, "closed", ""))));
+      batchBar.append(btn(t("batch.override"), () => { batchFormOpen = !batchFormOpen; paint(); }));
+      if (batchFormOpen) {
+        const form = el("div", "batchform");
+        form.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:4px 0 0";
+        const v = select([["high", t("validity.high")], ["medium", t("validity.medium")], ["low", t("validity.low")]], "medium", () => {}, "batch validity");
+        const u = select([["P0", t("urgency.P0")], ["P1", t("urgency.P1")], ["P2", t("urgency.P2")], ["P3", t("urgency.P3")]], "P2", () => {}, "batch urgency");
+        const actSel = select([["start", t("recommendedActions.start")], ["feedback", t("recommendedActions.feedback")], ["close", t("recommendedActions.close")], ["hold", t("recommendedActions.hold")]], "hold", () => {}, "batch action");
+        const reason = el("input", "batchreason");
+        reason.placeholder = t("batch.reasonPlaceholder");
+        form.append(v, u, actSel, reason);
+        form.append(btn(t("actions.override"), () => batchGo((k) => a.override({ key: k, validity: v.value, urgency: u.value, action: actSel.value, reason: reason.value, lang: getLang() }))));
+        batchBar.append(form);
+      }
+      triage.append(batchBar);
+    }
     if (error) triage.append(el("div", "error", t("errors.refreshFailed") + " (" + error + ")"));
     if (notice) triage.append(el("div", "error", notice));
     const list = filterCandidates(state?.candidates ?? [], filters);
@@ -487,6 +531,7 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
       }
       triage.append(emptyBox);
     } else {
+      checkboxEls.clear();
       for (const group of groupCandidates(list, t)) {
         if (group.items.length === 0) continue;
         const sec = el("section", "group" + (group.dim ? " dim" : ""));
@@ -505,6 +550,10 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
             },
             run: rowRun,
             seen: seenRuns.has(c.currentRunId),
+            selectable: true,
+            selected: selectedKeys.has(c.key),
+            onToggleSelect: (key) => { if (selectedKeys.has(key)) selectedKeys.delete(key); else selectedKeys.add(key); paint(); },
+            onCheckboxEl: checkboxElSink,
             actions: extend?.rowActions ? (detail, cand) => extend.rowActions(detail, cand, { t, view, lang: getLang() }) : undefined,
           });
         }
