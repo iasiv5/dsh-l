@@ -666,6 +666,28 @@ test("rowActions 状态映射：待拍板=我来开+G1对；活跃行=打开会�
   assert.ok(btns.some((x) => x.includes(t("work.startBtn"))), "重试态有我来开");
 });
 
+test("rowActions 开工路径映射（disc Task 1）：白名单源阶段首位=移到 待拍板；building/gating 不含", async () => {
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [] });
+  const view = { reload: async () => {}, shadow: new FakeElement("shadow") };
+  const firstBtn = (stage) => {
+    const d = new FakeElement("div");
+    hooks.rowActions(d, mkCandidate(stage), { t, view, lang: "zh-CN" });
+    const narrow = [...d.children].find((n) => n.className.includes("ux-narrow"));
+    const primary = [...narrow.children].find((n) => n.className.includes("primary-actions"));
+    const btns = [...primary.children].filter((x) => String(x.tagName).toUpperCase() === "BUTTON").map((b) => b.textContent);
+    return { first: btns[0] ?? null, hasMove: btns.some((x) => x.includes(t("groups.gating")) && x.includes(t("actions.moveTo"))) };
+  };
+  for (const st of ["inbox", "triaged", "held", "closed", "shipped"]) {
+    const r = firstBtn(st);
+    assert.equal(r.first, t("actions.moveTo") + " " + t("groups.gating"), st + " 首位应为移到 待拍板");
+  }
+  const rb = firstBtn("building");
+  assert.equal(rb.hasMove, false, "building 不含移到 待拍板（disc#1）");
+  const rg = firstBtn("gating");
+  assert.equal(rg.hasMove, false, "gating 不含移到 待拍板（我来开已是主动作）");
+});
+
 test("rowActions 窄视口结构：details 折叠人工推翻 + stage-chips 组", async () => {
   const { installActions } = await import("../src/client/components/actions.mjs");
   const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [] });

@@ -376,8 +376,9 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
     intake.append(intakeChips);
     // 板块二：分诊与拍板 —— 工作流条 + 过滤条 + 阶段分组列表。
     const triage = el("section", "triage");
+    triage.append(el("h3", null, t("sections.triage")));
     if (shouldShowStartHint(state ?? {})) triage.append(el("div", "start-hint", t("work.startHint")));
-    triage.append(el("h3", null, t("sections.triage")), strip, bar);
+    triage.append(strip, bar);
     if (error) triage.append(el("div", "error", t("errors.refreshFailed") + " (" + error + ")"));
     if (notice) triage.append(el("div", "error", notice));
     const list = filterCandidates(state?.candidates ?? [], filters);
