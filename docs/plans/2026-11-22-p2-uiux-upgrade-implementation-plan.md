@@ -180,3 +180,9 @@ kbd.peek             p：预览当前行 / p: preview current row
 ## 10. 最终验证与遗留
 
 全量 `npm test` + `npm run build` 双 0；`git log` 与任务一一对应；树干净。**P2 后遗留（v3 池）**：diff 就地查看（会话协调者缝）、成本面板（宿主用量 API）、客观信号响应延迟（timeline 摄取）、GitLab provider、IM 双向拍板、G1 高置信自动放行。
+
+**实施期注记（2026-11-22 实施后回写）**：
+1. Task 3+4 合并提交（ecd47e5）：Task 4 首验红跳过提交后 amend 误并入 peek 提交，locale/lib 交叉无法干净拆分——诚实标注，两任务红绿链各自完整。
+2. dot-breathe 1.6s 与 `.recheck svg` 400ms 保留字面量（无对应 token 档位）——DESIGN.md Do 条外例外，P2 后可加 `--dshl-dur-3`。
+3. crimson 三处（actions.mjs×2 + rolesTab.mjs×1）已全数清偿（Task 1），actions.mjs:316/:409 与 rolesTab:116 台账销账。
+4. guard 体内误植 palette/peek 重置（每按键杀 peekOpen）由 Task 3 实测揪出，paint 体重置为准。
