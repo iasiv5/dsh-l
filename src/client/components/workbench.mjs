@@ -1,5 +1,5 @@
 import { makeT } from "../i18n.mjs";
-import { groupCandidates, filterCandidates, needsReview, shouldShowStartHint } from "../logic.mjs";
+import { groupCandidates, filterCandidates, needsReview, shouldShowStartHint, runBlock } from "../logic.mjs";
 import { api } from "../api.mjs";
 import { badge } from "../badge.mjs";
 import { renderRow } from "./candidateRow.mjs";
@@ -196,6 +196,16 @@ const CSS = [
   ".ux-narrow{display:none}",
   ".ux-chev{display:none}",
   ".start-hint{font-size:13px;opacity:.75;margin:2px 16px 0}",
+  /* ── P0-2 六态色标 token（小面积点，Host-Theme Rule 合规；唯一新固定色 #4493f8 = unread 蓝）── */
+  ".stdot{width:8px;height:8px;border-radius:50%;flex:none}",
+  ".st-running{background:#2da44e}",
+  ".st-gating{background:#d29922}",
+  ".st-unread{background:#4493f8}",
+  ".st-failed{background:#d1242f}",
+  ".st-done{background:color-mix(in srgb,currentColor 45%,transparent)}",
+  ".st-idle{background:color-mix(in srgb,currentColor 22%,transparent)}",
+  /* ── P0-6 清单行元数据脚注（标题按钮内第二行）── */
+  ".rowmeta{display:block;font-size:11px;opacity:.65;font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
   "@media (max-width:560px){.ux-narrow{display:flex;flex-direction:column;gap:8px}}",
 
 ].join("\n");
@@ -235,6 +245,7 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
   let sessionsItems = [];   // Task 12：会话板块数据（GET /dsh-l/work/sessions，reload 并行拉取）
   const filters = { type: "all", repo: "all", urgency: "all" };
   const expanded = new Set();
+  const seenRuns = new Set();   // P0-2 unread 语义：展开过终态 run 的行记已读（内存态，页面刷新归零——有意取舍）
   const view = {};
 
   const select = (pairs, value, onChange, label) => {
@@ -390,9 +401,19 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
         const sec = el("section", "group" + (group.dim ? " dim" : ""));
         sec.append(el("h3", null, group.label + " · " + group.items.length));
         for (const c of group.items) {
+          const rowRun = runBlock(c, state?.runs ?? []);
           renderRow(sec, c, t, {
             expanded: expanded.has(c.key),
-            onToggle: (key) => { if (expanded.has(key)) expanded.delete(key); else expanded.add(key); paint(); },
+            onToggle: (key) => {
+              if (expanded.has(key)) expanded.delete(key);
+              else {
+                expanded.add(key);
+                if (rowRun && ["succeeded", "failed", "cancelled"].includes(rowRun.status)) seenRuns.add(rowRun.id);   // P0-2 已读记账
+              }
+              paint();
+            },
+            run: rowRun,
+            seen: seenRuns.has(c.currentRunId),
             actions: extend?.rowActions ? (detail, cand) => extend.rowActions(detail, cand, { t, view, lang: getLang() }) : undefined,
           });
         }

@@ -777,3 +777,31 @@ test("设置面板文案全部走 i18n（P0-5b）：actions.mjs 无硬编码中�
     assert.ok(zhKeys.includes(key) && enKeys.includes(key), "双字典缺键: " + key);
   }
 });
+
+test("candidateRow：六态状态点 + 元数据脚注（P0-2/P0-6）", async () => {
+  const { renderRow } = await import("../src/client/components/candidateRow.mjs");
+  const mk = (over = {}) => ({ key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t", stage: "triaged", triage: { urgency: "P1", validity: "high", action: "start", reason: "r" }, ...over });
+  const dotOf = (root) => find(root, (n) => typeof n.className === "string" && String(n.className).includes("stdot"))[0];
+  const root1 = new FakeElement("div");
+  renderRow(root1, mk(), t, { expanded: false, onToggle: () => {}, run: { status: "failed" }, seen: true });
+  const dot1 = dotOf(root1);
+  assert.ok(dot1 && String(dot1.className).includes("st-failed"), "failed run → st-failed");
+  assert.equal(dot1.title, t("stateDot.failed"));
+  const root2 = new FakeElement("div");
+  renderRow(root2, mk({ stage: "building" }), t, { expanded: false, onToggle: () => {}, run: { status: "succeeded" }, seen: false });
+  assert.ok(String(dotOf(root2).className).includes("st-unread"), "终态未读 → st-unread");
+  const root3 = new FakeElement("div");
+  renderRow(root3, mk({ meta: { ageDays: 3, comments: 4, reactionsTotal: 2 } }), t, { expanded: false, onToggle: () => {}, run: null, seen: false });
+  const meta3 = find(root3, (n) => n.className === "rowmeta")[0];
+  assert.ok(meta3, "脚注在场");
+  assert.ok(meta3.textContent.includes("3d") && meta3.textContent.includes("💬4") && meta3.textContent.includes("▲2"), "脚注含年龄/评论/反应");
+  const root4 = new FakeElement("div");
+  renderRow(root4, mk({ type: "pull", pull: { draft: true, headRef: "x" }, meta: { ageDays: 1 } }), t, { expanded: false, onToggle: () => {} });
+  assert.ok(find(root4, (n) => n.className === "rowmeta")[0].textContent.includes(t("candidate.draft")), "PR 草稿段");
+  const root5 = new FakeElement("div");
+  renderRow(root5, mk(), t, { expanded: false, onToggle: () => {} });
+  assert.equal(find(root5, (n) => n.className === "rowmeta").length, 0, "无 meta 不渲染脚注");
+  const root6 = new FakeElement("div");
+  renderRow(root6, mk({ stage: "shipped" }), t, { expanded: false, onToggle: () => {} });
+  assert.ok(String(dotOf(root6).className).includes("st-gating"), "shipped 未确认发版 → st-gating");
+});

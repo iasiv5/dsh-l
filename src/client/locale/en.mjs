@@ -115,6 +115,7 @@ export const en = {
   },
   meta: { lastRefreshAt: "Last refresh" },
   stateDot: { running: "Running", gating: "Needs you", unread: "Unseen results", done: "Done", failed: "Failed", idle: "Idle" },
+  candidate: { draft: "draft" },
   tabs: { list: "List", board: "Board", review: "Needs review", sessions: "Sessions", roles: "Roles" },
   sessions: {
     title: "Sessions",

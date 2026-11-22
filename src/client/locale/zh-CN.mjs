@@ -115,6 +115,7 @@ export const zhCN = {
   },
   meta: { lastRefreshAt: "上次刷新" },
   stateDot: { running: "执行中", gating: "待你处理", unread: "有未看结果", done: "已完成", failed: "失败", idle: "常规" },
+  candidate: { draft: "草稿" },
   tabs: { list: "清单", board: "看板", review: "待我确认", sessions: "会话", roles: "角色" },
   sessions: {
     title: "会话",
