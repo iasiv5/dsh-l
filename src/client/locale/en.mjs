@@ -108,6 +108,7 @@ export const en = {
   },
   emptyStates: {
     backlog: "No candidates. Refresh, or check the watched-repo list.",
+    kanbanCol: "Nothing at this stage",
   },
   errors: {
     refreshFailed: "Refresh failed. Please retry later.",
@@ -116,6 +117,7 @@ export const en = {
   meta: { lastRefreshAt: "Last refresh" },
   stateDot: { running: "Running", gating: "Needs you", unread: "Unseen results", done: "Done", failed: "Failed", idle: "Idle" },
   candidate: { draft: "draft" },
+  kanban: { advance: "Advance", moveMore: "Move to…" },
   tabs: { list: "List", board: "Board", review: "Needs review", sessions: "Sessions", roles: "Roles" },
   sessions: {
     title: "Sessions",

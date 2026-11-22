@@ -805,3 +805,36 @@ test("candidateRow：六态状态点 + 元数据脚注（P0-2/P0-6）", async ()
   renderRow(root6, mk({ stage: "shipped" }), t, { expanded: false, onToggle: () => {} });
   assert.ok(String(dotOf(root6).className).includes("st-gating"), "shipped 未确认发版 → st-gating");
 });
+
+test("kanban 分组列表化：列头/卡片信息集/推进/移至/空列引导（P0-1）", async () => {
+  const { renderKanban } = await import("../src/client/components/kanban.mjs");
+  const calls = [];
+  const stageStub = async (...args) => { calls.push(args); return {}; };
+  const c1 = { key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "T1", stage: "inbox", meta: { ageDays: 3, comments: 4, reactionsTotal: 2 }, triage: { urgency: "P1", validity: "high", action: "start" } };
+  const c2 = { key: "o/r#pull#2", repo: "o/r", type: "pull", number: 2, title: "T2", stage: "building", currentRunId: "run-1" };
+  const c3 = { key: "o/r#issue#3", repo: "o/r", type: "issue", number: 3, title: "T3", stage: "held" };
+  const wrap = new FakeElement("div");
+  renderKanban(wrap, { t, candidates: [c1, c2, c3], view: { reload: async () => {} }, deps: { api: { stage: stageStub } } });
+  const heads = find(wrap, (n) => n.className === "kbhead");
+  assert.equal(heads.length, 6, "六列列头");
+  assert.ok(heads[0].textContent.includes(t("groups.inbox")) && heads[0].textContent.includes("1"), "列头=列名+计数");
+  assert.ok(find(wrap, (n) => typeof n.className === "string" && String(n.className).includes("kbdot")).length >= 6, "列色点在场");
+  const cards = find(wrap, (n) => n.className === "kbcard");
+  assert.equal(cards.length, 3, "三张卡");
+  assert.ok(cards[0].textContent.includes("o/r#1"), "卡标题含 repo#number");
+  assert.ok(find(wrap, (n) => n.className === "rowmeta").length >= 1, "卡脚注复用 metaFootnote");
+  assert.ok(find(cards[0], (n) => String(n.className).includes("chip u-P1")).length >= 1, "紧急度 chip 在场");
+  assert.ok(find(cards[1], (n) => String(n.className).includes("st-running")).length >= 1, "building 卡状态点 running");
+  const advance = find(wrap, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("kanban.advance"));
+  assert.equal(advance.length, 1, "推进按钮只出现在有下一跳的卡（inbox）");
+  advance[0].onclick();
+  assert.deepEqual(calls[0], ["o/r#issue#1", "triaged", "看板推进"], "推进调用 stage(key, triaged, 留痕)");
+  const moves = find(wrap, (n) => n.className === "kbmove");
+  assert.equal(moves.length, 2, "movable 卡才有移至菜单（inbox+held；building 不可迁移）");
+  const inboxMenuBtns = find(moves[0], (n) => String(n.tagName).toUpperCase() === "BUTTON").map((b) => b.textContent);
+  assert.ok(inboxMenuBtns.some((x) => x.includes(t("groups.gating"))), "菜单含待拍板");
+  assert.ok(inboxMenuBtns.every((x) => !x.includes(t("groups.inbox"))), "菜单不含当前列");
+  assert.equal(find(cards[1], (n) => String(n.tagName).toUpperCase() === "BUTTON").length, 0, "building 卡无任何迁移按钮");
+  const empties = find(wrap, (n) => n.className === "kbempty");
+  assert.ok(empties.length >= 1 && empties[0].textContent.includes(t("emptyStates.kanbanCol")), "空列引导文案");
+});
