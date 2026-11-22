@@ -34,6 +34,7 @@ export function renderRow(container, candidate, t, { expanded = false, onToggle,
     chk.setAttribute("aria-checked", String(!!selected));
     chk.setAttribute("aria-label", candidate.key);
     chk.dataset.key = candidate.key;
+    chk.dataset.navKey = "row-check:" + candidate.key;   // P2 Task 1（S1）：候选键派生 navKey
     chk.onclick = () => onToggleSelect?.(candidate.key);
     onCheckboxEl?.(chk);
     row.append(chk);
@@ -42,6 +43,7 @@ export function renderRow(container, candidate, t, { expanded = false, onToggle,
   const title = el("button", "title", candidate.repo + "#" + candidate.number + "  " + candidate.title);
   title.type = "button";
   title.setAttribute("aria-expanded", String(expanded));
+  title.dataset.navKey = "row-title:" + candidate.key;   // P2 Task 1（S1）：候选键派生 navKey（assignNavKeys ??= 保留）
   const meta = metaFootnote(candidate, t);
   if (meta) title.append(meta);   // P0-6：脚注为标题按钮内第二行（display:block）
   title.onclick = () => onToggle?.(candidate.key);

@@ -255,10 +255,14 @@ export function formatRelative(updatedAtMs, nowMs) {
 }
 
 // 闸门等待排序（P1 小债 D）：waitingSince 升序（最久优先），缺省沉底且保持原序（稳定排序）。
+// P2 Task 1：畸形时间串（Date.parse→NaN）守卫，视为缺省沉底。
 export function sortGateRunsByWait(runs) {
   return [...(runs ?? [])].sort((a, b) => {
-    const ta = a?.waitingSince ? Date.parse(a.waitingSince) : Infinity;
-    const tb = b?.waitingSince ? Date.parse(b.waitingSince) : Infinity;
+    const pa = Date.parse(a?.waitingSince ?? "");
+    const pb = Date.parse(b?.waitingSince ?? "");
+    const ta = Number.isFinite(pa) ? pa : Infinity;
+    const tb = Number.isFinite(pb) ? pb : Infinity;
+    if (!Number.isFinite(ta) && !Number.isFinite(tb)) return 0;
     return ta - tb;
   });
 }

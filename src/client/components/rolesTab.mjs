@@ -113,7 +113,7 @@ export function renderRolesTab(container, { t, workflow, view }) {
     if (!isNew) {
       const delBtn = document.createElement("button");
       delBtn.type = "button"; delBtn.textContent = t("roles.delete");
-      delBtn.style.cssText = "color:crimson;margin-right:auto";
+      delBtn.style.cssText = "color:color-mix(in srgb,#d1242f 85%,currentColor);margin-right:auto";
       delBtn.disabled = !role.builtin && role.uses > 0;
       delBtn.title = delBtn.disabled ? t("roles.inUse") : "";
       delBtn.onclick = act(async () => {

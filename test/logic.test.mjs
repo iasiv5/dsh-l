@@ -299,3 +299,10 @@ test("formatRelative 档位（P1-4）", async () => {
   assert.equal(formatRelative(now - 27 * 86_400_000, now), "27d");
   assert.equal(formatRelative(now + 5_000, now), "1m", "未来时间钳为 0");
 });
+
+// ---- P2 Task 1：sortGateRunsByWait NaN 守卫 ----
+test("sortGateRunsByWait：畸形 waitingSince 不崩且沉底（P2 Task 1）", async () => {
+  const { sortGateRunsByWait } = await import("../src/client/logic.mjs");
+  const runs = [{ id: "a", waitingSince: "not-a-date" }, { id: "b", waitingSince: "2026-01-01T00:00:00Z" }, { id: "c" }];
+  assert.deepEqual(sortGateRunsByWait(runs).map((r) => r.id), ["b", "a", "c"]);
+});

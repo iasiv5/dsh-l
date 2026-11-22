@@ -313,7 +313,7 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
         const chip = document.createElement("span");
         chip.className = "chip";
         chip.style.opacity = warn ? "1" : ".8";
-        if (warn) chip.style.color = "crimson";
+        if (warn) chip.style.color = "color-mix(in srgb,#d1242f 85%,currentColor)";
         chip.textContent = text;
         target.append(chip);
       };
@@ -406,7 +406,7 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
           const cl = document.createElement("span"); cl.className = "chip"; cl.style.opacity = ".7"; cl.textContent = t("run.workspaceCloning");
           runRow.append(cl);
         }
-        if (runInfo.error) { const err = document.createElement("span"); err.className = "chip"; err.style.color = "crimson"; err.textContent = runInfo.error; runRow.append(err); }
+        if (runInfo.error) { const err = document.createElement("span"); err.className = "chip"; err.style.color = "color-mix(in srgb,#d1242f 85%,currentColor)"; err.textContent = runInfo.error; runRow.append(err); }
         runRow.append(
           btn(t("actions.retryRun"), () => go(() => a.runRetry(runInfo.id, [...(runInfo.failedNodeIds ?? []), ...(runInfo.cancelledNodeIds ?? [])][0] ?? "")), !((runInfo.status === "failed" || runInfo.status === "cancelled") && [...(runInfo.failedNodeIds ?? []), ...(runInfo.cancelledNodeIds ?? [])].length > 0)),   // M7/§18.3：数据源扩 cancelled（retryNode 已支持——M2 R1-9）；failedNodeIds 沿 M2 产出评审问题 1
           btn(t("actions.cancelRun"), () => go(() => a.runCancel(runInfo.id, "user")), !(runInfo.status === "running" || runInfo.status === "waiting")),

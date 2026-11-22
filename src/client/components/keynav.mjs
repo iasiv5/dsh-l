@@ -16,11 +16,13 @@ export function createKeyHandler({ getCursor = () => -1, setCursor = () => {}, g
     if (isTyping(target)) return;
     const key = e.key;
     if (key === "j" || key === "J") {
+      if (getRowCount() === 0) return;   // P2 Task 1：空行守卫（不动、不消费）
       e.preventDefault?.();
       setCursor(Math.min((getCursor() ?? -1) + 1, getRowCount() - 1));
       return;
     }
     if (key === "k" || key === "K") {
+      if (getRowCount() === 0) return;   // P2 Task 1：空行守卫
       e.preventDefault?.();
       setCursor(Math.max((getCursor() ?? 0) - 1, 0));
       return;

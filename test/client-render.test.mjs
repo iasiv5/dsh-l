@@ -1485,3 +1485,59 @@ test("motion token + reduced-motion 对账 + tab 指示条缺省退化（P1-8/S1
   assert.ok(indicator, "tab 指示条元素在场");
   assert.equal(indicator.style.display, "none", "无 ResizeObserver/matchMedia 环境缺省静态退化（S12）");
 });
+
+test("keynav 空行守卫：j/k 在 rowCount=0 时不动不消费（P2 Task 1）", async () => {
+  const { createKeyHandler } = await import("../src/client/components/keynav.mjs");
+  const ev = (key) => ({ key, ctrlKey: false, metaKey: false, altKey: false, target: { tagName: "DIV" }, preventDefaultCalls: 0, preventDefault() { this.preventDefaultCalls++; } });
+  let cursor = -1;
+  const handler = createKeyHandler({ getCursor: () => cursor, setCursor: (i) => { cursor = i; }, getRowCount: () => 0 });
+  const ej = ev("j"); handler(ej);
+  assert.equal(cursor, -1, "空行 j 不移动"); assert.equal(ej.preventDefaultCalls, 0, "空行 j 不消费");
+  const ek = ev("k"); handler(ek);
+  assert.equal(cursor, -1, "空行 k 不移动"); assert.equal(ek.preventDefaultCalls, 0, "空行 k 不消费");
+});
+
+test("批量表单闭包态 + crimson 清偿 + 死基建移除 + navKey 候选键（P2 Task 1）", async () => {
+  const { mountWorkbench } = await import("../src/client/components/workbench.mjs");
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  const fs = await import("node:fs");
+  // 静态断言：死基建与 crimson 清偿
+  const wbSrc = fs.readFileSync(new URL("../src/client/components/workbench.mjs", import.meta.url), "utf8");
+  assert.ok(!wbSrc.includes("checkboxEls"), "checkboxEls 死基建已清偿");
+  for (const f of ["actions.mjs", "rolesTab.mjs"]) {
+    const src = fs.readFileSync(new URL("../src/client/components/" + f, import.meta.url), "utf8");
+    assert.ok(!src.includes("crimson"), f + " crimson 已清偿");
+  }
+  const c1 = { key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t1", stage: "triaged", triage: null };
+  const c2 = { key: "o/r#issue#2", repo: "o/r", type: "issue", number: 2, title: "t2", stage: "triaged", triage: null };
+  const c3 = { key: "o/r#issue#3", repo: "o/r", type: "issue", number: 3, title: "t3", stage: "triaged", triage: null };
+  const apiStub = {
+    state: async () => ({ auth: { account: "iasiv5", login: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }, watch: { repos: ["o/r"] }, snapshots: { lastIngestAt: null, perRepo: {} }, settings: { intervalMinutes: 0 }, candidates: [c1, c2, c3], runs: [], workflow: { templates: [] }, ingestLog: [] }),
+    auth: async () => ({ gates: { ghInstalled: true, ghLogin: true, credentialOk: true }, viewerLogin: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }),
+    workSessions: async () => ({ items: [] }),
+    refresh: async () => ({ authenticated: true }),
+  };
+  const settle = () => new Promise((r) => setTimeout(r, 5));
+  const shadow = new FakeElement("shadow"); shadow.host = new FakeElement("host");
+  mountWorkbench(shadow, { getLang: () => "zh-CN", build: "t", deps: { api: apiStub }, extend: installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [], deps: { api: apiStub } }) });
+  await settle();
+  // navKey 候选键收紧（S1）
+  const rowTitle = find(shadow, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.className === "title")[0];
+  assert.ok(String(rowTitle.dataset.navKey ?? "").startsWith("row-title:"), "title navKey=候选键派生");
+  const chk0 = find(shadow, (n) => String(n.getAttribute("role")) === "checkbox")[0];
+  assert.ok(String(chk0.dataset.navKey ?? "").startsWith("row-check:"), "checkbox navKey=候选键派生");
+  // 批量表单闭包态：填 reason → 勾第三行触发 paint → reason 保留
+  const checks = find(shadow, (n) => String(n.getAttribute("role")) === "checkbox");
+  checks[0].onclick(); checks[1].onclick();
+  await settle();
+  find(shadow, (n) => n.className === "batchbar")[0].children.find((n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("batch.override")).onclick();
+  await settle();
+  const reason = find(shadow, (n) => n.className === "batchreason")[0];
+  reason.value = "草稿理由";
+  reason.oninput?.();
+  const checks2 = find(shadow, (n) => String(n.getAttribute("role")) === "checkbox");
+  checks2[2].onclick();   // 第三行勾选 → paint
+  await settle();
+  const reasonAfter = find(shadow, (n) => n.className === "batchreason")[0];
+  assert.equal(reasonAfter.value, "草稿理由", "reason 跨 paint 保留（闭包态 S2）");
+});

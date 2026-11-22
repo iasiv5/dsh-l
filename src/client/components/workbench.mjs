@@ -279,9 +279,7 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
   const expanded = new Set();
   const seenRuns = new Set();   // P0-2 unread 语义：展开过终态 run 的行记已读（内存态，页面刷新归零——有意取舍）
   const selectedKeys = new Set();   // P1-7 多选集合
-  const checkboxEls = new Map();   // P1-7：勾选框元素登记（key → el，供批量部分失败后就地同步）
-  const checkboxElSink = (elc) => checkboxEls.set(elc.dataset.key, elc);
-  let batchFormOpen = false;   // P1-7 批量推翻共享表单开关（闭包态，paint 存续）
+  const batchForm = { open: false, validity: "medium", urgency: "P2", action: "hold", reason: "" };   // P1-7 批量推翻共享表单（P2 Task 1：闭包态，跨 paint 保留草稿）
   let rowEls = [];   // P1-1：可视清单行元素（paint 收集，j/k 游标用）
   let surfaceEl = null;   // P1-1：帮助浮层锚点（paint 更新）
   let cursorIndex = -1;   // P1-1 游标态（keynav 持方为调用方）
@@ -530,15 +528,17 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
       };
       batchBar.append(btn(t("actions.moveTo") + " " + t("groups.gating"), () => batchGo((k) => a.stage(k, "gating", ""))));
       batchBar.append(btn(t("batch.close"), () => batchGo((k) => a.stage(k, "closed", ""))));
-      batchBar.append(btn(t("batch.override"), () => { batchFormOpen = !batchFormOpen; paint(); }));
-      if (batchFormOpen) {
+      batchBar.append(btn(t("batch.override"), () => { batchForm.open = !batchForm.open; paint(); }));
+      if (batchForm.open) {
         const form = el("div", "batchform");
         form.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:4px 0 0";
-        const v = select([["high", t("validity.high")], ["medium", t("validity.medium")], ["low", t("validity.low")]], "medium", () => {}, t("batch.formValidity"));
-        const u = select([["P0", t("urgency.P0")], ["P1", t("urgency.P1")], ["P2", t("urgency.P2")], ["P3", t("urgency.P3")]], "P2", () => {}, t("batch.formUrgency"));
-        const actSel = select([["start", t("recommendedActions.start")], ["feedback", t("recommendedActions.feedback")], ["close", t("recommendedActions.close")], ["hold", t("recommendedActions.hold")]], "hold", () => {}, t("batch.formAction"));
+        const v = select([["high", t("validity.high")], ["medium", t("validity.medium")], ["low", t("validity.low")]], batchForm.validity, (val) => { batchForm.validity = val; }, t("batch.formValidity"));
+        const u = select([["P0", t("urgency.P0")], ["P1", t("urgency.P1")], ["P2", t("urgency.P2")], ["P3", t("urgency.P3")]], batchForm.urgency, (val) => { batchForm.urgency = val; }, t("batch.formUrgency"));
+        const actSel = select([["start", t("recommendedActions.start")], ["feedback", t("recommendedActions.feedback")], ["close", t("recommendedActions.close")], ["hold", t("recommendedActions.hold")]], batchForm.action, (val) => { batchForm.action = val; }, t("batch.formAction"));
         const reason = el("input", "batchreason");
         reason.placeholder = t("batch.reasonPlaceholder");
+        reason.value = batchForm.reason;   // P2 Task 1：闭包态回填（跨 paint 草稿保留）
+        reason.oninput = () => { batchForm.reason = reason.value; };
         form.append(v, u, actSel, reason);
         form.append(btn(t("actions.override"), () => batchGo((k) => a.override({ key: k, validity: v.value, urgency: u.value, action: actSel.value, reason: reason.value, lang: getLang() }))));
         batchBar.append(form);
@@ -562,7 +562,6 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
       }
       triage.append(emptyBox);
     } else {
-      checkboxEls.clear();
       for (const group of groupCandidates(list, t)) {
         if (group.items.length === 0) continue;
         const sec = el("section", "group" + (group.dim ? " dim" : ""));
@@ -584,7 +583,6 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
             selectable: true,
             selected: selectedKeys.has(c.key),
             onToggleSelect: (key) => { if (selectedKeys.has(key)) selectedKeys.delete(key); else selectedKeys.add(key); paint(); },
-            onCheckboxEl: checkboxElSink,
             actions: extend?.rowActions ? (detail, cand) => extend.rowActions(detail, cand, { t, view, lang: getLang() }) : undefined,
           });
         }
@@ -616,13 +614,14 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
     const assignNavKeys = (node) => {
       for (const c of node.children ?? []) {
         const tag = String(c.tagName).toUpperCase();
-        if (tag === "BUTTON" || tag === "SELECT" || tag === "INPUT" || tag === "TEXTAREA") c.dataset.navKey = "n" + navIdx++;
+        // P2 Task 1（S1 收紧）：candidateRow 预置的候选键派生 navKey（row-title:/row-check:）优先保留
+        if (tag === "BUTTON" || tag === "SELECT" || tag === "INPUT" || tag === "TEXTAREA") c.dataset.navKey ??= "n" + navIdx++;
         assignNavKeys(c);
       }
     };
     assignNavKeys(surface);
     prevMainEl = main;
-    if (savedScroll) main.scrollTop = savedScroll;
+    if (savedScroll) main.scrollTop = savedScroll;   // P1-2：滚动保留（误删恢复——P2 Task 1 编辑事故即时自纠）
     if (navKey) {
       const findByNavKey = (node) => {
         for (const c of node.children ?? []) {
