@@ -60,6 +60,9 @@ export function renderRow(container, candidate, t, { expanded = false, onToggle,
   } else {
     row.append(el("span", "chip muted", t("validity.none")));
   }
+  if (Number.isInteger(candidate?.triage?.confidence)) {
+    row.append(el("span", "chip", t("triage.confidence").replace("{n}", String(candidate.triage.confidence))));   // P2 Task 8：置信 chip（advisory）
+  }
   container.append(row);
   if (expanded) {
     const detail = el("div", "detail");

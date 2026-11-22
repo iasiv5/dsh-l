@@ -1772,3 +1772,14 @@ test("角色创建向导：三步/预设起步/预填/保存/取消不落库（P
   assert.equal(upserts.length, 1, "取消不落库");
   assert.equal(dlg(), undefined, "向导已关闭");
 });
+
+test("清单行置信 chip（P2 Task 8）", async () => {
+  const { renderRow } = await import("../src/client/components/candidateRow.mjs");
+  const base = { key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t", stage: "triaged", triage: { urgency: "P1", validity: "high", action: "start", reason: "r" } };
+  const root = new FakeElement("div");
+  renderRow(root, { ...base, triage: { ...base.triage, confidence: 87 } }, t, { expanded: false, onToggle: () => {} });
+  assert.ok(root.textContent.includes(t("triage.confidence").replace("{n}", "87")), "置信 chip 在场");
+  const root2 = new FakeElement("div");
+  renderRow(root2, base, t, { expanded: false, onToggle: () => {} });
+  assert.ok(!root2.textContent.includes(t("triage.confidence").replace("{n}", "")), "无置信不渲染");
+});

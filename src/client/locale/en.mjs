@@ -101,6 +101,7 @@ export const en = {
   validity: { high: "credible", medium: "doubtful", low: "not credible", none: "unrated" },
   recommendedActions: { start: "start", feedback: "await feedback", close: "close", hold: "hold" },
   gates: { G1: "before build", G2: "before ship", G3: "before release" },
+  triage: { confidence: "Confidence {n}" },
   stages: {
     ingest: "Ingest",
     backlog: "Backlog",

@@ -1085,3 +1085,22 @@ test("postWorkDeliver：无活跃会话 404 / 阶段不符 409 / 成功 G2 留�
   // shipped 后再交付 → 409
   assert.equal((await h.postWorkDeliver({ key: "o/r#issue#1" })).error, "deliver-requires-building");
 });
+
+test("postTriage confidence 透传 + 缺失率日志（P2 Task 8）", async () => {
+  const store = openStore(); seed(store); seed(store, 2);
+  const infos = [];
+  const origInfo = console.info;
+  console.info = (...args) => { if (String(args[0] ?? "").includes("rows missing confidence")) infos.push(String(args[0])); };
+  try {
+    const triage = { runTriage: async () => ({ updated: [
+      { key: "o/r#issue#1", validity: "low", urgency: "P3", action: "close", reason: "spam", confidence: 82 },
+      { key: "o/r#issue#2", validity: "medium", urgency: "P2", action: "hold", reason: "meh" },
+    ], failed: null }) };
+    const h = makeHandlers({ store, provider: PROVIDER(), triage });
+    assert.deepEqual((await h.postTriage({ keys: ["o/r#issue#1", "o/r#issue#2"], lang: "zh-CN" })).updated.length, 2);
+    assert.equal(store.getCandidate("o/r#issue#1").triage.confidence, 82, "合法透传");
+    assert.equal(store.getCandidate("o/r#issue#2").triage.confidence, null, "缺省 → null");
+    assert.equal(infos.length, 1, "缺失率日志一次（S1）");
+    assert.ok(infos[0].includes("1/2"), "缺失计数 1/2");
+  } finally { console.info = origInfo; }
+});

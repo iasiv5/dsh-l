@@ -101,6 +101,7 @@ export const zhCN = {
   validity: { high: "可信", medium: "存疑", low: "不可信", none: "未评" },
   recommendedActions: { start: "开工", feedback: "等反馈", close: "关闭", hold: "挂起" },
   gates: { G1: "开工前", G2: "交付前", G3: "发版前" },
+  triage: { confidence: "置信 {n}" },
   stages: {
     ingest: "摄取",
     backlog: "清单",

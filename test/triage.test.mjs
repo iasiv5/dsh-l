@@ -74,3 +74,24 @@ test("resolveAgentSelection：未设置跟随宿主默认（含 reasoningEffort�
   assert.deepEqual(resolveAgentSelection({ provider: "p1", model: "m1" }, defaults), { provider: "p1", model: "m1", reasoningEffort: undefined });
   assert.deepEqual(resolveAgentSelection({ provider: "", model: "m1" }, defaults), { provider: "p0", model: "m0", reasoningEffort: "high" });
 });
+
+// ---- P2 Task 8：分诊置信度（prompt/容错解析）----
+test("parse confidence：合法透传/null/非法缺省/无字段（rev-plan B1 两层显式化）", () => {
+  const base = { key: "o/r#issue#1", validity: "high", urgency: "P1", action: "start", reason: "r" };
+  const wrap = (arr) => TICKS + "json\n" + JSON.stringify(arr) + "\n" + TICKS;
+  assert.deepEqual(parseTriageOutput(wrap([{ ...base, confidence: 82 }])), [{ ...base, confidence: 82 }], "合法透传");
+  const nullConf = parseTriageOutput(wrap([{ ...base, confidence: null }]));
+  assert.equal(nullConf.length, 1, "null → 元素合法");
+  assert.equal("confidence" in nullConf[0], false, "null → 字段不落");
+  const strConf = parseTriageOutput(wrap([{ ...base, confidence: "high" }]));
+  assert.equal(strConf.length, 1, "非法字符串 → 元素合法");
+  assert.equal("confidence" in strConf[0], false, "非法字符串 → 字段不落");
+  const overConf = parseTriageOutput(wrap([{ ...base, confidence: 150 }]));
+  assert.equal("confidence" in overConf[0], false, "越界 → 字段不落");
+  assert.deepEqual(parseTriageOutput(wrap([base])), [base], "无字段缺省");
+});
+
+test("buildPrompt 含 confidence 自评要求（P2 Task 8）", () => {
+  assert.ok(buildPrompt([cand], "zh-CN").includes("confidence"), "zh 提及 confidence");
+  assert.ok(buildPrompt([cand], "en").includes("confidence"), "en 提及 confidence");
+});

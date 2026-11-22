@@ -34,7 +34,7 @@ export function buildTaskPackage(candidate, repoInfo = null, now = () => new Dat
     kind: "dsh-l.task-package",
     candidate: { key: candidate.key, repo: candidate.repo, type: candidate.type, number: candidate.number, title: candidate.title, url: candidate.url },
     triage: candidate.triage
-      ? { validity: candidate.triage.validity, urgency: candidate.triage.urgency, action: candidate.triage.action, reason: candidate.triage.reason }
+      ? { validity: candidate.triage.validity, urgency: candidate.triage.urgency, action: candidate.triage.action, reason: candidate.triage.reason, confidence: candidate.triage.confidence ?? null }
       : null,
     gate: { gate: "G1", decision: "pass", via: "workbench-ui", at },
     // v1 floor：goal 复用候选标题，constraints/DoD 留空由执行器侧补全（design.md §6 裁决记录）。
@@ -381,9 +381,12 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
         return fail(result.failed, 502);
       }
       const updated = [];
+      // P2 Task 8（S1）：confidence 缺失率可观测（advisory 字段容错缺省不触发 fail-closed）
+      const missingConf = result.updated.filter((row) => !Number.isInteger(row.confidence)).length;
+      if (missingConf > 0) console.info("[dsh-l] triage: " + missingConf + "/" + result.updated.length + " rows missing confidence");
       for (const row of result.updated) {
         if (!keys.includes(row.key) || !store.getCandidate(row.key) || !validTriage(row)) continue;
-        store.setTriage(row.key, { validity: row.validity, urgency: row.urgency, action: row.action, reason: String(row.reason ?? "").slice(0, 160), lang }, "llm");
+        store.setTriage(row.key, { validity: row.validity, urgency: row.urgency, action: row.action, reason: String(row.reason ?? "").slice(0, 160), confidence: Number.isInteger(row.confidence) ? row.confidence : null, lang }, "llm");
         updated.push(row.key);
       }
       return { updated };

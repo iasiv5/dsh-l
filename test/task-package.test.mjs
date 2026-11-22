@@ -23,7 +23,13 @@ test("任务包 golden：顶层与各块字段精确锁定", () => {
   assert.deepEqual(KEYS(pkg.repo), ["cloneUrl", "defaultBranch", "localPath"]);
   assert.equal(pkg.version, 1);
   assert.equal(pkg.kind, "dsh-l.task-package");
-  assert.deepEqual(pkg.triage, { validity: "high", urgency: "P1", action: "start", reason: "r" });
+  assert.deepEqual(pkg.triage, { validity: "high", urgency: "P1", action: "start", reason: "r", confidence: null });   // P2 Task 8：triage 五字段投影显式化（无置信 → null）
+  const confPkg = buildTaskPackage(
+    CAND({ validity: "high", urgency: "P1", action: "start", reason: "r", confidence: 82 }),
+    { defaultBranch: "master", cloneUrl: "git@github.com:o/r.git" },
+    now,
+  );
+  assert.equal(confPkg.triage.confidence, 82, "置信随包交接");
   assert.deepEqual(pkg.gate, { gate: "G1", decision: "pass", via: "workbench-ui", at: "2026-11-12T14:00:00.000Z" });
   assert.equal(pkg.repo.defaultBranch, "master");
   assert.equal(pkg.repo.cloneUrl, "git@github.com:o/r.git");
