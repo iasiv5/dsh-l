@@ -1366,23 +1366,42 @@ test("多选 + 批量动作：勾选/批量关闭/批量推翻统一理由/部�
   assert.ok(calls.filter((x) => x[0] === "stage").every((x) => x[2] === "closed"), "目标阶段 closed");
   assert.equal(find(shadow, (n) => n.className === "batchbar").length, 0, "成功后批量栏消失（清勾选 + reload）");
   assert.ok(stateCalls > 0, "全成功路径 reload（api.state 重取）");
-  // 批量推翻（部分失败：c2 失败）
-  failKey = "o/r#issue#2";
-  const checks2 = find(shadow, (n) => String(n.getAttribute("role")) === "checkbox");
-  checks2[0].onclick();
-  checks2[1].onclick();
+  // 批量推翻（全成功）：reason 草稿清空（计划 §6 契约，rev-impl-p1 S2）
+  const checks3 = find(shadow, (n) => String(n.getAttribute("role")) === "checkbox");
+  checks3[0].onclick(); checks3[1].onclick();
   await settle();
+  find(shadow, (n) => n.className === "batchbar")[0].children.find((n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("batch.override")).onclick();
+  await settle();
+  const reasonFull = find(shadow, (n) => n.className === "batchreason")[0];
+  reasonFull.value = "草稿1";
+  reasonFull.oninput?.();
+  find(shadow, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("actions.override"))[0].onclick();
+  await settle();
+  // 重开表单验证草稿已清空（rev-impl-p1 S2 双向钉死）：重新勾选 → 开表单 → reason 为空
+  const checks4 = find(shadow, (n) => String(n.getAttribute("role")) === "checkbox");
+  checks4[0].onclick(); checks4[1].onclick();
+  await settle();
+  find(shadow, (n) => n.className === "batchbar")[0].children.find((n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("batch.override")).onclick();
+  await settle();
+  const reasonAfterFull = find(shadow, (n) => n.className === "batchreason")[0];
+  assert.equal(reasonAfterFull.value, "", "全成后重开表单草稿已清空（rev-impl-p1 S2 双向钉死）");
+  find(shadow, (n) => n.className === "batchbar")[0].children.find((n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("batch.override")).onclick();   // 收起
+  await settle();
+  // 批量推翻（部分失败：c2 失败）——reopen 步骤已选中 c1/c2，直接复用现有选择集
+  failKey = "o/r#issue#2";
   const batchBar2 = find(shadow, (n) => n.className === "batchbar")[0];
   find(batchBar2, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("batch.override"))[0].onclick();
   await settle();
   const reason = find(shadow, (n) => n.className === "batchreason")[0];
   reason.value = "统一理由";
+  reason.oninput?.();   // 真实打字逐键触发 oninput 写回闭包态
   const stateCallsBefore = stateCalls;
+  const ovBefore = calls.filter((x) => x[0] === "override").length;
   const submit = find(shadow, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("actions.override"))[0];
   submit.onclick();
   await settle();
   assert.equal(stateCalls, stateCallsBefore, "部分失败不 reload（view.reload 必经 api.state 重取，B4/S4）");
-  const ovCalls = calls.filter((x) => x[0] === "override");
+  const ovCalls = calls.filter((x) => x[0] === "override").slice(ovBefore);   // 基线差值：仅本批
   assert.equal(ovCalls.length, 1, "逐 key override（stub 对失败键抛错前不记账，成功键=1）");
   assert.equal(ovCalls[0][1].key, "o/r#issue#1", "成功键正确");
   assert.ok(ovCalls.every((x) => x[1].reason === "统一理由"), "统一理由随包提交");
@@ -1391,6 +1410,8 @@ test("多选 + 批量动作：勾选/批量关闭/批量推翻统一理由/部�
   const checksAfter = find(shadow, (n) => String(n.getAttribute("role")) === "checkbox");
   assert.equal(checksAfter.find((n) => n.dataset.key === "o/r#issue#1").getAttribute("aria-checked"), "false", "成功键移出选择集");
   assert.equal(checksAfter.find((n) => n.dataset.key === "o/r#issue#2").getAttribute("aria-checked"), "true", "失败键保留勾选（原位重试，B4）");
+  const reasonKept = find(shadow, (n) => n.className === "batchreason")[0];
+  assert.equal(reasonKept.value, "统一理由", "部分失败草稿保留（闭包态）");
 });
 
 test("keynav 键位分派纯逻辑：j/k 钳位/Enter/x/数字/?/typing 忽略/修饰键忽略/pd 仅消费（P1-1）", async () => {
@@ -1589,6 +1610,10 @@ test("palette：过滤/键盘导航/执行/Esc/空态（P2-1）", async () => {
   input().oninput?.();
   assert.ok(dlg().textContent.includes(t("palette.empty")), "空匹配文案");
   dlg().remove();
+  const fs = await import("node:fs");
+  const psrc = fs.readFileSync(new URL("../src/client/components/commandPalette.mjs", import.meta.url), "utf8");
+  assert.ok(!psrc.includes("min-height:32px"), "palette item 无内联 32px（coarse 44px 接管，B1）");
+  assert.ok(!psrc.includes("font-size:14px"), "palette input 无内联 14px（coarse 16px 接管）");
 });
 
 test("workbench ⌘K 接线：typing 内可开/截获先于 keynav/paint 重置（P2-1/S4/S5）", async () => {
@@ -1657,6 +1682,7 @@ test("peek：p 键浮层内容/j 联动/Esc 关闭（P2-6 前半）", async () =
   dispatch({ key: "p", target: { tagName: "DIV" } });   // Peek
   const peek = () => find(shadow, (n) => String(n.className).includes("peekoverlay"))[0];
   assert.ok(peek(), "浮层在场");
+  assert.ok(peek().textContent.includes(t("peek.title")), "面板标题（S1 死键转消费）");
   assert.ok(peek().textContent.includes("o/r#1") && peek().textContent.includes("长标题"), "标题全文");
   assert.ok(peek().textContent.includes("复现清晰"), "分诊理由");
   assert.ok(peek().textContent.includes(t("peek.history")) && peek().textContent.includes("triaged.llm"), "history 区与事件");

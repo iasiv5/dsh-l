@@ -16,6 +16,9 @@ export function renderPeek(anchorEl, { t, candidate, onClose = () => {} } = {}) 
   const box = el("div", "peekbox");
   box.style.cssText = "background:canvas;color:canvastext;border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;width:min(460px,92vw);max-width:90vw;max-height:80vh;overflow:auto";
   const close = () => { dlg.remove(); onClose(); };
+  const lbl = el("div", "peeklabel", t("peek.title"));   // rev-impl-p1 S1：死键转消费
+  lbl.style.cssText = "font-size:12px;font-weight:600;opacity:.8";
+  box.append(lbl);
   // 头部：类型 + 标题全文 + 关闭
   const head = el("div", "peekhead");
   head.style.cssText = "display:flex;gap:8px;align-items:center";

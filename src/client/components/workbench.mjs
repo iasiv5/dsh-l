@@ -531,7 +531,7 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
         let ok = 0;
         const failedKeys = [];
         results.forEach((res, i) => { if (res.status === "fulfilled") { ok++; selectedKeys.delete(keys[i]); } else failedKeys.push(keys[i]); });
-        if (failedKeys.length === 0) { notice = null; await view.reload(); }
+        if (failedKeys.length === 0) { notice = null; batchForm.reason = ""; batchForm.open = false; await view.reload(); }   // P2 契约：全成清空共享理由草稿并收起表单
         else { notice = t("batch.done").replace("{ok}", String(ok)).replace("{fail}", String(failedKeys.length)); paint(); }
       };
       batchBar.append(btn(t("actions.moveTo") + " " + t("groups.gating"), () => batchGo((k) => a.stage(k, "gating", ""))));
@@ -716,7 +716,11 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
     },
     onPeek: (i) => showPeekAt(i),
     onHelp: () => { if (helpInstance) { helpInstance.close(); helpInstance = null; } else { helpInstance = openHelp(surfaceEl ?? shadow, makeT(getLang())); } },   // P1-1：? toggle（rev-impl-p1 S5 防叠开）
-    escape: () => { if (peekInstance) { peekInstance.close(); peekInstance = null; peekOpen = false; return; } helpInstance?.close?.(); helpInstance = null; },   // P2-6：peek 优先关闭
+    escape: () => {
+      if (peekInstance) { peekInstance.close(); peekInstance = null; peekOpen = false; return; }
+      if (paletteOpen) { paletteInstance?.close?.(); paletteOpen = false; paletteInstance = null; return; }   // rev-impl-p1 S4：焦点不在 input 时 Esc 亦可关面板
+      helpInstance?.close?.(); helpInstance = null;
+    },
   });
   const keyHandlerGuarded = (e) => {
     if (disposed) return;

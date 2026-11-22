@@ -19,7 +19,7 @@ export function openPalette(anchorEl, { t, actions = [], onClose = () => {} } = 
   title.style.cssText = "font-weight:600;opacity:.8;font-size:12px";
   const input = el("input", "paletteinput");
   input.placeholder = t("palette.placeholder");
-  input.style.cssText = "width:100%;max-width:100%;min-height:36px;padding:6px 10px;font-size:14px;border-radius:8px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);background:color-mix(in srgb,currentColor 4%,canvas);color:inherit";
+  input.style.cssText = "width:100%;max-width:100%;min-height:36px;padding:6px 10px;border-radius:8px;border:1px solid color-mix(in srgb,currentColor 18%,transparent);background:color-mix(in srgb,currentColor 4%,canvas);color:inherit";   // rev-impl-p1：无内联 font-size（coarse 16px 接管）
   const list = el("div", "palettelist");
   box.append(title, input, list);
   dlg.append(box);
@@ -37,13 +37,15 @@ export function openPalette(anchorEl, { t, actions = [], onClose = () => {} } = 
       const item = el("button", "paletteitem" + (i === index ? " is-active" : ""), a.label);
       item.type = "button";
       item.setAttribute("aria-selected", String(i === index));
-      item.style.cssText = "text-align:left;padding:6px 10px;border:none;background:transparent;color:inherit;cursor:pointer;min-height:32px" + (i === index ? ";background:color-mix(in srgb,currentColor 10%,transparent);font-weight:600" : "");
+      item.style.cssText = "text-align:left;padding:6px 10px;border:none;background:transparent;color:inherit;cursor:pointer" + (i === index ? ";background:color-mix(in srgb,currentColor 10%,transparent);font-weight:600" : "");   // rev-impl-p1 B1：无内联 min-height（coarse 44px 接管）
       item.onclick = () => { dlg.remove(); onClose(); a.run?.(); };
       list.append(item);
     });
   };
   input.oninput = () => { query = input.value; index = 0; paintList(); };
   input.onkeydown = (e) => {
+    // S4：⌘K/Ctrl+K 在 input 内亦 toggle 关闭（stopPropagation 之前拦截）
+    if (e && (e.ctrlKey || e.metaKey) && String(e.key ?? "").toLowerCase() === "k") { e.preventDefault?.(); close(); return; }
     e?.stopPropagation?.();   // 面板开着时不泄给 keynav（P1 B1 同源语义）
     if (!e) return;
     const items = filtered();
