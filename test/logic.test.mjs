@@ -159,3 +159,75 @@ test("shouldShowStartHint：绑定+有候选+无gating → true；有gating → 
   assert.equal(shouldShowStartHint({ auth: { account: "o" }, candidates: [] }), false);
   assert.equal(shouldShowStartHint({}), false);
 });
+
+// ---- P0 UI/UX 升级纯函数（docs/plans/2026-11-22-p0-uiux-upgrade-implementation-plan.md Task 3）----
+test("candidateState 六态真值表（seen 布尔；P0-2 契约 §7）", async () => {
+  const { candidateState } = await import("../src/client/logic.mjs");
+  const cs = (o) => candidateState({ candidate: o, run: o.run ?? null, seen: o.seen ?? false });
+  assert.equal(cs({ stage: "gating", run: { status: "failed" } }), "failed", "优先级 1 压过 gating");
+  assert.equal(cs({ stage: "inbox", run: { status: "waiting" } }), "gating");
+  assert.equal(cs({ stage: "triaged" }), "idle");
+  assert.equal(cs({ stage: "gating" }), "gating");
+  assert.equal(cs({ stage: "shipped" }), "gating", "shipped 未确认发版 = 待你处理");
+  assert.equal(cs({ stage: "building", run: { status: "succeeded" }, seen: false }), "unread");
+  assert.equal(cs({ stage: "shipped", release: { confirmedAt: "x" }, run: { status: "succeeded" }, seen: true }), "done");
+  assert.equal(cs({ stage: "shipped", release: { confirmedAt: "x" } }), "done");
+  assert.equal(cs({ stage: "building", run: { status: "running" } }), "running");
+  assert.equal(cs({ stage: "verifying" }), "running");
+  assert.equal(cs({ stage: "closed" }), "idle");
+});
+
+test("sessionState 五态 + 孤儿行（item=null 仅认 summary.running；P0-2）", async () => {
+  const { sessionState } = await import("../src/client/logic.mjs");
+  assert.equal(sessionState({ kind: "work", candidate: { stage: "building" } }, { running: true }), "running");
+  assert.equal(sessionState({ kind: "work", candidate: { stage: "building" } }, { running: false }), "running");
+  assert.equal(sessionState({ kind: "work", candidate: { stage: "gating" } }, { running: false }), "gating");
+  assert.equal(sessionState({ kind: "work", candidate: { stage: "shipped" } }, { running: false }), "done");
+  assert.equal(sessionState({ kind: "work", candidate: { stage: "triaged" } }, { running: false }), "idle");
+  assert.equal(sessionState(null, { running: true }), "running", "孤儿行 running");
+  assert.equal(sessionState(null, { running: false }), "idle", "孤儿行非 running 即 idle");
+  assert.equal(sessionState(null, null), "idle");
+});
+
+test("advanceStageOf：正向推进链两跳，之后为 null（P0-1）", async () => {
+  const { advanceStageOf } = await import("../src/client/logic.mjs");
+  assert.equal(advanceStageOf("inbox"), "triaged");
+  assert.equal(advanceStageOf("triaged"), "gating");
+  assert.equal(advanceStageOf("gating"), null);
+  assert.equal(advanceStageOf("shipped"), null);
+  assert.equal(advanceStageOf("held"), null);
+  assert.equal(advanceStageOf(undefined), null);
+});
+
+test("formatAge：ageDays → 显示段（P0-6）", async () => {
+  const { formatAge } = await import("../src/client/logic.mjs");
+  assert.equal(formatAge(0.5), "<1d");
+  assert.equal(formatAge(3), "3d");
+  assert.equal(formatAge(3.6), "4d");
+  assert.equal(formatAge(null), "");
+  assert.equal(formatAge(undefined), "");
+});
+
+test("gateWaitInfo：waitingGate 前后节点按模板序推导；gateId 取 waitingGateId（P0-3）", async () => {
+  const { gateWaitInfo } = await import("../src/client/logic.mjs");
+  const tpl = { nodes: LOOP_V1.nodes.map(({ id, name, type }) => ({ id, name, type })) };   // 模拟 metaOf 投影
+  const run = { waitingGate: "g2", waitingGateId: "G2", failedNodeIds: [], cancelledNodeIds: [] };
+  const info = gateWaitInfo({ run, template: tpl });
+  assert.equal(info.gateId, "G2");
+  assert.deepEqual(info.upstreamNames, ["build", "verify"]);
+  assert.ok(info.nextNames.includes("发起 MR"), "后续节点含发起 MR");
+  const g1 = gateWaitInfo({ run: { waitingGate: "g1", waitingGateId: "G1", failedNodeIds: [], cancelledNodeIds: [] }, template: tpl });
+  assert.deepEqual(g1.upstreamNames, []);
+  const failed = gateWaitInfo({ run: { waitingGate: "g2", waitingGateId: "G2", failedNodeIds: ["build"], cancelledNodeIds: [] }, template: tpl });
+  assert.deepEqual(failed.upstreamNames, ["verify"], "failed 节点不计入已完成上游");
+  assert.deepEqual(gateWaitInfo({ run: { waitingGate: "g2", waitingGateId: "G2" }, template: null }).upstreamNames, []);
+  assert.deepEqual(gateWaitInfo({ run: { waitingGate: "ghost", waitingGateId: null }, template: tpl }).nextNames, []);
+});
+
+test("prettyKey：owner/repo#type#number → owner/repo#number；畸形键原样（P0-3）", async () => {
+  const { prettyKey } = await import("../src/client/logic.mjs");
+  assert.equal(prettyKey("iasiv5/dsh-m#pull#12"), "iasiv5/dsh-m#12");
+  assert.equal(prettyKey("iasiv5/dsh-m#issue#3"), "iasiv5/dsh-m#3");
+  assert.equal(prettyKey("weird"), "weird");
+  assert.equal(prettyKey(null), null);
+});

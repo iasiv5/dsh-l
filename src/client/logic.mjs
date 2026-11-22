@@ -157,3 +157,62 @@ export function kanbanColumns({ candidates } = {}) {
   }
   return { columns };
 }
+
+// ---- P0 UI/UX 升级纯函数（docs/plans/2026-11-22-p0-uiux-upgrade-implementation-plan.md Task 3）----
+
+// 六态判定（P0-2 契约 §7）：优先级 failed > gating > unread > running > done > idle；seen 为布尔
+// （workbench 持有 seenRuns 集合，调用处换算，logic 层不收集合）。gating 统一承载 G1 待拍板 /
+// waiting run / G3 待发版三来源——与 needsReview 收件箱口径互补。
+export function candidateState({ candidate: c, run = null, seen = false }) {
+  if (run?.status === "failed") return "failed";
+  if (c?.stage === "gating" || run?.status === "waiting" || (c?.stage === "shipped" && !c?.release?.confirmedAt)) return "gating";
+  if (run?.status === "succeeded" && !seen) return "unread";
+  if (run?.status === "running" || c?.stage === "building" || c?.stage === "verifying") return "running";
+  if (c?.stage === "shipped") return "done";
+  return "idle";
+}
+
+// 会话行六态（P0-2）：孤儿行（item=null，summary 兜底行）仅认 summary.running，其余 idle。
+export function sessionState(item, summary = null) {
+  if (summary?.running) return "running";
+  const stage = item?.candidate?.stage;
+  if (stage === "building" || stage === "verifying") return "running";
+  if (stage === "gating") return "gating";
+  if (stage === "shipped") return "done";
+  return "idle";
+}
+
+// 正向推进链（P0-1）：仅 inbox→triaged→gating 两跳；gating 之后属闸门语义，看板不带。
+export function advanceStageOf(stage) {
+  if (stage === "inbox") return "triaged";
+  if (stage === "triaged") return "gating";
+  return null;
+}
+
+// 行内元数据脚注年龄段（P0-6）：纯数字逻辑，无文案 i18n；缺失（null/undefined/空串/非数值）返回空段。
+export function formatAge(ageDays) {
+  if (ageDays === null || ageDays === undefined || ageDays === "") return "";
+  const n = Number(ageDays);
+  if (!Number.isFinite(n)) return "";
+  return n < 1 ? "<1d" : Math.round(n) + "d";
+}
+
+// 闸门等待解释（P0-3）：waitingGate 前后节点按模板定义序推导——线性内置模板精确，用户非线性模板近似。
+// gateId 取 run.waitingGateId（metaOf 投影无 gateId 字段）；不做 rejectTarget 解析（meta 无该字段），
+// 驳回后果由调用方走通用文案。
+export function gateWaitInfo({ run, template } = {}) {
+  const nodes = template?.nodes ?? [];
+  const gateId = run?.waitingGateId ?? null;
+  const i = nodes.findIndex((n) => n.id === (run?.waitingGate ?? null));
+  if (i < 0) return { gateId, upstreamNames: [], nextNames: [] };
+  const blocked = new Set([...(run?.failedNodeIds ?? []), ...(run?.cancelledNodeIds ?? [])]);
+  const upstreamNames = nodes.slice(0, i).filter((n) => n.type !== "gate" && !blocked.has(n.id)).map((n) => n.name ?? n.id);
+  const nextNames = nodes.slice(i + 1).filter((n) => n.type !== "gate").map((n) => n.name ?? n.id);
+  return { gateId, upstreamNames, nextNames };
+}
+
+// 候选键美化（P0-3）：owner/repo#type#number → owner/repo#number；畸形键原样返回。
+export function prettyKey(key) {
+  const m = typeof key === "string" ? key.match(/^(.+)#(?:issue|pull)#(\d+)$/) : null;
+  return m ? m[1] + "#" + m[2] : key;
+}

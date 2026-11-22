@@ -114,6 +114,7 @@ export const en = {
     noToken: "No GitHub credential found: configure a token or sign in to gh on this machine.",
   },
   meta: { lastRefreshAt: "Last refresh" },
+  stateDot: { running: "Running", gating: "Needs you", unread: "Unseen results", done: "Done", failed: "Failed", idle: "Idle" },
   tabs: { list: "List", board: "Board", review: "Needs review", sessions: "Sessions", roles: "Roles" },
   sessions: {
     title: "Sessions",
