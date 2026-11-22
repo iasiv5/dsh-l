@@ -1703,3 +1703,20 @@ test("review G2 staged 逐节点列表 + 类型标签（P2 Task 5）", async () 
   assert.ok(nodeRows[1].textContent.includes(t("nodeType.script")), "类型标签 script");
   assert.ok(card.textContent.includes("发起 MR → 推送检查"), "gatePassEffect 汇总行保留（S6 裁决）");
 });
+
+test("sessionsView 卡住检测警示 chip（P2 Task 6）", async () => {
+  const { renderSessionsView } = await import("../src/client/components/sessionsView.mjs");
+  const NOW = 1_000_000_000;
+  const items = [
+    { kind: "work", key: "k1", sessionId: "s-stalled", runId: null, cwd: "/w", approvalPolicy: null, createdAt: 1, updatedAt: NOW - 20 * 60_000, candidate: { repo: "o/r", number: 1, title: "T1", stage: "building" } },
+    { kind: "work", key: "k2", sessionId: "s-fresh", runId: null, cwd: "/w", approvalPolicy: null, createdAt: 1, updatedAt: NOW - 60_000, candidate: { repo: "o/r", number: 2, title: "T2", stage: "building" } },
+  ];
+  const summaries = [{ id: "s-stalled", displayTitle: "s1", running: true }, { id: "s-fresh", displayTitle: "s2", running: true }];
+  const root = new FakeElement("div");
+  renderSessionsView(root, { t, items, summaries, onOpen: () => {}, onAnother: () => {}, onDeliver: null, nowMs: NOW });
+  const stalledRow = root.children.filter((n) => n._rowId === "s-stalled")[0];
+  const freshRow = root.children.filter((n) => n._rowId === "s-fresh")[0];
+  const stalledChip = stalledRow.children.find((n) => n.getAttribute?.("title") === t("sessions.stalledTitle"));
+  assert.ok(stalledChip && stalledChip.textContent === t("sessions.stalled"), "卡住警示 chip（title=阈值说明）");
+  assert.ok(!freshRow.children.some((n) => n.getAttribute?.("title") === t("sessions.stalledTitle")), "未超时无 chip");
+});

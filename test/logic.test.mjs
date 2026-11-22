@@ -320,3 +320,14 @@ test("gateWaitInfo nextNodes：name+type 投影，nextNames 兼容保留（P2 Ta
   ]);
   assert.deepEqual(info.nextNames, ["发起 MR", "推送检查", "MR 检查", "交付汇总"], "nextNames 兼容保留");
 });
+
+// ---- P2 Task 6：卡住检测判定 ----
+test("stalledOf 档位 + STALL_MS 常量（P2 Task 6）", async () => {
+  const { stalledOf, STALL_MS } = await import("../src/client/logic.mjs");
+  assert.equal(STALL_MS, 15 * 60_000);
+  const now = 1_000_000_000;
+  assert.equal(stalledOf(now - 14 * 60_000, now), false, "阈值内 false");
+  assert.equal(stalledOf(now - 16 * 60_000, now), true, "超阈值 true");
+  assert.equal(stalledOf(undefined, now), false, "非法 false");
+  assert.equal(stalledOf(now + 5_000, now), false, "未来时间 false");
+});

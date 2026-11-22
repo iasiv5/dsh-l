@@ -1,6 +1,6 @@
 // 会话板块纯函数（Task 11）：排序（Q13：running 置顶、updatedAt 倒序）与锚行反解（Q14 固定 ASCII 前缀）。
 // 无 DOM 依赖——renderSessionsView（Task 12）与测试共用。
-import { formatRelative, sessionState } from "../logic.mjs";
+import { formatRelative, sessionState, stalledOf } from "../logic.mjs";
 import { stateDotEl } from "./stateDot.mjs";
 
 // summaries：ctx.sessions.list 行集（client 侧字段 id/running/updatedAt）。缺省/空 → 退化按 updatedAt 倒序。
@@ -46,6 +46,7 @@ export function renderSessionsView(container, { t, items = [], summaries = [], o
     const missing = item.kind === "work" && summaries.length > 0 && !summary;
     if (missing) badges.push(t("sessions.badgeMissing"));
     const ended = item.candidate?.stage === "closed" || (item.candidate?.stage === "shipped" && item.candidate?.release?.confirmedAt);
+    const stalled = summary?.running && stalledOf(item.updatedAt, nowMs);   // P2 Task 6：client 合成卡住判定
     models.push({
       sessionId: item.sessionId ?? null,
       updatedAt: item.updatedAt ?? 0,
@@ -55,6 +56,7 @@ export function renderSessionsView(container, { t, items = [], summaries = [], o
       relTime: relTimeOf(item.updatedAt),
       inFlight: run?.status === "running" ? (run.currentNodeIds ?? []).join("/") : "",
       unread: item.kind === "run" && run?.status === "succeeded" && !seen.has(item.runId),   // P1 小债 C
+      stalled,
       ended,
       item,
       label: item.candidate ? `${item.candidate.repo}#${item.candidate.number} · ${item.candidate.title}` : (item.sessionId ?? item.key ?? ""),
@@ -110,6 +112,11 @@ export function renderSessionsView(container, { t, items = [], summaries = [], o
     row.append(label);
     if (m.relTime) { const rt = document.createElement("span"); rt.className = "chip"; rt.style.opacity = ".7"; rt.textContent = m.relTime; row.append(rt); }
     if (m.inFlight) row.append(mkChip(m.inFlight));   // P1-4：run 行在途节点
+    if (m.stalled) {
+      const sc = mkChip(t("sessions.stalled"));
+      sc.title = t("sessions.stalledTitle");
+      row.append(sc);
+    }
     if (m.unread) { const u = document.createElement("span"); u.className = "stdot st-unread"; u.title = t("stateDot.unread"); row.append(u); }   // P1 小债 C
     for (const a of m.actions) {
       // 交付动作（impl#O2）：onDeliver 返回错误串 → 行内就地呈现（color-mix 语义色，P1 小债 B），成功 null 无痕。

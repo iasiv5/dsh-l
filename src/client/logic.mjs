@@ -268,6 +268,16 @@ export function sortGateRunsByWait(runs) {
   });
 }
 
+// ---- P2 Task 6：卡住检测（client 合成——running 且距上次更新超阈值；无第四态色，警示 chip 承载）----
+export const STALL_MS = 15 * 60_000;
+
+export function stalledOf(updatedAt, nowMs) {
+  const a = Number(updatedAt);
+  const b = Number(nowMs);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  return b - a > STALL_MS;
+}
+
 // ---- P1-3 后半：pinned filters 本地持久化（键固定；storage 注入，缺失降级会话内存）----
 const PIN_KEY = "dsh-l.pinnedFilters.v1";
 let memoryStore = null;

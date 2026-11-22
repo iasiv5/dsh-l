@@ -134,6 +134,8 @@ export const en = {
     empty: "No dsh-l sessions yet — pass G1 on a candidate in the list and choose \"Start it myself\".",
     ago: "{t} ago",
     archive: "Finished",
+    stalled: "Possibly stuck",
+    stalledTitle: "No update for over 15 minutes",
   },
   roles: {
     search: "Search roles (name/id/description)", empty: "No matching roles", overridden: "overrides builtin",

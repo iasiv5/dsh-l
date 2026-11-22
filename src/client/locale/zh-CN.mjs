@@ -134,6 +134,8 @@ export const zhCN = {
     empty: "还没有 dsh-l 会话——从清单里对候选 G1 放行并选「我来开」即可开工。",
     ago: "{t} 前",
     archive: "已结束",
+    stalled: "疑似卡住",
+    stalledTitle: "运行超 15 分钟无更新",
   },
   roles: {
     search: "搜索角色（名称/ID/职责）", empty: "没有匹配的角色", overridden: "已覆盖内置",
