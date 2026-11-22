@@ -113,6 +113,7 @@ export const en = {
   errors: {
     refreshFailed: "Refresh failed. Please retry later.",
     noToken: "No GitHub credential found: configure a token or sign in to gh on this machine.",
+    actionFailed: "Action failed",
   },
   meta: { lastRefreshAt: "Last refresh" },
   stateDot: { running: "Running", gating: "Needs you", unread: "Unseen results", done: "Done", failed: "Failed", idle: "Idle" },
@@ -134,7 +135,7 @@ export const en = {
     save: "Save", cancel: "Cancel", delete: "Delete",
     deleteConfirm: "Delete role {id}? (builtin overrides fall back to the builtin default)", inUse: "Referenced by workflow nodes; deletion disabled",
   },
-  review: { gates: "Waiting for you", release: "Release pending", failed: "Failed", confirm: "Confirm released", empty: "Nothing waiting for you" },
+  review: { gates: "Waiting for you", release: "Release pending", failed: "Failed", confirm: "Confirm released", empty: "Nothing waiting for you", notePlaceholder: "Note (optional, recorded with the action)", gateWait: "Upstream {nodes} finished; the run is paused at {gate} for your approval.", gateWaitGeneric: "The run is paused at {gate} for your approval.", gatePassEffect: "After approval: {next}", gateRejectGeneric: "Rejecting re-runs downstream from this gate's configured fallback target.", passBtn: "Approve (continue)", rejectBtn: "Reject (rework)" },
   feishu: { url: "Feishu webhook URL", save: "Save webhook", saveOk: "Webhook saved", test: "Send test message", testOk: "Test message sent", testFail: "Test send failed" },
   badge: { pending: "Pending ({n})" },
   actions: { triageBatch: "Triage inbox", override: "Save my judgment", overrideGroup: "Manual override (recorded as by:human)", reason: "Reason", moveTo: "Move to", pass: "Pass", reject: "Reject", copyPackage: "Copy task package", cancelRun: "Cancel run", retryRun: "Retry node" },

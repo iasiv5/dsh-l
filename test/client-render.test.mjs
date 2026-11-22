@@ -865,3 +865,57 @@ test("sessionsView：行首六态状态点（P0-2b；DOM 断言住 client-render
   assert.ok(String(dotOf("dsh-l:work-d").className).includes("st-idle"), "triaged → st-idle");
   assert.ok(String(dotOf("dsh-l:run:x:1").className).includes("st-running"), "run 行 building → st-running");
 });
+
+test("review 待我确认卡片增强：人话标题/三行解释/备注传参/动词化按钮（P0-3）", async () => {
+  const { renderReview } = await import("../src/client/components/review.mjs");
+  const { LOOP_V1 } = await import("../src/workflows/builtin.mjs");
+  const calls = [];
+  const gateStub = {
+    runGate: async (...args) => { calls.push(["runGate", ...args]); return {}; },
+    releaseConfirm: async () => {},
+    runCancel: async () => {},
+  };
+  const tpl = { id: "loop-v1", name: "Loop v1", nodes: LOOP_V1.nodes.map(({ id, name, type }) => ({ id, name, type })) };
+  const cand = { key: "iasiv5/dsh-m#pull#12", repo: "iasiv5/dsh-m", type: "pull", number: 12, title: "修复发布脚本", stage: "building", currentRunId: "run-1" };
+  const run = { id: "run-1", candidateKey: "iasiv5/dsh-m#pull#12", status: "waiting", waitingGate: "g2", waitingGateId: "G2", currentNodeIds: ["g2"], failedNodeIds: [], cancelledNodeIds: [], templateId: "loop-v1", error: null };
+  const wrap = new FakeElement("div");
+  renderReview(wrap, { t, candidates: [cand], runs: [run], view: { reload: async () => {} }, templates: [tpl], deps: { api: gateStub } });
+  const card = find(wrap, (n) => n.className === "rvcard")[0];
+  assert.ok(card, "gate 卡在场");
+  assert.ok(card.textContent.includes("iasiv5/dsh-m#12") && card.textContent.includes("修复发布脚本"), "人话标题（prettyKey+title）");
+  assert.ok(!card.textContent.includes("#pull#"), "标题不含原键形态");
+  assert.ok(card.textContent.includes(t("gates.G2")), "解释含闸门名");
+  assert.ok(card.textContent.includes("build") && card.textContent.includes("verify"), "解释含上游节点名（逗号连接）");
+  assert.ok(card.textContent.includes("发起 MR"), "解释含后续节点名（箭头连接）");
+  assert.ok(card.textContent.includes(t("review.gateRejectGeneric")), "驳回后果行在场");
+  const note = find(card, (n) => n.className === "rvnote")[0];
+  assert.ok(note && note.attrs.placeholder === t("review.notePlaceholder"), "备注输入框在场（桩无 placeholder getter，读 attrs）");
+  note.value = "已核对 diff";
+  const passBtn = find(card, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent.includes(t("review.passBtn")))[0];
+  assert.ok(passBtn, "动词化放行按钮");
+  passBtn.onclick();
+  assert.deepEqual(calls[0], ["runGate", "run-1", "g2", "pass", "已核对 diff"], "放行带备注留痕");
+  const rejectBtn = find(card, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent.includes(t("review.rejectBtn")))[0];
+  rejectBtn.onclick();
+  assert.deepEqual(calls[1], ["runGate", "run-1", "g2", "reject", "已核对 diff"], "驳回带备注留痕");
+});
+
+test("review 模板未命中走 gateWaitGeneric 兜底；G3 卡人话标题+备注传参（P0-3）", async () => {
+  const { renderReview } = await import("../src/client/components/review.mjs");
+  const calls = [];
+  const gateStub = { runGate: async () => {}, releaseConfirm: async (...args) => { calls.push(args); return {}; } };
+  const cand = { key: "iasiv5/dsh-l#issue#7", repo: "iasiv5/dsh-l", type: "issue", number: 7, title: "发布 0.2.0", stage: "shipped" };
+  const run = { id: "run-9", candidateKey: "iasiv5/dsh-l#issue#7", status: "waiting", waitingGate: "g2", waitingGateId: "G2", currentNodeIds: ["g2"], failedNodeIds: [], cancelledNodeIds: [], templateId: "unknown-tpl", error: null };
+  const wrap = new FakeElement("div");
+  renderReview(wrap, { t, candidates: [{ ...cand, stage: "building", currentRunId: "run-9" }], runs: [run], view: { reload: async () => {} }, templates: [], deps: { api: gateStub } });
+  const gCard = find(wrap, (n) => n.className === "rvcard")[0];
+  assert.ok(gCard.textContent.includes(t("gates.G2")) && !gCard.textContent.includes("build"), "无模板 → 无上游名（generic 行）");
+  const wrap2 = new FakeElement("div");
+  renderReview(wrap2, { t, candidates: [cand], runs: [], view: { reload: async () => {} }, templates: [], deps: { api: gateStub } });
+  const card = find(wrap2, (n) => n.className === "rvcard")[0];
+  assert.ok(card.textContent.includes("iasiv5/dsh-l#7"), "G3 卡人话标题");
+  const note = find(card, (n) => n.className === "rvnote")[0];
+  note.value = "npm 已发";
+  find(card, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent.includes(t("review.confirm")))[0].onclick();
+  assert.deepEqual(calls[0], ["iasiv5/dsh-l#issue#7", "npm 已发"], "确认发版带备注");
+});
