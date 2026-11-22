@@ -15,7 +15,7 @@ import { withPending } from "./uiFeedback.mjs";
 import { createKeyHandler, openHelp } from "./keynav.mjs";
 
 const CSS = [
-  ":host{display:flex;flex-direction:column;height:100%;font-size:14px;line-height:1.45;color:inherit}",
+  ":host{--dshl-dur-1:200ms;--dshl-dur-2:220ms;--dshl-ease:cubic-bezier(.22,1,.36,1);display:flex;flex-direction:column;height:100%;font-size:14px;line-height:1.45;color:inherit}",
   "header{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid color-mix(in srgb,currentColor 14%,transparent)}",
   "h2{font-size:15px;margin:0 8px 0 0;font-weight:600}",
   "button,select,input{font:inherit;color:inherit;background:transparent;border:1px solid color-mix(in srgb,currentColor 22%,transparent);border-radius:6px;padding:3px 10px;cursor:pointer}",
@@ -42,11 +42,11 @@ const CSS = [
      空间够→居中，空间不够→顶对齐随容器自然滚动（手机上不出现内层拖动条） */
   ".gateWrap{position:absolute;inset:0;z-index:60;display:flex;flex-direction:column;overflow:auto;overscroll-behavior:contain;padding:24px;background:color-mix(in srgb,canvas 78%,transparent)}",
   "@supports (padding:max(16px,env(safe-area-inset-top))){.gateWrap{padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))}}",
-  ".gate{width:min(440px,100%);margin:auto;display:flex;flex-direction:column;padding:28px 28px 20px;border-radius:14px;background:color-mix(in srgb,canvas 96%,transparent);backdrop-filter:blur(14px);border:1px solid color-mix(in srgb,currentColor 10%,transparent);box-shadow:0 32px 64px -24px rgb(0 0 0 /.4),0 4px 16px rgb(0 0 0 /.14);animation:gate-in 220ms cubic-bezier(.22,1,.36,1)}",
+  ".gate{width:min(440px,100%);margin:auto;display:flex;flex-direction:column;padding:28px 28px 20px;border-radius:14px;background:color-mix(in srgb,canvas 96%,transparent);backdrop-filter:blur(14px);border:1px solid color-mix(in srgb,currentColor 10%,transparent);box-shadow:0 32px 64px -24px rgb(0 0 0 /.4),0 4px 16px rgb(0 0 0 /.14);animation:gate-in var(--dshl-dur-2) var(--dshl-ease)}",
   "@media (prefers-reduced-motion:reduce){.gate{animation:none}}",
   "@keyframes gate-in{from{transform:translateY(8px);opacity:.6}}",
   "@keyframes success-in{0%{border-color:color-mix(in srgb,#2da44e 55%,transparent);transform:translateY(2px)}}",
-  ".gate.success-turn{animation:success-in 200ms ease-out}",
+  ".gate.success-turn{animation:success-in var(--dshl-dur-1) var(--dshl-ease)}",
   "@media (prefers-reduced-motion:reduce){.gate.success-turn{animation:none}}",
   ".gateHead{display:flex;align-items:center;justify-content:space-between;gap:10px}",
   /* 图标衬底：取图标主蓝做 tint plate——浅皮淡蓝瓷面、深皮深蓝绒面，柔影托起彩色图标 */
@@ -304,9 +304,11 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
   };
 
   let prevMainEl = null;   // P1-2：上一棵树的滚动容器引用（重绘前快照 scrollTop）
+  let tabsObserver = null;   // P1-8：tab 指示条观察器（paint 重建前断开防泄漏）
   const paint = () => {
     if (disposed) return;
     const t = makeT(getLang());
+    tabsObserver?.disconnect?.(); tabsObserver = null;   // P1-8：旧指示条观察器清账
     // P1-2 快照：滚动位置（旧 main）与焦点（navKey 标记，shadow.activeElement 桩安全可选读）
     const savedScroll = prevMainEl ? (prevMainEl.scrollTop ?? 0) : 0;
     const activeEl = shadow.activeElement ?? null;
@@ -429,15 +431,35 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
       bar.append(pinWrap);
     }
     const main = el("main");
-    // 主栏 tab bar（design-v2 §13.5/D6）：三视图互斥显隐（评审 P10）。
+    // 主栏 tab bar（design-v2 §13.5/D6）：三视图互斥显隐（评审 P10）；P1-8 滑动指示条（S12 双探测，缺省退化）。
     const tabsBar = el("div", "tabsbar");
-    tabsBar.style.cssText = "display:flex;gap:6px;padding:10px 16px 0";
-    for (const [id, label] of [["list", t("tabs.list")], ["board", t("tabs.board")], ["review", t("tabs.review")], ["sessions", t("tabs.sessions")], ["roles", t("tabs.roles")]]) {
-      const b = el("button", null, label);
+    tabsBar.style.cssText = "display:flex;gap:6px;padding:10px 16px 0;position:relative";
+    const TAB_IDS = ["list", "board", "review", "sessions", "roles"];
+    const TAB_LABELS = [t("tabs.list"), t("tabs.board"), t("tabs.review"), t("tabs.sessions"), t("tabs.roles")];   // 静态字面量（动态前缀撞白名单守护，B2 同款纪律）
+    let tabIndex = 0;
+    TAB_IDS.forEach((id, idx) => {
+      const b = el("button", null, TAB_LABELS[idx]);
       b.type = "button";
-      if (activeTab === id) b.style.cssText = "font-weight:700;border-bottom:2px solid currentColor;border-radius:0";
+      if (activeTab === id) { b.style.cssText = "font-weight:700;border-bottom:2px solid currentColor;border-radius:0"; tabIndex = idx; }
       b.onclick = () => { activeTab = id; paint(); };
       tabsBar.append(b);
+    });
+    const indicator = el("div", "tabindicator");
+    indicator.style.cssText = "position:absolute;bottom:0;height:2px;background:currentColor;transition:transform var(--dshl-dur-2) var(--dshl-ease),width var(--dshl-dur-2) var(--dshl-ease)";
+    indicator.style.display = "none";   // S12：缺省静态退化（启用探测通过后置空）
+    tabsBar.append(indicator);
+    if (typeof ResizeObserver !== "undefined" && globalThis.matchMedia?.("(pointer:fine)")?.matches) {
+      indicator.style.display = "";
+      const alignIndicator = () => {
+        const b = tabsBar.children[tabIndex];
+        if (!b || b.offsetWidth === undefined) return;
+        indicator.style.width = b.offsetWidth + "px";
+        indicator.style.transform = "translateX(" + b.offsetLeft + "px)";
+      };
+      tabsObserver?.disconnect?.();
+      tabsObserver = new ResizeObserver(alignIndicator);
+      tabsObserver.observe(tabsBar);
+      alignIndicator();
     }
     // 板块一：收活 —— 已连接账号下的仓源概况与监看管理入口。
     const intake = el("section", "intake");

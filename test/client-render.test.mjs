@@ -1453,3 +1453,25 @@ test("workbench 键盘接线：host keydown 安装 + dispose 对称（P1-1/S5）
   view.dispose();
   assert.ok(!(shadow.host._listeners ?? []).some(([k]) => k === "keydown"), "dispose 对称移除（S5）");
 });
+
+test("motion token + reduced-motion 对账 + tab 指示条缺省退化（P1-8/S12）", async () => {
+  const { mountWorkbench } = await import("../src/client/components/workbench.mjs");
+  const cand = { key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t", stage: "inbox", triage: null };
+  const apiStub = {
+    state: async () => ({ auth: { account: "iasiv5", login: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }, watch: { repos: ["o/r"] }, snapshots: { lastIngestAt: null, perRepo: {} }, settings: { intervalMinutes: 0 }, candidates: [cand], runs: [], workflow: { templates: [] }, ingestLog: [] }),
+    auth: async () => ({ gates: { ghInstalled: true, ghLogin: true, credentialOk: true }, viewerLogin: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }),
+    workSessions: async () => ({ items: [] }),
+    refresh: async () => ({ authenticated: true }),
+  };
+  const shadow = new FakeElement("shadow"); shadow.host = new FakeElement("host");
+  mountWorkbench(shadow, { getLang: () => "zh-CN", build: "t", deps: { api: apiStub } });
+  await new Promise((r) => setTimeout(r, 5));
+  const styleEl = find(shadow, (n) => String(n.tagName).toUpperCase() === "STYLE")[0];
+  assert.ok(styleEl, "style 在场");
+  const css = String(styleEl.textContent ?? "");
+  assert.ok(css.includes("--dshl-dur-1") && css.includes("--dshl-dur-2") && css.includes("--dshl-ease"), "motion token 在场");
+  assert.ok(css.includes("prefers-reduced-motion:reduce"), "reduced-motion 对账块在场");
+  const indicator = find(shadow, (n) => typeof n.className === "string" && n.className === "tabindicator")[0];
+  assert.ok(indicator, "tab 指示条元素在场");
+  assert.equal(indicator.style.display, "none", "无 ResizeObserver/matchMedia 环境缺省静态退化（S12）");
+});
