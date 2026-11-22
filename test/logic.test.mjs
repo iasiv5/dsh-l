@@ -147,3 +147,15 @@ test("badgeLabel：计数前缀格式（i18n 模板注入，logic 层零 i18n �
   assert.equal(badgeLabel({ count: 2, label: "DSH Loop Forge", template: "待确认 ({n})" }), "待确认 (2) · DSH Loop Forge");
   assert.equal(badgeLabel({ count: 0, label: "DSH Loop Forge", template: "待确认 ({n})" }), "DSH Loop Forge");
 });
+
+// ---- 开工路径引导（disc 评审 Task 2）：shouldShowStartHint 三态 ----
+test("shouldShowStartHint：绑定+有候选+无gating → true；有gating → false；未绑定/空清单 → false", async () => {
+  const { shouldShowStartHint } = await import("../src/client/logic.mjs");
+  const mk = (stage) => ({ stage });
+  const base = { auth: { account: "o" }, candidates: [mk("inbox"), mk("closed")] };
+  assert.equal(shouldShowStartHint(base), true);
+  assert.equal(shouldShowStartHint({ ...base, candidates: [mk("gating")] }), false);
+  assert.equal(shouldShowStartHint({ auth: {}, candidates: [mk("inbox")] }), false);
+  assert.equal(shouldShowStartHint({ auth: { account: "o" }, candidates: [] }), false);
+  assert.equal(shouldShowStartHint({}), false);
+});

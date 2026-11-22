@@ -144,6 +144,7 @@ export const zhCN = {
     openBtn: "打开会话",
     openPending: "会话仍在列表同步中，稍后从会话列表打开。",
     startFailed: "开工失败",
+    startHint: "暂无待拍板候选——展开任意行点『移到 待拍板』，再点『我来开』即可开工。",
     pickTitle: "选择开工工作区",
     pickLocal: "本地默认检出（~/workspace/仓目录）",
     pickBrowse: "选择目录…",

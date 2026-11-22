@@ -144,6 +144,7 @@ export const en = {
     openBtn: "Open session",
     openPending: "Session is still syncing into the list — open it from the session list shortly.",
     startFailed: "Start failed",
+    startHint: "No candidates awaiting decision — expand any row and tap \"Move to awaiting decision\", then \"Start it myself\" to begin.",
     pickTitle: "Pick a workspace to start in",
     pickLocal: "Local default checkout (~/workspace/<repo>)",
     pickBrowse: "Choose directory…",

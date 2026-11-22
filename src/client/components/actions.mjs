@@ -334,6 +334,11 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
       const uxNarrow = document.createElement("div");
       uxNarrow.className = "ux-narrow";
       const uxPrimary = row(); uxPrimary.className = "primary-actions";
+      // 开工路径可发现性（disc 评审）：白名单源阶段 → 首位「移到 待拍板」（gating 态不插——我来开已是主动作；
+      // building/verifying 排除——禁手工迁移口径 + 开工成功产生的 building 行不得出现首位按钮）。
+      if (["inbox", "triaged", "held", "closed", "shipped"].includes(c.stage)) {
+        uxPrimary.append(btn(t("actions.moveTo") + " " + t("groups.gating"), () => go(() => api.stage(c.key, "gating", ""))));
+      }
       if (c.work?.sessionId) uxPrimary.append(mkOpen(uxPrimary));
       if (freshReady || retryReady) uxPrimary.append(mkStart(uxPrimary));
       uxPrimary.append(...mkG1Pair());

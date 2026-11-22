@@ -1,5 +1,5 @@
 import { makeT } from "../i18n.mjs";
-import { groupCandidates, filterCandidates, needsReview } from "../logic.mjs";
+import { groupCandidates, filterCandidates, needsReview, shouldShowStartHint } from "../logic.mjs";
 import { api } from "../api.mjs";
 import { badge } from "../badge.mjs";
 import { renderRow } from "./candidateRow.mjs";
@@ -195,6 +195,7 @@ const CSS = [
   "}",
   ".ux-narrow{display:none}",
   ".ux-chev{display:none}",
+  ".start-hint{font-size:13px;opacity:.75;margin:2px 16px 0}",
   "@media (max-width:560px){.ux-narrow{display:flex;flex-direction:column;gap:8px}}",
 
 ].join("\n");
@@ -375,6 +376,7 @@ export function mountWorkbench(shadow, { getLang, build, extend } = {}) {
     intake.append(intakeChips);
     // 板块二：分诊与拍板 —— 工作流条 + 过滤条 + 阶段分组列表。
     const triage = el("section", "triage");
+    if (shouldShowStartHint(state ?? {})) triage.append(el("div", "start-hint", t("work.startHint")));
     triage.append(el("h3", null, t("sections.triage")), strip, bar);
     if (error) triage.append(el("div", "error", t("errors.refreshFailed") + " (" + error + ")"));
     if (notice) triage.append(el("div", "error", notice));

@@ -31,6 +31,13 @@ export function gateState(candidate) {
   return { G1: candidate?.stage === "gating", G2: false, G3: false };
 }
 
+// 开工路径引导（disc 评审 Task 2）：账号已绑定 ∧ 候选非空 ∧ 无待拍板候选——三态直测见 logic.test。
+export function shouldShowStartHint(state) {
+  const list = state?.candidates ?? [];
+  const hasGating = list.some((c) => c.stage === "gating");
+  return Boolean(state?.auth?.account) && list.length > 0 && !hasGating;
+}
+
 export function stageCounts(list) {
   const all = list ?? [];
   const n = (pred) => all.filter(pred).length;
