@@ -9,6 +9,7 @@ colors:
   signal-ok: "#2da44e"
   signal-warn: "#d29922"
   signal-err: "#d1242f"
+  state-unread: "#4493f8"
   canvas: "canvas"
   canvastext: "canvastext"
 typography:
@@ -94,6 +95,7 @@ Don't:
 - Don't 忘记 reduced-motion 降级（gate-in、dot-breathe 必须成对给 `@media (prefers-reduced-motion:reduce)` 关闭）。
 Do:
 - Do 全部 UI 文案走 zh-CN / en 双字典（i18n + locale-parity 守护）；`cred.*` 键在组件内静态字面量引用。
+- Do 状态语义一律复用 `st-*` 六态 token（running/gating/unread/done/failed/idle；键走 `stateDot.*` 静态 switch）；新视图不得自造状态色（P0-2 起）。
 - Do 错误文案同时命名问题与恢复动作；限流文案必须声明「不影响凭据有效性，无需重新授权」。
 - Do 修改任何 UI 前先 `npm run build` + 跑 i18n/locale-parity 守护。
 - Do 大标题用产品金句「连接代码库，让 Agent 自主交付」；品牌区只留大标题。
