@@ -30,12 +30,13 @@ export function renderReview(container, { t, candidates, runs, view, templates =
     const head = el("div", "rvhead", titleText);
     head.style.cssText = "font-weight:600";
     c.append(head);
-    if (err) { const e0 = el("div", "rverr", err); e0.style.color = "crimson"; c.append(e0); }
+    if (err) { const e0 = el("div", "rverr", err); e0.style.color = "color-mix(in srgb,#d1242f 85%,currentColor)"; c.append(e0); }   // 语义色统一 color-mix（rev-impl S3）
     let note = null;
     if (withNote) {
       note = el("input", "rvnote");
       note.type = "text";
       note.placeholder = t("review.notePlaceholder");
+      note.style.cssText = "width:100%;max-width:100%";   // rev-impl S5：随卡片伸展
       c.append(note);
     }
     const errEl = el("div", "rverr");
@@ -48,11 +49,11 @@ export function renderReview(container, { t, candidates, runs, view, templates =
     try {
       await fn();
       if (errEl) { errEl.textContent = ""; errEl.style.display = "none"; }
+      await reload();
     } catch (e) {
-      if (errEl) { errEl.textContent = t("errors.actionFailed") + " (" + (e?.message ?? e) + ")"; errEl.style.display = "block"; }
+      if (errEl) { errEl.textContent = t("errors.actionFailed") + " (" + (e?.message ?? e) + ")"; errEl.style.display = "block"; }   // 失败不 reload：全量重绘会立即抹掉错误行（rev-impl B1）
       else console.warn("[dsh-l]", e);
     }
-    await reload();
   };
   const btn = (parent, label, fn, disabled = false) => {
     const b = el("button", null, label);

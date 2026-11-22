@@ -804,6 +804,9 @@ test("candidateRow：六态状态点 + 元数据脚注（P0-2/P0-6）", async ()
   const root6 = new FakeElement("div");
   renderRow(root6, mk({ stage: "shipped" }), t, { expanded: false, onToggle: () => {} });
   assert.ok(String(dotOf(root6).className).includes("st-gating"), "shipped 未确认发版 → st-gating");
+  const root7 = new FakeElement("div");
+  renderRow(root7, mk({ stage: "building" }), t, { expanded: false, onToggle: () => {}, run: { status: "succeeded" }, seen: true });
+  assert.ok(!String(dotOf(root7).className).includes("st-unread"), "seen:true 后非 unread（rev-impl S1 断言补全）");
 });
 
 test("kanban 分组列表化：列头/卡片信息集/推进/移至/空列引导（P0-1）", async () => {
@@ -956,14 +959,15 @@ test("workbench 清单双空态：过滤空给清除过滤按钮，真空给 bac
   assert.ok(!empties2[0].textContent.includes(t("emptyStates.filtered")), "真空态不出现过滤空文案");
 });
 
-test("rowActions 吞错就地呈现：stage 失败写 errLine，成功清除（P0-5c）", async () => {
+test("rowActions 吞错就地呈现：stage 失败写 errLine 且不被重绘抹除，成功清除（P0-5c/rev-impl B1）", async () => {
   const { installActions } = await import("../src/client/components/actions.mjs");
   let fail = true;
+  let reloads = 0;
   const hooks = installActions({
     getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [],
     deps: { api: { stage: async () => { if (fail) throw new Error("boom"); return {}; } } },
   });
-  const view = { reload: async () => {}, shadow: new FakeElement("shadow") };
+  const view = { reload: async () => { reloads++; }, shadow: new FakeElement("shadow") };
   const d = new FakeElement("div");
   hooks.rowActions(d, mkCandidate("triaged"), { t, view, lang: "zh-CN" });
   const settle = () => new Promise((r) => setTimeout(r, 0));
@@ -977,22 +981,25 @@ test("rowActions 吞错就地呈现：stage 失败写 errLine，成功清除（P
   await settle();
   assert.equal(errLine().style.display, "block", "失败后可见");
   assert.ok(errLine().textContent.includes(t("errors.actionFailed")) && errLine().textContent.includes("boom"), "错误文案=操作失败+消息");
+  assert.equal(reloads, 0, "失败不触发重绘（重绘会立即抹掉错误行，rev-impl B1）");
   fail = false;
   moveBtn.onclick();
   await settle();
   assert.equal(errLine().style.display, "none", "成功后清除");
+  assert.equal(reloads, 1, "成功路径仍走 reload 刷新");
 });
 
-test("review/kanban 吞错就地呈现：rverr 与 kberr（P0-5c）", async () => {
+test("review/kanban 吞错就地呈现：rverr 与 kberr（P0-5c/rev-impl B1）", async () => {
   const { renderReview } = await import("../src/client/components/review.mjs");
   const { renderKanban } = await import("../src/client/components/kanban.mjs");
   let fail = true;
+  let reviewReloads = 0;
   const gateStub = { runGate: async () => { if (fail) throw new Error("boom"); }, releaseConfirm: async () => {}, runCancel: async () => {} };
   const cand = { key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t", stage: "building", currentRunId: "run-1" };
   const run = { id: "run-1", candidateKey: "o/r#issue#1", status: "waiting", waitingGate: "g2", waitingGateId: "G2", currentNodeIds: ["g2"], failedNodeIds: [], cancelledNodeIds: [], templateId: null, error: null };
   const settle = () => new Promise((r) => setTimeout(r, 0));
   const wrap = new FakeElement("div");
-  renderReview(wrap, { t, candidates: [cand], runs: [run], view: { reload: async () => {} }, templates: [], deps: { api: gateStub } });
+  renderReview(wrap, { t, candidates: [cand], runs: [run], view: { reload: async () => { reviewReloads++; } }, templates: [], deps: { api: gateStub } });
   const card = find(wrap, (n) => n.className === "rvcard")[0];
   const errEls = () => find(card, (n) => n.className === "rverr");
   const passBtn = find(card, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent.includes(t("review.passBtn")))[0];
@@ -1000,10 +1007,12 @@ test("review/kanban 吞错就地呈现：rverr 与 kberr（P0-5c）", async () =
   await settle();
   const shown = errEls().find((n) => n.style.display === "block");
   assert.ok(shown && shown.textContent.includes(t("errors.actionFailed")), "runGate 失败写卡片 rverr");
+  assert.equal(reviewReloads, 0, "失败不触发重绘（rev-impl B1）");
   fail = false;
   passBtn.onclick();
   await settle();
   assert.ok(!errEls().some((n) => n.style.display === "block"), "成功后清除");
+  assert.equal(reviewReloads, 1, "成功路径仍走 reload 刷新");
   // kanban：stage 失败 → 卡内 kberr chip；成功移除
   let kfail = true;
   const kwrap = new FakeElement("div");

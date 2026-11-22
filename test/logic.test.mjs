@@ -184,6 +184,7 @@ test("sessionState 五态 + 孤儿行（item=null 仅认 summary.running；P0-2�
   assert.equal(sessionState({ kind: "work", candidate: { stage: "gating" } }, { running: false }), "gating");
   assert.equal(sessionState({ kind: "work", candidate: { stage: "shipped" } }, { running: false }), "done");
   assert.equal(sessionState({ kind: "work", candidate: { stage: "triaged" } }, { running: false }), "idle");
+  assert.equal(sessionState({ kind: "run", candidate: { stage: "gating" } }, { running: false }), "gating", "run 行停在闸门同为待你处理（实施期泛化，rev-impl S2）");
   assert.equal(sessionState(null, { running: true }), "running", "孤儿行 running");
   assert.equal(sessionState(null, { running: false }), "idle", "孤儿行非 running 即 idle");
   assert.equal(sessionState(null, null), "idle");

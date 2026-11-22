@@ -173,6 +173,8 @@ export function candidateState({ candidate: c, run = null, seen = false }) {
 }
 
 // 会话行六态（P0-2）：孤儿行（item=null，summary 兜底行）仅认 summary.running，其余 idle。
+// 契约注记（rev-impl S2）：不区分 item.kind——kind="run" 的行停在闸门（stage=gating）同样呈现
+// 「待你处理」，属对计划 §7「work 门」的有意泛化，测试钉死该语义。
 export function sessionState(item, summary = null) {
   if (summary?.running) return "running";
   const stage = item?.candidate?.stage;

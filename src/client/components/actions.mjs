@@ -278,9 +278,8 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
       errLine.style.display = "none";
       detail.prepend(errLine);
       const go = async (fn) => {
-        try { await fn(); errLine.textContent = ""; errLine.style.display = "none"; }
-        catch (e) { errLine.textContent = t("errors.actionFailed") + " (" + (e?.message ?? e) + ")"; errLine.style.display = "block"; }
-        await view.reload();
+        try { await fn(); errLine.textContent = ""; errLine.style.display = "none"; await view.reload(); }
+        catch (e) { errLine.textContent = t("errors.actionFailed") + " (" + (e?.message ?? e) + ")"; errLine.style.display = "block"; }   // 失败不 reload：全量重绘会立即抹掉错误行（rev-impl B1；与 kanban 同构——失败未改服务端状态）
       };
       const tr = c.triage ?? { validity: "medium", urgency: "P2", action: "hold", reason: "" };
       const v = sel(["high", "medium", "low"].map((x) => [x, t("validity." + x)]), tr.validity);

@@ -39,7 +39,8 @@ export function renderSessionsView(container, { t, items = [], summaries = [], o
     if (item.candidate?.stage === "closed") badges.push(t("sessions.badgeGone"));
     if (summary?.running) badges.push(t("sessions.badgeRunning"));
     const missing = item.kind === "work" && summaries.length > 0 && !summary;
-    if (missing) badges.push(t("sessions.badgeMissing"));    models.push({
+    if (missing) badges.push(t("sessions.badgeMissing"));
+    models.push({
       sessionId: item.sessionId ?? null,
       updatedAt: item.updatedAt ?? 0,
       key: item.key ?? null,
