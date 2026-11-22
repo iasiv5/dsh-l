@@ -132,7 +132,7 @@ kbd.close            关闭 / Close
 2. 红：`test/logic.test.mjs`——`formatDuration`（5 档：非法/1m/45m/3h/27d）与 `sortGateRunsByWait`（升序、缺省沉底稳定）。
 3. 红：`test/client-render.test.mjs`——review gate 卡（waitingSince 在场）渲染 `t("review.waited")` 替换产物；两条 gateRuns 按等待时长升序渲染（老的在前）。**renderReview 签名增 `nowMs = null`**（缺省 `Date.now()`，rev-plan S2——nowMs 注入点与 sessionsView 同模式）。
 4. 绿：按 §6 契约实现——scheduler（gateArrive 第三参 + summarizeRun 三字段含 S1 收口）/engine（**仅** engine.mjs:100 传 `now().toISOString()`，`now` 选项本身勿动）/logic/review（等待行 + sortGateRunsByWait + nowMs 参数）/i18n（`review.waited`）。
-5. 验证 + Commit：`feat(engine): gate 等待时长数据面（waitingSince+now 选项）+ review 呈现与最久优先（P1 小债 D）`
+5. 验证 + Commit：`feat(engine): gate 等待时长数据面（waitingSince+now 选项）+ review 呈现与最久优先（waitingSince 数据面，P1 小债 D）`
 
 ### Task 2：小债 A/B（bar 吞错 + crimson 统一）
 
@@ -163,7 +163,7 @@ kbd.close            关闭 / Close
 
 ### Task 6：run 详情同槽位视图（P1-5）
 
-1. 红：client-render——①`renderRunDetail` 节点视图：nodeStatuses 三行（name+状态标签 `t("run.status."+status)` 动态前缀既有白名单+failed error 文本）；②点历史 tab → 倒序列表（at+event+detail）；③空 history → `t("run.emptyHistory")`；④actions.mjs runRow 增「详情」toggle 按钮：点击展开 runDetail、再点收起。
+1. 红：client-render——①`renderRunDetail` 节点视图：nodeStatuses 三行（name+状态标签（**静态 switch**：白名单五态复用 `run.status.*`、pending/ready/skipped 走 `nodeState.*` 静态字面量——键映射见 §6 B2 修订）+ failed error 文本）；②点历史 tab → 倒序列表（at+event+detail）；③空 history → `t("run.emptyHistory")`；④actions.mjs runRow 增「详情」toggle 按钮：点击展开 runDetail、再点收起。
 2. 绿：新建 runDetail.mjs（tab 态闭包）；actions.mjs runRow 追加 toggle 按钮（`t("run.detail")`），展开态把 runDetail 挂 runRow 之后。
 3. 验证 + Commit：`feat(run-detail): 行内 run 节点/历史两槽位视图（P1-5）`
 
