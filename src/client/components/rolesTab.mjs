@@ -59,9 +59,10 @@ export function renderRolesTab(container, { t, workflow, view }) {
   const openDialog = (role) => {
     const isNew = !role;
     const dlg = document.createElement("div");
-    dlg.style.cssText = "position:fixed;inset:0;background:color-mix(in srgb,black 40%,transparent);display:flex;align-items:center;justify-content:center;z-index:60";
+    dlg.className = "rtOverlay";   // P0-5a：对话框归位 Shadow DOM 后供测试定位（rev-plan S4）
+    dlg.style.cssText = "position:fixed;inset:0;background:color-mix(in srgb,canvas 55%,transparent);display:flex;align-items:center;justify-content:center;z-index:60";
     const box = document.createElement("div");
-    box.style.cssText = "background:var(--dsh-bg,#fff);color:inherit;border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:8px;min-width:340px;max-width:90vw;font-size:13px";
+    box.style.cssText = "background:canvas;color:canvastext;border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:8px;min-width:340px;max-width:90vw;font-size:13px";
     const field = (labelText, input) => {
       const row = document.createElement("label");
       row.style.cssText = "display:flex;flex-direction:column;gap:2px";
@@ -125,7 +126,7 @@ export function renderRolesTab(container, { t, workflow, view }) {
     box.append(btnRow);
     dlg.append(box);
     dlg.onclick = (e) => { if (e.target === dlg) dlg.remove(); };
-    document.body.append(dlg);
+    wrap.append(dlg);   // P0-5a：挂 Shadow DOM 内（原 document.body 逃逸隔离 + 硬编码浅色兜底违反 Host-Theme Rule）
   };
 
   // 「新增角色」按钮 + 数据装载

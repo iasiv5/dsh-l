@@ -748,3 +748,17 @@ test("candidateRow：chevron 随展开切换 + region/labelledby + 行高亮类"
   assert.equal(detail.getAttribute("role"), "region", "detail role=region");
   assert.equal(detail.getAttribute("aria-labelledby"), row2.children.find((n) => String(n.tagName).toUpperCase() === "BUTTON").id, "labelledby 指向行标题");
 });
+
+test("rolesTab 对话框归位 Shadow DOM：新增角色弹层挂 container、canvas 语义底色（P0-5a）", async () => {
+  const { renderRolesTab } = await import("../src/client/components/rolesTab.mjs");
+  const container = new FakeElement("div");
+  renderRolesTab(container, { t, workflow: { templates: [] }, view: { reload: async () => {} } });
+  const newBtn = find(container, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("roles.new"))[0];
+  assert.ok(newBtn, "新增角色按钮在场");
+  newBtn.onclick();
+  const overlay = byClass(container, "rtOverlay")[0];
+  assert.ok(overlay, "对话框挂载于 container 子树（Shadow DOM 内，不落 document.body）");
+  assert.ok(String(overlay.style.cssText).includes("position:fixed"), "遮罩保持 fixed 定位");
+  const box = overlay.children[0];
+  assert.ok(box && String(box.style.cssText).includes("background:canvas"), "卡底色走 canvas 语义 token（无浅色硬编码兜底）");
+});
