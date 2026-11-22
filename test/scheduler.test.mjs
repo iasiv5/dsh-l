@@ -83,14 +83,14 @@ test("advanceRun ready 化：终态前 run 保持 running（评审 R4 采纳·�
   assert.equal(run.nodeStates.deliver.status, "ready");   // ready 即待执行（M2 执行器接手）
   assert.equal(run.status, "running");                    // deliver 未跑完，run 不终态
   const sum = summarizeRun({ ...run, id: "r1", candidateKey: "k" });
-  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "running", waitingGate: null, waitingGateId: null, currentNodeIds: ["deliver"], failedNodeIds: [], cancelledNodeIds: [], models: {}, templateId: null, error: null, waitingSince: null, history: [], nodeStatuses: LOOP_V1.nodes.map((n) => ({ id: n.id, name: n.name, type: n.type, status: n.id === "deliver" ? "ready" : "succeeded", error: null })) });   // P1：summarizeRun 增三字段（waitingSince/history/nodeStatuses），形状断言随语义更新
+  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "running", waitingGate: null, waitingGateId: null, currentNodeIds: ["deliver"], failedNodeIds: [], cancelledNodeIds: [], models: {}, templateId: null, error: null, waitingSince: null, history: [], nodeStatuses: LOOP_V1.nodes.map((n) => ({ id: n.id, name: n.name, type: n.type, status: n.id === "deliver" ? "ready" : "succeeded", error: null, artifacts: [] })) });   // P1：summarizeRun 增三字段（waitingSince/history/nodeStatuses），形状断言随语义更新
 });
 test("advanceRun 终态：全 succeeded 才收口（评审 R4 采纳·拆例②）", () => {
   let run = mkRun({ g1: "succeeded", build: "succeeded", verify: "succeeded", g2: "succeeded", "mr-open": "succeeded", "mr-push-check": "succeeded", "mr-open-check": "succeeded", deliver: "succeeded" });   // M6 三件套补态
   run = advanceRun(run);
   assert.equal(run.status, "succeeded");
   const sum = summarizeRun({ ...run, id: "r1", candidateKey: "k" });
-  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "succeeded", waitingGate: null, waitingGateId: null, currentNodeIds: [], failedNodeIds: [], cancelledNodeIds: [], models: {}, templateId: null, error: null, waitingSince: null, history: [], nodeStatuses: LOOP_V1.nodes.map((n) => ({ id: n.id, name: n.name, type: n.type, status: "succeeded", error: null })) });   // P1：summarizeRun 增三字段，形状断言随语义更新
+  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "succeeded", waitingGate: null, waitingGateId: null, currentNodeIds: [], failedNodeIds: [], cancelledNodeIds: [], models: {}, templateId: null, error: null, waitingSince: null, history: [], nodeStatuses: LOOP_V1.nodes.map((n) => ({ id: n.id, name: n.name, type: n.type, status: "succeeded", error: null, artifacts: [] })) });   // P1：summarizeRun 增三字段，形状断言随语义更新
 });
 test("summarizeRun.cancelledNodeIds + templateId（M7 T5/评审 D3/D6）", () => {
   const run = mkRun({ g1: "succeeded", build: "cancelled", verify: "cancelled" }, { id: "r9", candidateKey: "k", status: "cancelled", waitingGate: null, templateId: "loop-v1" });
@@ -169,10 +169,10 @@ test("summarizeRun P1 三新字段：waitingSince 按 status 收口 / history �
   assert.equal(sum.history.length, 20);
   assert.equal(sum.history[0].event, "e1", "slice(-20) 丢最老一条");
   assert.deepEqual(sum.nodeStatuses, [
-    { id: "g1", name: "G1", type: "gate", status: "succeeded", error: null },
-    { id: "build", name: "build", type: "agent", status: "failed", error: "boom" },
-    { id: "verify", name: "verify", type: "script", status: "pending", error: null },
-    { id: "g2", name: "G2", type: "gate", status: "waiting", error: null },
+    { id: "g1", name: "G1", type: "gate", status: "succeeded", error: null, artifacts: [] },
+    { id: "build", name: "build", type: "agent", status: "failed", error: "boom", artifacts: [] },
+    { id: "verify", name: "verify", type: "script", status: "pending", error: null, artifacts: [] },
+    { id: "g2", name: "G2", type: "gate", status: "waiting", error: null, artifacts: [] },
   ]);
   const done = summarizeRun({ ...run, status: "succeeded", waitingGate: null });
   assert.equal(done.waitingSince, null, "非 waiting 态恒 null（rev-plan S1 收口）");
@@ -180,4 +180,14 @@ test("summarizeRun P1 三新字段：waitingSince 按 status 收口 / history �
   assert.deepEqual(bare.nodeStatuses, [], "snapshot 缺失 → 空数组");
   assert.deepEqual(bare.history, []);
   assert.equal(bare.waitingSince, null);
+});
+
+// ---- P2 Task 4：nodeStatuses artifacts 投影（截 2 条/每条截 500 字符）----
+test("summarizeRun nodeStatuses artifacts 投影截断（P2 Task 4）", () => {
+  const long = "x".repeat(501);
+  const run = { id: "r", candidateKey: "k", status: "running", waitingGate: null, nodeStates: { build: { status: "succeeded", error: null, artifacts: ["a1", long, "a3"] } }, snapshot: { nodes: [{ id: "build", name: "build", type: "script" }] } };
+  const sum = summarizeRun(run);
+  assert.deepEqual(sum.nodeStatuses[0].artifacts, ["a1", "x".repeat(500)]);
+  const bare = summarizeRun({ id: "r2", candidateKey: "k", status: "running", waitingGate: null, nodeStates: {} });
+  assert.deepEqual(bare.nodeStatuses, []);
 });

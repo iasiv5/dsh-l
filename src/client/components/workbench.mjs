@@ -14,6 +14,7 @@ import { renderRolesTab } from "./rolesTab.mjs";
 import { withPending } from "./uiFeedback.mjs";
 import { createKeyHandler, openHelp } from "./keynav.mjs";
 import { openPalette } from "./commandPalette.mjs";
+import { renderPeek } from "./peek.mjs";
 
 const CSS = [
   ":host{--dshl-dur-1:200ms;--dshl-dur-2:220ms;--dshl-ease:cubic-bezier(.22,1,.36,1);display:flex;flex-direction:column;height:100%;font-size:14px;line-height:1.45;color:inherit}",
@@ -679,6 +680,16 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
   };
   view.relabel = paint;
   // P1-1 键盘接线（S5 dispose 对称）：游标高亮 + 行展开/勾选经既有 DOM 回调复用
+  // P2-6：Peek（键位重排声明见 P2 计划 §3-3）；S5：paint 重置 + 与 palette 互斥
+  const showPeekAt = (i) => {
+    const key = rowEls[i]?.dataset?.key;
+    const cand = (state?.candidates ?? []).find((c) => c.key === key);
+    if (!cand) return;
+    if (paletteOpen) { paletteInstance?.close?.(); paletteOpen = false; paletteInstance = null; }
+    peekInstance?.close?.();
+    peekInstance = renderPeek(surfaceEl ?? shadow, { t: makeT(getLang()), candidate: cand, onClose: () => { peekOpen = false; peekInstance = null; } });
+    peekOpen = true;
+  };
   const highlightCursor = () => {
     for (const r of rowEls) r.classList?.remove?.("knav-cursor");
     const r = rowEls[cursorIndex];
@@ -689,7 +700,7 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
   };
   const keyHandler = createKeyHandler({
     getCursor: () => cursorIndex,
-    setCursor: (i) => { cursorIndex = i; highlightCursor(); },
+    setCursor: (i) => { cursorIndex = i; highlightCursor(); if (peekOpen) showPeekAt(cursorIndex); },   // P2-6：j/k 联动 Peek 跟随
     getRowCount: () => rowEls.length,
     rowAction: (i) => {
       const title = rowEls[i]?.children?.find((c) => String(c.className) === "title");
@@ -703,8 +714,9 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
       const ids = ["list", "board", "review", "sessions", "roles"];
       if (ids[i]) { activeTab = ids[i]; paint(); }
     },
+    onPeek: (i) => showPeekAt(i),
     onHelp: () => { if (helpInstance) { helpInstance.close(); helpInstance = null; } else { helpInstance = openHelp(surfaceEl ?? shadow, makeT(getLang())); } },   // P1-1：? toggle（rev-impl-p1 S5 防叠开）
-    escape: () => { helpInstance?.close?.(); helpInstance = null; },
+    escape: () => { if (peekInstance) { peekInstance.close(); peekInstance = null; peekOpen = false; return; } helpInstance?.close?.(); helpInstance = null; },   // P2-6：peek 优先关闭
   });
   const keyHandlerGuarded = (e) => {
     if (disposed) return;
@@ -719,9 +731,8 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
       }
       return;
     }
-    // P1-1 S5：paint 重置语义——重绘后开启态已为关（DOM 随重绘消失）
-    if (paletteOpen) { paletteOpen = false; paletteInstance = null; }
-    if (peekOpen) { peekOpen = false; peekInstance = null; }
+    // 注：palette/peek 开启态的 paint 重置在 paint() 体内（S5）——此处不得重置，
+    // 否则任意按键都会先杀掉 peekOpen 再进 keyHandler（P2 Task 3 实测揪出）。
     keyHandler(e);
   };
   // P2-1 动作目录（注册表：后续动作按 {id,label,run} 追加——rev-plan S7）

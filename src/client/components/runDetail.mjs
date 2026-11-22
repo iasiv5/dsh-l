@@ -40,6 +40,11 @@ export function renderRunDetail(container, { t, run, deps = {} } = {}) {
       return b;
     };
     tabs.append(mkTab("nodes", t("run.tabNodes")), mkTab("history", t("run.tabHistory")));
+    // P2 Task 4：工件槽（任一节点 artifacts 非空才可用；全空 disabled + title 说明）
+    const hasArtifacts = (run.nodeStatuses ?? []).some((n) => (n.artifacts ?? []).length > 0);
+    const artTab = mkTab("artifacts", t("run.tabArtifacts"));
+    if (!hasArtifacts) { artTab.disabled = true; artTab.title = t("run.emptyArtifacts"); }
+    tabs.append(artTab);
     wrap.append(tabs);
     if (tab === "nodes") {
       const list = el("div", "rvnodes");
@@ -53,6 +58,23 @@ export function renderRunDetail(container, { t, run, deps = {} } = {}) {
           const e = el("span", "chip", n.error);
           e.style.color = "color-mix(in srgb,#d1242f 85%,currentColor)";
           row.append(e);
+        }
+        list.append(row);
+      }
+      wrap.append(list);
+    } else if (tab === "artifacts" && hasArtifacts) {
+      // P2 Task 4：工件视图（逐节点 artifacts，pre-wrap mono）
+      const list = el("div", "rvarts");
+      for (const n of run.nodeStatuses ?? []) {
+        if (!(n.artifacts ?? []).length) continue;
+        const row = el("div", "rvart");
+        row.append(el("b", "rvartname", n.name ?? n.id));
+        for (const a of n.artifacts) {
+          const line = document.createElement("pre");
+          line.className = "rvartline";
+          line.style.cssText = "margin:2px 0 0;white-space:pre-wrap;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:11.5px;opacity:.85";
+          line.textContent = a;
+          row.append(line);
         }
         list.append(row);
       }

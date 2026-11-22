@@ -166,6 +166,7 @@ export function summarizeRun(run) {
     id: n.id, name: n.name, type: n.type,
     status: run.nodeStates[n.id]?.status ?? "pending",
     error: run.nodeStates[n.id]?.error ?? null,
+    artifacts: (run.nodeStates[n.id]?.artifacts ?? []).slice(0, 2).map((a) => String(a ?? "").slice(0, 500)),   // P2 Task 4：工件投影（截 2 条/每条 500 字符，与上游摘要同口径）
   }));
   return { id: run.id, candidateKey: run.candidateKey, status: run.status, waitingGate: run.waitingGate ?? null, waitingGateId, currentNodeIds, failedNodeIds, cancelledNodeIds, models, templateId: run.templateId ?? null, error, waitingSince, history, nodeStatuses };
 }

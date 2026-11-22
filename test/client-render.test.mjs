@@ -1626,3 +1626,63 @@ test("workbench ⌘K 接线：typing 内可开/截获先于 keynav/paint 重置�
   assert.ok(find(shadow, (n) => String(n.className).includes("palette")).length >= 1, "paint 后 ⌘K 语义为开（幂等不翻转错位，S5）");
   e4.preventDefault && e4.preventDefault();
 });
+
+test("keynav onPeek 分派 + 帮助键位行含 p（P2-6）", async () => {
+  const { createKeyHandler, openHelp } = await import("../src/client/components/keynav.mjs");
+  let peeked = -1;
+  const handler = createKeyHandler({ getCursor: () => 1, getRowCount: () => 3, onPeek: (i) => { peeked = i; } });
+  const e = { key: "p", ctrlKey: false, metaKey: false, altKey: false, target: { tagName: "DIV" }, preventDefault() {} };
+  handler(e);
+  assert.equal(peeked, 1, "p 分派当前游标行");
+  const anchor = new FakeElement("div");
+  openHelp(anchor, t);
+  assert.ok(anchor.textContent.includes(t("kbd.peek")), "帮助键位行含 p");
+});
+
+test("peek：p 键浮层内容/j 联动/Esc 关闭（P2-6 前半）", async () => {
+  const { mountWorkbench } = await import("../src/client/components/workbench.mjs");
+  const cand = { key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "长标题", stage: "triaged", triage: { validity: "high", urgency: "P1", action: "start", reason: "复现清晰", by: "llm", at: "t0" }, meta: { ageDays: 3, comments: 4, reactionsTotal: 2 }, gates: { G1: null, G2: null, G3: null }, history: [{ at: "h1", event: "ingested", detail: "" }, { at: "h2", event: "triaged.llm", detail: "P1" }], taskPackage: null };
+  const cand2 = { key: "o/r#pull#2", repo: "o/r", type: "pull", number: 2, title: "t2", stage: "triaged", triage: null, meta: {}, gates: { G1: null, G2: null, G3: null }, history: [], taskPackage: { version: 2 } };
+  const apiStub = {
+    state: async () => ({ auth: { account: "iasiv5", login: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }, watch: { repos: ["o/r"] }, snapshots: { lastIngestAt: null, perRepo: {} }, settings: { intervalMinutes: 0 }, candidates: [cand, cand2], runs: [], workflow: { templates: [] }, ingestLog: [] }),
+    auth: async () => ({ gates: { ghInstalled: true, ghLogin: true, credentialOk: true }, viewerLogin: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }),
+    workSessions: async () => ({ items: [] }),
+    refresh: async () => ({ authenticated: true }),
+  };
+  const shadow = new FakeElement("shadow"); shadow.host = new FakeElement("host");
+  mountWorkbench(shadow, { getLang: () => "zh-CN", build: "t", deps: { api: apiStub } });
+  await new Promise((r) => setTimeout(r, 5));
+  const dispatch = (e) => { for (const fn of (shadow._listeners ?? []).filter(([k]) => k === "keydown").map(([, fn]) => fn)) fn(e); };
+  dispatch({ key: "j", target: { tagName: "DIV" } });   // 游标 → 第 0 行
+  dispatch({ key: "p", target: { tagName: "DIV" } });   // Peek
+  const peek = () => find(shadow, (n) => String(n.className).includes("peekoverlay"))[0];
+  assert.ok(peek(), "浮层在场");
+  assert.ok(peek().textContent.includes("o/r#1") && peek().textContent.includes("长标题"), "标题全文");
+  assert.ok(peek().textContent.includes("复现清晰"), "分诊理由");
+  assert.ok(peek().textContent.includes(t("peek.history")) && peek().textContent.includes("triaged.llm"), "history 区与事件");
+  assert.ok(peek().textContent.includes(t("peek.gates")), "闸门区");
+  assert.ok(peek().textContent.includes(t("peek.package")) && peek().textContent.includes(t("peek.none")), "任务包未生成标注");
+  // j 联动：跟随第二候选
+  dispatch({ key: "j", target: { tagName: "DIV" } });
+  assert.ok(peek().textContent.includes("t2"), "j 后 peek 跟随第二候选");
+  // Esc 关闭
+  dispatch({ key: "Escape", target: { tagName: "DIV" } });
+  assert.equal(peek(), undefined, "Esc 关闭");
+});
+
+test("runDetail 工件槽：有工件可切/全空 disabled（P2 Task 4）", async () => {
+  const { renderRunDetail } = await import("../src/client/components/runDetail.mjs");
+  const run = { nodeStatuses: [{ id: "verify", name: "verify", type: "script", status: "succeeded", error: null, artifacts: ["http://pr.link", "stdout tail"] }], history: [] };
+  const wrap = new FakeElement("div");
+  renderRunDetail(wrap, { t, run });
+  const artTab = find(wrap, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("run.tabArtifacts"))[0];
+  assert.ok(artTab && !artTab.disabled, "工件 tab 可用");
+  artTab.onclick();
+  assert.ok(wrap.textContent.includes("http://pr.link") && wrap.textContent.includes("stdout tail"), "工件内容呈现");
+  assert.ok(find(wrap, (n) => String(n.tagName).toUpperCase() === "PRE").length >= 1, "pre-wrap 呈现");
+  const wrap2 = new FakeElement("div");
+  renderRunDetail(wrap2, { t, run: { nodeStatuses: [{ id: "build", name: "build", type: "agent", status: "running", error: null, artifacts: [] }], history: [] } });
+  const artTab2 = find(wrap2, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("run.tabArtifacts"))[0];
+  assert.equal(artTab2.disabled, true, "全空工件 tab disabled");
+  assert.equal(artTab2.title, t("run.emptyArtifacts"), "disabled title 说明");
+});

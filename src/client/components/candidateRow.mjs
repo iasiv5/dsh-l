@@ -25,6 +25,7 @@ export function metaFootnote(candidate, t) {
 
 export function renderRow(container, candidate, t, { expanded = false, onToggle, actions, run = null, seen = false, selectable = false, selected = false, onToggleSelect = null, onCheckboxEl = null } = {}) {
   const row = el("div", "row" + (expanded ? " rowActive" : ""));   // rowActive 仅 coarse 层着色（桌面红线）
+  row.dataset.key = candidate.key;   // P2-6：Peek/j-K 游标定位的数据键
   row.append(stateDotEl(candidateState({ candidate, run, seen }), t));   // P0-2：六态点在行首
   if (selectable) {
     // P1-7：多选复选框（插入位钉死：六态点之后、type badge 之前——rev-plan S9）

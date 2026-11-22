@@ -1,7 +1,7 @@
 // P1-1 键盘体系：键位分派纯逻辑 + 帮助浮层。
 // 游标态由调用方持有（getCursor/setCursor）；typingTarget 守卫（输入焦点内不劫持）；
 // 修饰键组合忽略；preventDefault 仅对已消费键调用（不吞宿主快捷键）。
-export function createKeyHandler({ getCursor = () => -1, setCursor = () => {}, getRowCount = () => 0, rowAction = null, rowSelect = null, tabSwitch = null, onHelp = null, escape = null, typingTarget = null } = {}) {
+export function createKeyHandler({ getCursor = () => -1, setCursor = () => {}, getRowCount = () => 0, rowAction = null, rowSelect = null, tabSwitch = null, onHelp = null, onPeek = null, escape = null, typingTarget = null } = {}) {
   const defaultTyping = (target) => {
     const tag = target ? String(target.tagName ?? "").toUpperCase() : "";
     return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || Boolean(target?.isContentEditable);
@@ -37,6 +37,11 @@ export function createKeyHandler({ getCursor = () => -1, setCursor = () => {}, g
       if (c >= 0 && c < getRowCount()) { e.preventDefault?.(); rowSelect?.(c); }
       return;
     }
+    if (key === "p" || key === "P") {   // P2-6：Peek 预览（键位重排声明见 P2 计划 §3-3）
+      const c = getCursor();
+      if (c >= 0 && c < getRowCount()) { e.preventDefault?.(); onPeek?.(c); }
+      return;
+    }
     if (key === "?") { e.preventDefault?.(); onHelp?.(); return; }
     if (key === "Escape") { escape?.(); return; }   // S5/S6：帮助浮层关闭通道
     if (/^[1-5]$/.test(key)) { e.preventDefault?.(); tabSwitch?.(Number(key) - 1); return; }
@@ -54,7 +59,7 @@ export function openHelp(anchorEl, t) {
   const title = document.createElement("b");
   title.textContent = t("kbd.title");
   box.append(title);
-  for (const key of ["jk", "enter", "x", "digits", "help"]) {
+  for (const key of ["jk", "enter", "x", "peek", "digits", "help"]) {
     const row = document.createElement("div");
     row.className = "kbdrow";
     // 静态 switch（rev-plan B2 同款纪律）：动态前缀会撞 i18n 白名单守护，静态字面量让消费键守护逐键覆盖
@@ -62,6 +67,7 @@ export function openHelp(anchorEl, t) {
       case "jk": row.textContent = t("kbd.jk"); break;
       case "enter": row.textContent = t("kbd.enter"); break;
       case "x": row.textContent = t("kbd.x"); break;
+      case "peek": row.textContent = t("kbd.peek"); break;
       case "digits": row.textContent = t("kbd.digits"); break;
       default: row.textContent = t("kbd.help");
     }
