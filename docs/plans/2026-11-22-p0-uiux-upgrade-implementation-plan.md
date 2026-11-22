@@ -104,7 +104,8 @@ settings.hostDefaultNone  （宿主未配置） / (host default not configured)
 5. `done`：`c.stage === "shipped"`（已确认发版）
 6. `idle`：其余（inbox/triaged/held/closed 无活跃 run）
 
-`sessionState(item, summary)`：`summary?.running` → running；`item.candidate?.stage ∈ {building,verifying}` → running；`item.kind === "work"` ∧ `stage === "gating"` → gating；`stage === "shipped"` → done；其余 idle。会话行 P0 不做 unread（run 终态在会话行的感知留 P1）。
+`sessionState(item, summary)`：`summary?.running` → running；`item.candidate?.stage ∈ {building,verifying}` → running；`stage === "gating"` → gating；`stage === "shipped"` → done；其余 idle。会话行 P0 不做 unread（run 终态在会话行的感知留 P1）。
+**实施期注记（rev-impl S2，2026-11-22）**：实现不区分 `item.kind`——kind="run" 的行停在闸门（stage=gating）同样呈现 gating（待你处理），系对上句「work ∧ gating」的有意泛化（run 挂起在闸门本就需人工处理），logic.test 与 client-render 测试均已钉死该语义。
 
 `advanceStageOf(stage)`：`inbox→"triaged"`、`triaged→"gating"`、其余→`null`（正向链只有两跳；gating 之后属闸门语义，看板不带）。
 
