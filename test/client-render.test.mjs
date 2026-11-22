@@ -1338,8 +1338,9 @@ test("多选 + 批量动作：勾选/批量关闭/批量推翻统一理由/部�
   const c2 = { key: "o/r#issue#2", repo: "o/r", type: "issue", number: 2, title: "t2", stage: "triaged", triage: null };
   const calls = [];
   let failKey = null;
+  let stateCalls = 0;   // B4/S4：reload 语义间谍——view.reload 必经 api.state 重取
   const apiStub = {
-    state: async () => ({ auth: { account: "iasiv5", login: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }, watch: { repos: ["o/r"] }, snapshots: { lastIngestAt: null, perRepo: {} }, settings: { intervalMinutes: 0 }, candidates: [c1, c2], runs: [], workflow: { templates: [] }, ingestLog: [] }),
+    state: async () => { stateCalls++; return { auth: { account: "iasiv5", login: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }, watch: { repos: ["o/r"] }, snapshots: { lastIngestAt: null, perRepo: {} }, settings: { intervalMinutes: 0 }, candidates: [c1, c2], runs: [], workflow: { templates: [] }, ingestLog: [] }; },
     auth: async () => ({ gates: { ghInstalled: true, ghLogin: true, credentialOk: true }, viewerLogin: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }),
     workSessions: async () => ({ items: [] }),
     refresh: async () => ({ authenticated: true }),
@@ -1350,6 +1351,7 @@ test("多选 + 批量动作：勾选/批量关闭/批量推翻统一理由/部�
   const shadow = new FakeElement("shadow"); shadow.host = new FakeElement("host");
   mountWorkbench(shadow, { getLang: () => "zh-CN", build: "t", deps: { api: apiStub }, extend: installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [], deps: { api: apiStub } }) });
   await settle();
+  const reloadCount = () => reloads;   // view.reload 间谍注入 mkStub——见下方 reloads 包装
   const checks = find(shadow, (n) => String(n.getAttribute("role")) === "checkbox");
   assert.equal(checks.length, 2, "两行复选框");
   assert.equal(find(shadow, (n) => n.className === "batchbar").length, 0, "空选择无批量栏");
@@ -1364,6 +1366,7 @@ test("多选 + 批量动作：勾选/批量关闭/批量推翻统一理由/部�
   assert.equal(calls.filter((x) => x[0] === "stage").length, 2, "逐 key stage");
   assert.ok(calls.filter((x) => x[0] === "stage").every((x) => x[2] === "closed"), "目标阶段 closed");
   assert.equal(find(shadow, (n) => n.className === "batchbar").length, 0, "成功后批量栏消失（清勾选 + reload）");
+  assert.ok(stateCalls > 0, "全成功路径 reload（api.state 重取）");
   // 批量推翻（部分失败：c2 失败）
   failKey = "o/r#issue#2";
   const checks2 = find(shadow, (n) => String(n.getAttribute("role")) === "checkbox");
@@ -1375,9 +1378,11 @@ test("多选 + 批量动作：勾选/批量关闭/批量推翻统一理由/部�
   await settle();
   const reason = find(shadow, (n) => n.className === "batchreason")[0];
   reason.value = "统一理由";
+  const stateCallsBefore = stateCalls;
   const submit = find(shadow, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("actions.override"))[0];
   submit.onclick();
   await settle();
+  assert.equal(stateCalls, stateCallsBefore, "部分失败不 reload（view.reload 必经 api.state 重取，B4/S4）");
   const ovCalls = calls.filter((x) => x[0] === "override");
   assert.equal(ovCalls.length, 1, "逐 key override（stub 对失败键抛错前不记账，成功键=1）");
   assert.equal(ovCalls[0][1].key, "o/r#issue#1", "成功键正确");
@@ -1435,6 +1440,9 @@ test("openHelp 浮层：标题/键位行/关闭（P1-1）", async () => {
   const closeBtn = find(dlg, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("kbd.close"))[0];
   closeBtn.onclick();
   assert.equal(anchor.children.find((n) => String(n.className).includes("kbdhelp")), undefined, "关闭即移除");
+  const fs = await import("node:fs");
+  const knavSrc = fs.readFileSync(new URL("../src/client/components/keynav.mjs", import.meta.url), "utf8");
+  assert.ok(!knavSrc.includes("min-height:28px"), "帮助关闭钮无内联 28px（coarse 44px 接管，B3②）");
 });
 
 test("workbench 键盘接线：host keydown 安装 + dispose 对称（P1-1/S5）", async () => {
@@ -1449,9 +1457,10 @@ test("workbench 键盘接线：host keydown 安装 + dispose 对称（P1-1/S5）
   const shadow = new FakeElement("shadow"); shadow.host = new FakeElement("host");
   const view = mountWorkbench(shadow, { getLang: () => "zh-CN", build: "t", deps: { api: apiStub } });
   await new Promise((r) => setTimeout(r, 5));
-  assert.ok((shadow.host._listeners ?? []).some(([k]) => k === "keydown"), "keydown 监听已安装");
+  assert.ok((shadow._listeners ?? []).some(([k]) => k === "keydown"), "keydown 监听安装于 shadow 根（rev-impl-p1 B1：不挂 host）");
+  assert.ok(!(shadow.host._listeners ?? []).some(([k]) => k === "keydown"), "host 上不挂 keydown（重定向击穿 typing 守卫）");
   view.dispose();
-  assert.ok(!(shadow.host._listeners ?? []).some(([k]) => k === "keydown"), "dispose 对称移除（S5）");
+  assert.ok(!(shadow._listeners ?? []).some(([k]) => k === "keydown"), "dispose 对称移除（S5）");
 });
 
 test("motion token + reduced-motion 对账 + tab 指示条缺省退化（P1-8/S12）", async () => {
@@ -1471,6 +1480,8 @@ test("motion token + reduced-motion 对账 + tab 指示条缺省退化（P1-8/S1
   const css = String(styleEl.textContent ?? "");
   assert.ok(css.includes("--dshl-dur-1") && css.includes("--dshl-dur-2") && css.includes("--dshl-ease"), "motion token 在场");
   assert.ok(css.includes("prefers-reduced-motion:reduce"), "reduced-motion 对账块在场");
+  assert.ok(css.includes("--dshl-dur-1:0s") && css.includes("--dshl-dur-2:0s"), "reduced 块三 token 置 0s（B2 红线，断言升格）");
+  assert.ok(css.includes(".ssarchive summary{min-height:44px"), "ssarchive coarse 44px（B3/S7）");
   const indicator = find(shadow, (n) => typeof n.className === "string" && n.className === "tabindicator")[0];
   assert.ok(indicator, "tab 指示条元素在场");
   assert.equal(indicator.style.display, "none", "无 ResizeObserver/matchMedia 环境缺省静态退化（S12）");

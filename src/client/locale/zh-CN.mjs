@@ -146,7 +146,7 @@ export const zhCN = {
   review: { gates: "待你放行", release: "待发版确认", failed: "执行失败", confirm: "确认已发版", empty: "没有待确认事项", notePlaceholder: "备注（可选，随动作留痕）", gateWait: "上游 {nodes} 已完成，run 停在 {gate} 等你放行。", gateWaitGeneric: "run 停在 {gate} 等你放行。", gatePassEffect: "放行后继续：{next}", gateRejectGeneric: "驳回将按该闸门配置的回退目标重跑后续节点。", passBtn: "放行（继续下游）", rejectBtn: "驳回（回退重跑）", waited: "已等待 {d}" },
   feishu: { url: "飞书 Webhook URL", save: "保存 Webhook", saveOk: "Webhook 已保存", test: "发送测试消息", testOk: "测试消息已发送", testFail: "测试发送失败" },
   badge: { pending: "待确认 ({n})" },
-  batch: { selected: "已选 {n}", close: "关闭所选", override: "批量推翻（统一理由）", reasonPlaceholder: "统一理由（by:human 留痕）", done: "完成 {ok}，失败 {fail}" },
+  batch: { selected: "已选 {n}", close: "关闭所选", override: "批量推翻（统一理由）", reasonPlaceholder: "统一理由（by:human 留痕）", done: "完成 {ok}，失败 {fail}", formValidity: "真实性", formUrgency: "紧急度", formAction: "建议动作" },
   actions: { triageBatch: "分诊待分诊", override: "保存人工判断", overrideGroup: "人工推翻（诚实留痕 by:human）", reason: "理由", moveTo: "移到", pass: "放行", reject: "驳回", copyPackage: "复制任务包", cancelRun: "取消执行", retryRun: "重试该节点" },
   run: {
     status: { running: "执行中", waiting: "待你放行", succeeded: "已交付", failed: "失败", cancelled: "已取消" },

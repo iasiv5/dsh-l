@@ -47,6 +47,7 @@ const CSS = [
   "@keyframes gate-in{from{transform:translateY(8px);opacity:.6}}",
   "@keyframes success-in{0%{border-color:color-mix(in srgb,#2da44e 55%,transparent);transform:translateY(2px)}}",
   ".gate.success-turn{animation:success-in var(--dshl-dur-1) var(--dshl-ease)}",
+  "@media (prefers-reduced-motion:reduce){:host{--dshl-dur-1:0s;--dshl-dur-2:0s}.gate.success-turn{animation:none}.dot.wait{animation:none}.tabindicator{transition:none}}",   // P1-8/B2：token 置 0s 全对账（计划红①）
   "@media (prefers-reduced-motion:reduce){.gate.success-turn{animation:none}}",
   ".gateHead{display:flex;align-items:center;justify-content:space-between;gap:10px}",
   /* 图标衬底：取图标主蓝做 tint plate——浅皮淡蓝瓷面、深皮深蓝绒面，柔影托起彩色图标 */
@@ -234,6 +235,7 @@ const CSS = [
   "}",
   "@media (pointer:coarse){",
     ".kbmove summary{min-height:44px;display:flex;align-items:center}",
+    ".ssarchive summary{min-height:44px;display:flex;align-items:center}",   // P1-4/S7：会话归档头 coarse 44px
   "}",
   "@media (max-width:560px){.ux-narrow{display:flex;flex-direction:column;gap:8px}}",
 
@@ -532,9 +534,9 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
       if (batchFormOpen) {
         const form = el("div", "batchform");
         form.style.cssText = "display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:4px 0 0";
-        const v = select([["high", t("validity.high")], ["medium", t("validity.medium")], ["low", t("validity.low")]], "medium", () => {}, "batch validity");
-        const u = select([["P0", t("urgency.P0")], ["P1", t("urgency.P1")], ["P2", t("urgency.P2")], ["P3", t("urgency.P3")]], "P2", () => {}, "batch urgency");
-        const actSel = select([["start", t("recommendedActions.start")], ["feedback", t("recommendedActions.feedback")], ["close", t("recommendedActions.close")], ["hold", t("recommendedActions.hold")]], "hold", () => {}, "batch action");
+        const v = select([["high", t("validity.high")], ["medium", t("validity.medium")], ["low", t("validity.low")]], "medium", () => {}, t("batch.formValidity"));
+        const u = select([["P0", t("urgency.P0")], ["P1", t("urgency.P1")], ["P2", t("urgency.P2")], ["P3", t("urgency.P3")]], "P2", () => {}, t("batch.formUrgency"));
+        const actSel = select([["start", t("recommendedActions.start")], ["feedback", t("recommendedActions.feedback")], ["close", t("recommendedActions.close")], ["hold", t("recommendedActions.hold")]], "hold", () => {}, t("batch.formAction"));
         const reason = el("input", "batchreason");
         reason.placeholder = t("batch.reasonPlaceholder");
         form.append(v, u, actSel, reason);
@@ -695,12 +697,14 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
       const ids = ["list", "board", "review", "sessions", "roles"];
       if (ids[i]) { activeTab = ids[i]; paint(); }
     },
-    onHelp: () => { helpInstance = openHelp(surfaceEl ?? shadow, makeT(getLang())); },
+    onHelp: () => { if (helpInstance) { helpInstance.close(); helpInstance = null; } else { helpInstance = openHelp(surfaceEl ?? shadow, makeT(getLang())); } },   // P1-1：? toggle（rev-impl-p1 S5 防叠开）
     escape: () => { helpInstance?.close?.(); helpInstance = null; },
   });
   const keyHandlerGuarded = (e) => { if (disposed) return; keyHandler(e); };
-  shadow.host?.addEventListener?.("keydown", keyHandlerGuarded);
-  view.dispose = () => { disposed = true; shadow.host?.removeEventListener?.("keydown", keyHandlerGuarded); shadow.innerHTML = ""; };   // P1-1/S5：dispose 对称移除
+  // rev-impl-p1 B1：监听挂 shadow 根（不挂 host——Shadow DOM 事件重定向会把 host 级监听的
+  // e.target 改写为宿主元素，typing 守卫永不命中，输入框打字被劫持）；keynav 内再以 composedPath 双保险。
+  shadow.addEventListener?.("keydown", keyHandlerGuarded);
+  view.dispose = () => { disposed = true; tabsObserver?.disconnect?.(); tabsObserver = null; shadow.removeEventListener?.("keydown", keyHandlerGuarded); shadow.innerHTML = ""; };   // P1-1/S5/S6：dispose 对称（监听 + 指示条观察器）
   view.state = () => state;
   view.shadow = shadow;
   paint();

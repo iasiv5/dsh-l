@@ -10,7 +10,10 @@ export function createKeyHandler({ getCursor = () => -1, setCursor = () => {}, g
   return (e) => {
     if (!e) return;
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (isTyping(e.target)) return;
+    // rev-impl-p1 B1：Shadow DOM 事件重定向——监听在 shadow 根/host 时 e.target 可能被改写为宿主元素，
+    // 必须取 composedPath()[0]（树内最内层元素）做 typing 判定，否则输入框内打字被劫持吞字。
+    const target = (typeof e.composedPath === "function" ? e.composedPath()?.[0] : null) ?? e.target ?? null;
+    if (isTyping(target)) return;
     const key = e.key;
     if (key === "j" || key === "J") {
       e.preventDefault?.();
@@ -65,7 +68,7 @@ export function openHelp(anchorEl, t) {
   const closeBtn = document.createElement("button");
   closeBtn.type = "button";
   closeBtn.textContent = t("kbd.close");
-  closeBtn.style.cssText = "align-self:flex-end;padding:2px 10px;min-height:28px";
+  closeBtn.style.cssText = "align-self:flex-end;padding:2px 10px";
   const close = () => dlg.remove();
   closeBtn.onclick = close;
   dlg.onclick = (e) => { if (e && e.target === dlg) close(); };

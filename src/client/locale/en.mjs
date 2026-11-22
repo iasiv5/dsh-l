@@ -146,7 +146,7 @@ export const en = {
   review: { gates: "Waiting for you", release: "Release pending", failed: "Failed", confirm: "Confirm released", empty: "Nothing waiting for you", notePlaceholder: "Note (optional, recorded with the action)", gateWait: "Upstream {nodes} finished; the run is paused at {gate} for your approval.", gateWaitGeneric: "The run is paused at {gate} for your approval.", gatePassEffect: "After approval: {next}", gateRejectGeneric: "Rejecting re-runs downstream from this gate's configured fallback target.", passBtn: "Approve (continue)", rejectBtn: "Reject (rework)", waited: "Waiting for {d}" },
   feishu: { url: "Feishu webhook URL", save: "Save webhook", saveOk: "Webhook saved", test: "Send test message", testOk: "Test message sent", testFail: "Test send failed" },
   badge: { pending: "Pending ({n})" },
-  batch: { selected: "Selected {n}", close: "Close selected", override: "Bulk override (shared reason)", reasonPlaceholder: "Shared reason (recorded as by:human)", done: "{ok} done, {fail} failed" },
+  batch: { selected: "Selected {n}", close: "Close selected", override: "Bulk override (shared reason)", reasonPlaceholder: "Shared reason (recorded as by:human)", done: "{ok} done, {fail} failed", formValidity: "Validity", formUrgency: "Urgency", formAction: "Action" },
   actions: { triageBatch: "Triage inbox", override: "Save my judgment", overrideGroup: "Manual override (recorded as by:human)", reason: "Reason", moveTo: "Move to", pass: "Pass", reject: "Reject", copyPackage: "Copy task package", cancelRun: "Cancel run", retryRun: "Retry node" },
   run: {
     status: { running: "Running", waiting: "Waiting for you", succeeded: "Delivered", failed: "Failed", cancelled: "Cancelled" },
