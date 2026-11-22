@@ -1,5 +1,7 @@
 // 会话板块纯函数（Task 11）：排序（Q13：running 置顶、updatedAt 倒序）与锚行反解（Q14 固定 ASCII 前缀）。
 // 无 DOM 依赖——renderSessionsView（Task 12）与测试共用。
+import { sessionState } from "../logic.mjs";
+import { stateDotEl } from "./stateDot.mjs";
 
 // summaries：ctx.sessions.list 行集（client 侧字段 id/running/updatedAt）。缺省/空 → 退化按 updatedAt 倒序。
 export function sortSessionRows(rows, summaries = null) {
@@ -37,12 +39,12 @@ export function renderSessionsView(container, { t, items = [], summaries = [], o
     if (item.candidate?.stage === "closed") badges.push(t("sessions.badgeGone"));
     if (summary?.running) badges.push(t("sessions.badgeRunning"));
     const missing = item.kind === "work" && summaries.length > 0 && !summary;
-    if (missing) badges.push(t("sessions.badgeMissing"));
-    models.push({
+    if (missing) badges.push(t("sessions.badgeMissing"));    models.push({
       sessionId: item.sessionId ?? null,
       updatedAt: item.updatedAt ?? 0,
       key: item.key ?? null,
       badges,
+      state: sessionState(item, summary),   // P0-2b 六态点
       label: item.candidate ? `${item.candidate.repo}#${item.candidate.number} · ${item.candidate.title}` : (item.sessionId ?? item.key ?? ""),
       actions: [
         ...(item.sessionId && summary ? [{ text: t("sessions.open"), fn: () => onOpen(item.sessionId) }] : []),
@@ -67,6 +69,7 @@ export function renderSessionsView(container, { t, items = [], summaries = [], o
       updatedAt: s.updatedAt ?? 0,
       key: null,
       badges,
+      state: sessionState(null, s),   // P0-2b 孤儿行：仅认 summary.running
       label: isRunOrphan ? (s.displayTitle || s.id) : anchor ? `${anchor.repo}#${anchor.number} ${anchor.type}` : (s.displayTitle || s.id),
       actions: [{ text: t("sessions.open"), fn: () => onOpen(s.id) }],
     });
@@ -82,6 +85,7 @@ export function renderSessionsView(container, { t, items = [], summaries = [], o
     const row = document.createElement("div");
     row.style.cssText = "display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid color-mix(in srgb,currentColor 8%,transparent)";
     row._rowId = m.sessionId ?? m.key;
+    row.append(stateDotEl(m.state, t));   // P0-2b：行首六态点
     for (const b of m.badges) row.append(mkChip(b));
     const label = document.createElement("span");
     label.style.cssText = "opacity:.88;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";

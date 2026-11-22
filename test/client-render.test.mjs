@@ -838,3 +838,30 @@ test("kanban 分组列表化：列头/卡片信息集/推进/移至/空列引导
   const empties = find(wrap, (n) => n.className === "kbempty");
   assert.ok(empties.length >= 1 && empties[0].textContent.includes(t("emptyStates.kanbanCol")), "空列引导文案");
 });
+
+test("sessionsView：行首六态状态点（P0-2b；DOM 断言住 client-render——sessions-view.test 无 document 桩）", async () => {
+  const { renderSessionsView } = await import("../src/client/components/sessionsView.mjs");
+  const items = [
+    { kind: "work", key: "o/r#issue#1", sessionId: "dsh-l:work-a", runId: null, cwd: "/w/a", approvalPolicy: null, createdAt: 1, updatedAt: 100, candidate: { repo: "o/r", number: 1, title: "T1", stage: "gating" } },
+    { kind: "work", key: "o/r#issue#2", sessionId: "dsh-l:work-b", runId: null, cwd: "/w/b", approvalPolicy: null, createdAt: 1, updatedAt: 200, candidate: { repo: "o/r", number: 2, title: "T2", stage: "building" } },
+    { kind: "work", key: "o/r#issue#3", sessionId: "dsh-l:work-c", runId: null, cwd: "/w/c", approvalPolicy: null, createdAt: 1, updatedAt: 150, candidate: { repo: "o/r", number: 3, title: "T3", stage: "shipped" } },
+    { kind: "work", key: "o/r#issue#4", sessionId: "dsh-l:work-d", runId: null, cwd: "/w/d", approvalPolicy: null, createdAt: 1, updatedAt: 120, candidate: { repo: "o/r", number: 4, title: "T4", stage: "triaged" } },
+    { kind: "run", key: "o/r#issue#5", sessionId: "dsh-l:run:x:1", runId: "run-1", cwd: null, approvalPolicy: null, createdAt: 1, updatedAt: 50, candidate: { repo: "o/r", number: 5, title: "T5", stage: "building" } },
+  ];
+  const summaries = [
+    { id: "dsh-l:work-b", displayTitle: "b", running: true },
+    { id: "dsh-l:work-a", displayTitle: "a", running: false },
+    { id: "dsh-l:work-c", displayTitle: "c", running: false },
+    { id: "dsh-l:work-d", displayTitle: "d", running: false },
+    { id: "dsh-l:run:x:1", displayTitle: "x", running: false },
+  ];
+  const root = new FakeElement("div");
+  renderSessionsView(root, { t, items, summaries, onOpen: () => {}, onAnother: () => {}, onDeliver: null });
+  const rows = root.children.filter((n) => n._rowId);
+  const dotOf = (id) => { const row = rows.find((r) => r._rowId === id); return row?.children.find((n) => typeof n.className === "string" && String(n.className).includes("stdot")); };
+  assert.ok(String(dotOf("dsh-l:work-a").className).includes("st-gating"), "gating → st-gating");
+  assert.ok(String(dotOf("dsh-l:work-b").className).includes("st-running"), "building+running → st-running");
+  assert.ok(String(dotOf("dsh-l:work-c").className).includes("st-done"), "shipped → st-done");
+  assert.ok(String(dotOf("dsh-l:work-d").className).includes("st-idle"), "triaged → st-idle");
+  assert.ok(String(dotOf("dsh-l:run:x:1").className).includes("st-running"), "run 行 building → st-running");
+});
