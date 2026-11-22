@@ -1189,3 +1189,46 @@ test("pinned filters：保存/应用/删除/跨 mount 持久（P1-3 后半）", 
   await settle();
   assert.equal(find(shadow2, (n) => typeof n.className === "string" && String(n.className).includes("pinchip")).length, 1, "跨 mount 持久");
 });
+
+test("sessionsView P1-4：相对时间/unread/在途节点/终态折叠/onOpen 扩参", async () => {
+  const { renderSessionsView } = await import("../src/client/components/sessionsView.mjs");
+  const NOW = 1_000_000_000;
+  const mk = (n, kind, sessionId, runId, stage, extra = {}) => ({ kind, key: `o/r#issue#${n}`, sessionId, runId, cwd: "/w", approvalPolicy: null, createdAt: 1, updatedAt: NOW - 30 * 60_000, ...extra, candidate: { repo: "o/r", number: n, title: "T" + n, stage, ...(extra.candidate ?? {}) } });
+  const items = [
+    mk(1, "work", "dsh-l:work-a", null, "building"),
+    mk(2, "run", "dsh-l:run-ok", "run-ok", "building"),
+    mk(3, "run", "dsh-l:run-seen", "run-seen", "building"),
+    mk(4, "run", "dsh-l:run-new", "run-new", "building"),
+    mk(5, "work", "dsh-l:work-gone", null, "closed"),
+    mk(6, "work", "dsh-l:work-ship", null, "shipped", { candidate: { release: { confirmedAt: "x" } } }),
+    mk(7, "work", "dsh-l:work-act", null, "shipped"),
+  ];
+  const summaries = items.map((it) => ({ id: it.sessionId, displayTitle: it.sessionId, running: it.sessionId === "dsh-l:run-ok" }));
+  const runs = [
+    { id: "run-ok", status: "running", currentNodeIds: ["build"] },
+    { id: "run-seen", status: "succeeded", currentNodeIds: [] },
+    { id: "run-new", status: "succeeded", currentNodeIds: [] },
+  ];
+  const opens = [];
+  const root = new FakeElement("div");
+  renderSessionsView(root, { t, items, summaries, onOpen: (id, item) => opens.push([id, item]), onAnother: () => {}, onDeliver: null, runs, seenRunIds: ["run-seen"], nowMs: NOW });
+  const rowById = (id) => root.children.filter((n) => n._rowId === id)[0];
+  const archive = root.children.find((n) => typeof n.className === "string" && String(n.className).includes("ssarchive"));
+  assert.ok(archive, "终态折叠容器在场");
+  const archiveIds = find(archive, (n) => n._rowId).map((r) => r._rowId).sort().join(",");
+  assert.equal(archiveIds, "dsh-l:work-gone,dsh-l:work-ship", "closed+已确认 shipped 归档；未确认 shipped 保持活跃");
+  assert.ok(summary(archive).textContent.includes(t("sessions.archive")) && summary(archive).textContent.includes("2"), "归档 summary 含名与计数");
+  const rowA = rowById("dsh-l:work-a");
+  assert.ok(rowA.textContent.includes(t("sessions.ago").replace("{t}", "30m")), "相对时间 30m 前");
+  assert.ok(rowById("dsh-l:run-ok").textContent.includes("build"), "run-ok 在途节点 chip");
+  const unreadOf = (id) => { const r = rowById(id); return r ? r.children.filter((n) => typeof n.className === "string" && String(n.className).includes("st-unread")).length : -1; };
+  assert.equal(unreadOf("dsh-l:run-new"), 1, "succeeded 未读 → 蓝点");
+  assert.equal(unreadOf("dsh-l:run-seen"), 0, "已读无蓝点");
+  assert.equal(unreadOf("dsh-l:run-ok"), 0, "running 无蓝点");
+  const openBtn = rowById("dsh-l:work-a").children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").find((b) => b.textContent.includes(t("sessions.open")));
+  openBtn.onclick();
+  assert.equal(opens.length, 1, "onOpen 调用一次");
+  assert.equal(opens[0][0], "dsh-l:work-a", "onOpen 传 id");
+  assert.equal(opens[0][1].sessionId, "dsh-l:work-a", "onOpen 传 item（runId 记账数据源）");
+  function summary(el) { return el.children.find((n) => String(n.tagName).toUpperCase() === "SUMMARY"); }
+});

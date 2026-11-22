@@ -246,6 +246,14 @@ export function formatDuration(ms) {
   return Math.round(n / 86_400_000) + "d";
 }
 
+// 相对时间（P1-4）：delta = now - updatedAt，负值钳 0；复用时长档位，调用方以 sessions.ago 模板包裹。
+export function formatRelative(updatedAtMs, nowMs) {
+  const a = Number(updatedAtMs);
+  const b = Number(nowMs);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return "";
+  return formatDuration(Math.max(0, b - a));
+}
+
 // 闸门等待排序（P1 小债 D）：waitingSince 升序（最久优先），缺省沉底且保持原序（稳定排序）。
 export function sortGateRunsByWait(runs) {
   return [...(runs ?? [])].sort((a, b) => {

@@ -132,6 +132,8 @@ export const en = {
     badgeMissing: "Not in session list", badgeRunning: "Running",
     open: "Open", another: "Start another", deliver: "Confirm delivery", deliverFailed: "Deliver failed",
     empty: "No dsh-l sessions yet — pass G1 on a candidate in the list and choose \"Start it myself\".",
+    ago: "{t} ago",
+    archive: "Finished",
   },
   roles: {
     search: "Search roles (name/id/description)", empty: "No matching roles", overridden: "overrides builtin",

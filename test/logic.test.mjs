@@ -287,3 +287,15 @@ test("loadPins/savePins/makePinId：注入 storage、坏 JSON 与缺失回退（
   st.setItem("dsh-l.pinnedFilters.v1", JSON.stringify({ not: "array" }));
   assert.deepEqual(loadPins(st), [], "非数组 → []");
 });
+
+// ---- P1-4：相对时间档位 ----
+test("formatRelative 档位（P1-4）", async () => {
+  const { formatRelative } = await import("../src/client/logic.mjs");
+  const now = 1_000_000_000;
+  assert.equal(formatRelative(undefined, now), "");
+  assert.equal(formatRelative(now - 30_000, now), "1m");
+  assert.equal(formatRelative(now - 45 * 60_000, now), "45m");
+  assert.equal(formatRelative(now - 3 * 3_600_000, now), "3h");
+  assert.equal(formatRelative(now - 27 * 86_400_000, now), "27d");
+  assert.equal(formatRelative(now + 5_000, now), "1m", "未来时间钳为 0");
+});
