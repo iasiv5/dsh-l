@@ -284,9 +284,14 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
     return s;
   };
 
+  let prevMainEl = null;   // P1-2：上一棵树的滚动容器引用（重绘前快照 scrollTop）
   const paint = () => {
     if (disposed) return;
     const t = makeT(getLang());
+    // P1-2 快照：滚动位置（旧 main）与焦点（navKey 标记，shadow.activeElement 桩安全可选读）
+    const savedScroll = prevMainEl ? (prevMainEl.scrollTop ?? 0) : 0;
+    const activeEl = shadow.activeElement ?? null;
+    const navKey = (activeEl && activeEl.dataset && activeEl.dataset.navKey) || null;
     shadow.innerHTML = "";
     shadow.host.dataset.dshLBuild = build;
     const style = el("style"); style.textContent = CSS;
@@ -526,6 +531,29 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
     const surface = el("div", "workSurface");
     surface.append(header, tabsBar, main);
     shadow.append(style, surface);
+    // P1-2 恢复：navKey 标记 → 滚动复位 → 焦点复位（全部尽力而为，桩/无焦点安全）
+    let navIdx = 0;
+    const assignNavKeys = (node) => {
+      for (const c of node.children ?? []) {
+        const tag = String(c.tagName).toUpperCase();
+        if (tag === "BUTTON" || tag === "SELECT" || tag === "INPUT" || tag === "TEXTAREA") c.dataset.navKey = "n" + navIdx++;
+        assignNavKeys(c);
+      }
+    };
+    assignNavKeys(surface);
+    prevMainEl = main;
+    if (savedScroll) main.scrollTop = savedScroll;
+    if (navKey) {
+      const findByNavKey = (node) => {
+        for (const c of node.children ?? []) {
+          if (c.dataset && c.dataset.navKey === navKey) return c;
+          const hit = findByNavKey(c);
+          if (hit) return hit;
+        }
+        return null;
+      };
+      findByNavKey(surface)?.focus?.();
+    }
   };
 
   view.reload = async () => {

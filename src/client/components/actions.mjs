@@ -1,6 +1,7 @@
 import { api } from "../api.mjs";
 import { pickTriageBatch, gateState, settingsPatch, workSessionSettingsPatch, runBlock } from "../logic.mjs";
 import { renderRunDetail } from "./runDetail.mjs";
+import { withPending } from "./uiFeedback.mjs";
 import { openRepoPicker } from "./repoPicker.mjs";
 import { renderStrip } from "./pipelineStrip.mjs";
 
@@ -169,7 +170,7 @@ export function openSettings(shadow, { t, current, onSaved }) {
 
 const btn = (text, onClick, disabled = false) => {
   const b = document.createElement("button");
-  b.type = "button"; b.textContent = text; b.disabled = disabled; b.onclick = onClick;
+  b.type = "button"; b.textContent = text; b.disabled = disabled; b.onclick = withPending(b, onClick);   // P1-2：pending 态包装
   return b;
 };
 const sel = (pairs, value) => {

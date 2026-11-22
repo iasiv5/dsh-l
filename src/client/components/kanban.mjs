@@ -1,6 +1,7 @@
 import { kanbanColumns, advanceStageOf, candidateState } from "../logic.mjs";
 import { stateDotEl } from "./stateDot.mjs";
 import { metaFootnote } from "./candidateRow.mjs";
+import { withPending } from "./uiFeedback.mjs";
 import { api } from "../api.mjs";
 
 // 看板视图（P0-1 重设计，design-v2 §13.6 基础上升级）：
@@ -51,7 +52,7 @@ export function renderKanban(container, { t, candidates, view, deps = {} } = {})
         if (next) {
           const adv = el("button", "kbadvance", t("kanban.advance"));
           adv.type = "button";
-          adv.onclick = () => { a.stage(card.key, next, "看板推进").then(() => { clearKbErr(cardEl); view.reload(); }).catch((e) => showKbErr(cardEl, e)); };
+          adv.onclick = withPending(adv, () => a.stage(card.key, next, "看板推进").then(() => { clearKbErr(cardEl); view.reload(); }).catch((e) => showKbErr(cardEl, e)));   // P1-2
           cardEl.append(adv);
         }
         const menu = el("details", "kbmove");
@@ -60,7 +61,7 @@ export function renderKanban(container, { t, candidates, view, deps = {} } = {})
           const label = target === "held" ? t("recommendedActions.hold") : t("groups." + target);
           const b = el("button", "kbmovebtn", t("actions.moveTo") + " " + label);
           b.type = "button";
-          b.onclick = () => { a.stage(card.key, target, "看板迁移").then(() => { clearKbErr(cardEl); view.reload(); }).catch((e) => showKbErr(cardEl, e)); };
+          b.onclick = withPending(b, () => a.stage(card.key, target, "看板迁移").then(() => { clearKbErr(cardEl); view.reload(); }).catch((e) => showKbErr(cardEl, e)));   // P1-2
           menu.append(b);
         }
         cardEl.append(menu);

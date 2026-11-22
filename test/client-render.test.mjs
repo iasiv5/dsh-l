@@ -1272,10 +1272,60 @@ test("actions runRow 详情 toggle 展开/收起（P1-5）", async () => {
   const detailBtn = find(d, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("run.detail"))[0];
   assert.ok(detailBtn, "详情 toggle 按钮在场");
   assert.equal(find(d, (n) => n.className === "rundetail").length, 0, "初始收起");
+  const settle = () => new Promise((r) => setTimeout(r, 0));   // withPending 异步恢复间隙（真实点击天然存在）
   detailBtn.onclick();
+  await settle();
   const panel = find(d, (n) => n.className === "rundetail")[0];
   assert.ok(panel && panel.textContent.includes("build"), "展开渲染节点视图");
   assert.notEqual(panel._parent.style.display, "none", "展开可见");
   detailBtn.onclick();
+  await settle();
   assert.equal(panel._parent.style.display, "none", "再点收起（toggle 在外层 detailWrap）");
+});
+
+test("withPending：pending 态 + 失败原位恢复（P1-2）", async () => {
+  const { withPending } = await import("../src/client/components/uiFeedback.mjs");
+  const b = new FakeElement("button");
+  let fail = true;
+  const p = withPending(b, async () => { if (fail) throw new Error("x"); });
+  const done = p();
+  assert.equal(b.disabled, true, "执行即禁用");
+  assert.equal(b.dataset.pending, "1", "pending 标记");
+  await done.catch(() => {});
+  assert.equal(b.disabled, false, "失败原位恢复（不重绘路径）");
+  assert.equal(b.dataset.pending, "", "pending 标记清除");
+  fail = false;
+  await p();
+  assert.equal(b.disabled, false, "成功后亦恢复");
+});
+
+test("paint 保留滚动位置与焦点（P1-2）", async () => {
+  const { mountWorkbench } = await import("../src/client/components/workbench.mjs");
+  const cand = { key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t", stage: "inbox", triage: null };
+  const apiStub = {
+    state: async () => ({ auth: { account: "iasiv5", login: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }, watch: { repos: ["o/r"] }, snapshots: { lastIngestAt: null, perRepo: {} }, settings: { intervalMinutes: 0 }, candidates: [cand], runs: [], workflow: { templates: [] }, ingestLog: [] }),
+    auth: async () => ({ gates: { ghInstalled: true, ghLogin: true, credentialOk: true }, viewerLogin: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }),
+    workSessions: async () => ({ items: [] }),
+    refresh: async () => ({ authenticated: true }),
+  };
+  const settle = () => new Promise((r) => setTimeout(r, 5));
+  const shadow = new FakeElement("shadow"); shadow.host = new FakeElement("host");
+  mountWorkbench(shadow, { getLang: () => "zh-CN", build: "t", deps: { api: apiStub } });
+  await settle();
+  const mainEl = find(shadow, (n) => String(n.tagName).toUpperCase() === "MAIN")[0];
+  mainEl.scrollTop = 88;
+  const rowTitle = find(shadow, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.className === "title")[0];
+  shadow.activeElement = rowTitle;   // 模拟焦点在行标题（真实 DOM 由 shadow.activeElement 提供）
+  const oldKey = rowTitle.dataset.navKey;
+  assert.ok(oldKey, "paint 已为可交互元素标 navKey");
+  const urgencySel = find(shadow, (n) => String(n.tagName).toUpperCase() === "SELECT" && n.getAttribute("aria-label") === t("filters.urgency"))[0];
+  urgencySel.value = "all";
+  urgencySel.onchange();
+  await settle();
+  const mainEl2 = find(shadow, (n) => String(n.tagName).toUpperCase() === "MAIN")[0];
+  assert.notEqual(mainEl2, mainEl, "paint 重建了 main");
+  assert.equal(mainEl2.scrollTop, 88, "滚动位置保留");
+  const newTitle = find(shadow, (n) => n.dataset?.navKey === oldKey)[0];
+  assert.ok(newTitle && newTitle !== rowTitle, "新树存在同 navKey 元素");
+  assert.ok((newTitle.focusCalls ?? 0) >= 1, "焦点恢复（focus 被调）");
 });

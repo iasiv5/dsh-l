@@ -1,5 +1,6 @@
 import { needsReview, gateWaitInfo, prettyKey, formatDuration, sortGateRunsByWait } from "../logic.mjs";
 import { api } from "../api.mjs";
+import { withPending } from "./uiFeedback.mjs";
 
 // 待我确认视图（design-v2 §13.5 基础上 P0-3 升级）：
 // - 卡片标题人话化：prettyKey(key) + 候选标题（不再裸 candidateKey）。
@@ -60,7 +61,7 @@ export function renderReview(container, { t, candidates, runs, view, templates =
     b.type = "button";
     b.disabled = disabled;
     b.style.cssText = "font-size:12px;padding:2px 10px;margin-right:6px";
-    b.onclick = fn;
+    b.onclick = withPending(b, fn);   // P1-2：pending 态包装
     parent.append(b);
     return b;
   };
