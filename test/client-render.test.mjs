@@ -29,6 +29,7 @@ class FakeElement {
   prepend(n) { if (n != null) { n._parent = this; this.children.unshift(n); } }
   insertBefore(n, ref) { if (n == null) return n; n._parent = this; const i = ref ? this.children.indexOf(ref) : -1; if (i < 0) this.children.push(n); else this.children.splice(i, 0, n); return n; }
   addEventListener(k, fn) { (this._listeners ??= []).push([k, fn]); }   // P1 起记账（keynav 挂载断言用）；原 no-op 加法升级
+  removeEventListener(k, fn) { this._listeners = (this._listeners ?? []).filter(([kk, ff]) => kk !== k || ff !== fn); }   // P1-1/S5：dispose 对称断言用
   remove() { if (this._parent) this._parent.children = this._parent.children.filter((c) => c !== this); }
   setAttribute(k, v) { this.attrs[k] = v; }
   getAttribute(k) { return this.attrs[k] ?? null; }
@@ -1386,4 +1387,69 @@ test("多选 + 批量动作：勾选/批量关闭/批量推翻统一理由/部�
   const checksAfter = find(shadow, (n) => String(n.getAttribute("role")) === "checkbox");
   assert.equal(checksAfter.find((n) => n.dataset.key === "o/r#issue#1").getAttribute("aria-checked"), "false", "成功键移出选择集");
   assert.equal(checksAfter.find((n) => n.dataset.key === "o/r#issue#2").getAttribute("aria-checked"), "true", "失败键保留勾选（原位重试，B4）");
+});
+
+test("keynav 键位分派纯逻辑：j/k 钳位/Enter/x/数字/?/typing 忽略/修饰键忽略/pd 仅消费（P1-1）", async () => {
+  const { createKeyHandler } = await import("../src/client/components/keynav.mjs");
+  const ev = (key, over = {}) => ({ key, ctrlKey: false, metaKey: false, altKey: false, target: { tagName: "DIV" }, preventDefaultCalls: 0, preventDefault() { this.preventDefaultCalls++; }, ...over });
+  let cursor = -1;
+  const rowActions = []; const selects = []; const tabs = []; let helped = 0;
+  const handler = createKeyHandler({
+    getCursor: () => cursor, setCursor: (i) => { cursor = i; },
+    getRowCount: () => 3, rowAction: (i) => rowActions.push(i), rowSelect: (i) => selects.push(i),
+    tabSwitch: (i) => tabs.push(i), onHelp: () => { helped++; },
+  });
+  handler(ev("j")); handler(ev("j")); handler(ev("j"));
+  assert.equal(cursor, 2, "j 下移并钳到末行");
+  handler(ev("k"));
+  assert.equal(cursor, 1, "k 上移");
+  handler(ev("Enter"));
+  assert.deepEqual(rowActions, [1], "Enter 展开当前行");
+  handler(ev(" "));
+  assert.deepEqual(rowActions, [1, 1], "Space 同展开");
+  handler(ev("x"));
+  assert.deepEqual(selects, [1], "x 勾选当前行");
+  handler(ev("3"));
+  assert.deepEqual(tabs, [2], "数字 3 切第三视图");
+  handler(ev("?"));
+  assert.equal(helped, 1, "? 打开帮助");
+  handler(ev("j", { target: { tagName: "INPUT" } }));
+  assert.equal(cursor, 1, "输入焦点内忽略");
+  handler(ev("j", { ctrlKey: true }));
+  assert.equal(cursor, 1, "修饰键忽略");
+  const e2 = ev("z");
+  handler(e2);
+  assert.equal(e2.preventDefaultCalls, 0, "未消费键不 preventDefault");
+  const e3 = ev("j");
+  handler(e3);
+  assert.equal(e3.preventDefaultCalls, 1, "消费键 preventDefault");
+});
+
+test("openHelp 浮层：标题/键位行/关闭（P1-1）", async () => {
+  const { openHelp } = await import("../src/client/components/keynav.mjs");
+  const anchor = new FakeElement("div");
+  const inst = openHelp(anchor, t);
+  const dlg = anchor.children.find((n) => String(n.className).includes("kbdhelp"));
+  assert.ok(dlg && String(dlg.style.cssText).includes("position:fixed"), "浮层 fixed");
+  assert.ok(dlg.textContent.includes(t("kbd.title")) && dlg.textContent.includes(t("kbd.jk")), "标题与键位行在场");
+  const closeBtn = find(dlg, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("kbd.close"))[0];
+  closeBtn.onclick();
+  assert.equal(anchor.children.find((n) => String(n.className).includes("kbdhelp")), undefined, "关闭即移除");
+});
+
+test("workbench 键盘接线：host keydown 安装 + dispose 对称（P1-1/S5）", async () => {
+  const { mountWorkbench } = await import("../src/client/components/workbench.mjs");
+  const cand = { key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t", stage: "inbox", triage: null };
+  const apiStub = {
+    state: async () => ({ auth: { account: "iasiv5", login: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }, watch: { repos: ["o/r"] }, snapshots: { lastIngestAt: null, perRepo: {} }, settings: { intervalMinutes: 0 }, candidates: [cand], runs: [], workflow: { templates: [] }, ingestLog: [] }),
+    auth: async () => ({ gates: { ghInstalled: true, ghLogin: true, credentialOk: true }, viewerLogin: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }),
+    workSessions: async () => ({ items: [] }),
+    refresh: async () => ({ authenticated: true }),
+  };
+  const shadow = new FakeElement("shadow"); shadow.host = new FakeElement("host");
+  const view = mountWorkbench(shadow, { getLang: () => "zh-CN", build: "t", deps: { api: apiStub } });
+  await new Promise((r) => setTimeout(r, 5));
+  assert.ok((shadow.host._listeners ?? []).some(([k]) => k === "keydown"), "keydown 监听已安装");
+  view.dispose();
+  assert.ok(!(shadow.host._listeners ?? []).some(([k]) => k === "keydown"), "dispose 对称移除（S5）");
 });

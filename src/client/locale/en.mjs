@@ -157,6 +157,7 @@ export const en = {
     emptyHistory: "No history events",
   },
   nodeState: { pending: "Pending", ready: "Ready", skipped: "Skipped" },
+  kbd: { title: "Keyboard shortcuts", jk: "j / k: move up/down", enter: "Enter / Space: expand or collapse", x: "x: toggle row selection", digits: "Digits 1–5: switch views", help: "?: this help", close: "Close" },
   gateV1Hint: "Loop v2: G1/G2 human gates; the G3 release gate opens later",
   work: {
     startBtn: "Start it myself",

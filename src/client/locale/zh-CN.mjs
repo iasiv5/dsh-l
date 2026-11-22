@@ -157,6 +157,7 @@ export const zhCN = {
     emptyHistory: "暂无历史事件",
   },
   nodeState: { pending: "待调度", ready: "就绪", skipped: "已跳过" },
+  kbd: { title: "键盘快捷键", jk: "j / k：上下移动", enter: "Enter / Space：展开或收起", x: "x：勾选当前行", digits: "数字 1–5：切换视图", help: "?：本帮助", close: "关闭" },
   gateV1Hint: "执行环 v2：G1/G2 人工放行；G3 发版闸于后续版本开放",
   work: {
     startBtn: "我来开",

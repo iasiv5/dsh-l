@@ -12,6 +12,7 @@ import { renderReview } from "./review.mjs";
 import { renderSessionsView } from "./sessionsView.mjs";
 import { renderRolesTab } from "./rolesTab.mjs";
 import { withPending } from "./uiFeedback.mjs";
+import { createKeyHandler, openHelp } from "./keynav.mjs";
 
 const CSS = [
   ":host{display:flex;flex-direction:column;height:100%;font-size:14px;line-height:1.45;color:inherit}",
@@ -197,6 +198,8 @@ const CSS = [
   ".ux-narrow{display:none}",
   ".ux-chev{display:none}",
   ".start-hint{font-size:13px;opacity:.75;margin:2px 16px 0}",
+  /* ── P1-1 键盘游标高亮（fine pointer 语义，不进 coarse 层）── */
+  ".knav-cursor{background:color-mix(in srgb,currentColor 8%,transparent)}",
   /* ── P0-2 六态色标 token（小面积点，Host-Theme Rule 合规；唯一新固定色 #4493f8 = unread 蓝）── */
   ".stdot{width:8px;height:8px;border-radius:50%;flex:none}",
   ".st-running{background:#2da44e}",
@@ -277,6 +280,10 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
   const checkboxEls = new Map();   // P1-7：勾选框元素登记（key → el，供批量部分失败后就地同步）
   const checkboxElSink = (elc) => checkboxEls.set(elc.dataset.key, elc);
   let batchFormOpen = false;   // P1-7 批量推翻共享表单开关（闭包态，paint 存续）
+  let rowEls = [];   // P1-1：可视清单行元素（paint 收集，j/k 游标用）
+  let surfaceEl = null;   // P1-1：帮助浮层锚点（paint 更新）
+  let cursorIndex = -1;   // P1-1 游标态（keynav 持方为调用方）
+  let helpInstance = null;
   let credMount = null;   // 紧凑连接卡挂载点（原隐式全局：产物非严格加载侥幸可用，node ESM 严格模式必炸——Task 8 测试揪出）
   const view = {};
 
@@ -603,6 +610,17 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
       };
       findByNavKey(surface)?.focus?.();
     }
+    // P1-1：收集可视清单行（classList.contains 兼容游标高亮类的追加）
+    rowEls = [];
+    const collectRows = (node) => {
+      for (const c of node.children ?? []) {
+        if (c.classList?.contains?.("row")) rowEls.push(c);
+        collectRows(c);
+      }
+    };
+    collectRows(surface);
+    surfaceEl = surface;
+    if (cursorIndex >= rowEls.length) cursorIndex = rowEls.length - 1;
   };
 
   view.reload = async () => {
@@ -630,7 +648,37 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
     await view.reload();
   };
   view.relabel = paint;
-  view.dispose = () => { disposed = true; shadow.innerHTML = ""; };
+  // P1-1 键盘接线（S5 dispose 对称）：游标高亮 + 行展开/勾选经既有 DOM 回调复用
+  const highlightCursor = () => {
+    for (const r of rowEls) r.classList?.remove?.("knav-cursor");
+    const r = rowEls[cursorIndex];
+    if (r) {
+      r.classList?.add?.("knav-cursor");
+      r.scrollIntoView?.({ block: "nearest" });
+    }
+  };
+  const keyHandler = createKeyHandler({
+    getCursor: () => cursorIndex,
+    setCursor: (i) => { cursorIndex = i; highlightCursor(); },
+    getRowCount: () => rowEls.length,
+    rowAction: (i) => {
+      const title = rowEls[i]?.children?.find((c) => String(c.className) === "title");
+      title?.onclick?.();
+    },
+    rowSelect: (i) => {
+      const chk = rowEls[i]?.children?.find((c) => c.getAttribute?.("role") === "checkbox");
+      chk?.onclick?.();
+    },
+    tabSwitch: (i) => {
+      const ids = ["list", "board", "review", "sessions", "roles"];
+      if (ids[i]) { activeTab = ids[i]; paint(); }
+    },
+    onHelp: () => { helpInstance = openHelp(surfaceEl ?? shadow, makeT(getLang())); },
+    escape: () => { helpInstance?.close?.(); helpInstance = null; },
+  });
+  const keyHandlerGuarded = (e) => { if (disposed) return; keyHandler(e); };
+  shadow.host?.addEventListener?.("keydown", keyHandlerGuarded);
+  view.dispose = () => { disposed = true; shadow.host?.removeEventListener?.("keydown", keyHandlerGuarded); shadow.innerHTML = ""; };   // P1-1/S5：dispose 对称移除
   view.state = () => state;
   view.shadow = shadow;
   paint();
