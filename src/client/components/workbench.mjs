@@ -13,6 +13,7 @@ import { renderSessionsView } from "./sessionsView.mjs";
 import { renderRolesTab } from "./rolesTab.mjs";
 import { withPending } from "./uiFeedback.mjs";
 import { createKeyHandler, openHelp } from "./keynav.mjs";
+import { openPalette } from "./commandPalette.mjs";
 
 const CSS = [
   ":host{--dshl-dur-1:200ms;--dshl-dur-2:220ms;--dshl-ease:cubic-bezier(.22,1,.36,1);display:flex;flex-direction:column;height:100%;font-size:14px;line-height:1.45;color:inherit}",
@@ -284,6 +285,10 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
   let surfaceEl = null;   // P1-1：帮助浮层锚点（paint 更新）
   let cursorIndex = -1;   // P1-1 游标态（keynav 持方为调用方）
   let helpInstance = null;
+  let paletteOpen = false;   // P2-1 ⌘K 面板开启态（paint 重置为关——S5）
+  let paletteInstance = null;
+  let peekOpen = false;   // P2 Task 3 Peek 开启态（与 palette 互斥，S5）
+  let peekInstance = null;
   let credMount = null;   // 紧凑连接卡挂载点（原隐式全局：产物非严格加载侥幸可用，node ESM 严格模式必炸——Task 8 测试揪出）
   const view = {};
 
@@ -309,6 +314,8 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
     if (disposed) return;
     const t = makeT(getLang());
     tabsObserver?.disconnect?.(); tabsObserver = null;   // P1-8：旧指示条观察器清账
+    paletteOpen = false; paletteInstance = null;   // P2-1 S5：paint 重置面板开启态（DOM 随重绘消失）
+    peekOpen = false; peekInstance = null;
     // P1-2 快照：滚动位置（旧 main）与焦点（navKey 标记，shadow.activeElement 桩安全可选读）
     const savedScroll = prevMainEl ? (prevMainEl.scrollTop ?? 0) : 0;
     const activeEl = shadow.activeElement ?? null;
@@ -699,7 +706,30 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
     onHelp: () => { if (helpInstance) { helpInstance.close(); helpInstance = null; } else { helpInstance = openHelp(surfaceEl ?? shadow, makeT(getLang())); } },   // P1-1：? toggle（rev-impl-p1 S5 防叠开）
     escape: () => { helpInstance?.close?.(); helpInstance = null; },
   });
-  const keyHandlerGuarded = (e) => { if (disposed) return; keyHandler(e); };
+  const keyHandlerGuarded = (e) => {
+    if (disposed) return;
+    // P2-1：⌘K/Ctrl+K 截获（keyHandler 调用之前；单监听零注册顺序依赖——rev-plan S4；typing 焦点内亦可开）
+    if (e && (e.ctrlKey || e.metaKey) && String(e.key ?? "").toLowerCase() === "k") {
+      e.preventDefault?.();
+      if (peekOpen) { peekInstance?.close?.(); peekOpen = false; peekInstance = null; }   // S5 互斥
+      if (paletteOpen) { paletteInstance?.close?.(); paletteOpen = false; paletteInstance = null; }
+      else {
+        paletteInstance = openPalette(surfaceEl ?? shadow, { t: makeT(getLang()), actions: paletteActions(), onClose: () => { paletteOpen = false; paletteInstance = null; } });
+        paletteOpen = true;
+      }
+      return;
+    }
+    // P1-1 S5：paint 重置语义——重绘后开启态已为关（DOM 随重绘消失）
+    if (paletteOpen) { paletteOpen = false; paletteInstance = null; }
+    if (peekOpen) { peekOpen = false; peekInstance = null; }
+    keyHandler(e);
+  };
+  // P2-1 动作目录（注册表：后续动作按 {id,label,run} 追加——rev-plan S7）
+  const paletteActions = () => [
+    ...["list", "board", "review", "sessions", "roles"].map((id) => ({ id: "tab-" + id, label: makeT(getLang())("tabs." + id), run: () => { activeTab = id; paint(); } })),
+    { id: "refresh", label: makeT(getLang())("refresh"), run: () => view.refresh() },
+    { id: "help", label: makeT(getLang())("kbd.title"), run: () => { helpInstance = openHelp(surfaceEl ?? shadow, makeT(getLang())); } },
+  ];
   // rev-impl-p1 B1：监听挂 shadow 根（不挂 host——Shadow DOM 事件重定向会把 host 级监听的
   // e.target 改写为宿主元素，typing 守卫永不命中，输入框打字被劫持）；keynav 内再以 composedPath 双保险。
   shadow.addEventListener?.("keydown", keyHandlerGuarded);

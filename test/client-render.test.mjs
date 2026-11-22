@@ -1541,3 +1541,88 @@ test("批量表单闭包态 + crimson 清偿 + 死基建移除 + navKey 候选�
   const reasonAfter = find(shadow, (n) => n.className === "batchreason")[0];
   assert.equal(reasonAfter.value, "草稿理由", "reason 跨 paint 保留（闭包态 S2）");
 });
+
+test("palette：过滤/键盘导航/执行/Esc/空态（P2-1）", async () => {
+  const { openPalette } = await import("../src/client/components/commandPalette.mjs");
+  const anchor = new FakeElement("div");
+  const runs = [];
+  const onCloseCalls = [];
+  const actions = [
+    { id: "tab-list", label: "清单", run: () => runs.push("tab-list") },
+    { id: "tab-board", label: "看板", run: () => runs.push("tab-board") },
+    { id: "refresh", label: "刷新候选", run: () => runs.push("refresh") },
+  ];
+  openPalette(anchor, { t, actions, onClose: () => onCloseCalls.push(1) });
+  const dlg = () => anchor.children.find((n) => String(n.className).includes("palette"));
+  assert.ok(dlg(), "面板挂载");
+  const input = () => find(dlg(), (n) => String(n.tagName).toUpperCase() === "INPUT")[0];
+  assert.equal(input().attrs.placeholder, t("palette.placeholder"), "placeholder（桩无 getter，读 attrs）");
+  assert.equal(find(dlg(), (n) => String(n.className).includes("paletteitem")).length, 3, "全量列表");
+  // 过滤
+  input().value = "看";
+  input().oninput?.();
+  const filtered = find(dlg(), (n) => String(n.className).includes("paletteitem"));
+  assert.equal(filtered.length, 1, "子串过滤");
+  assert.ok(filtered[0].textContent.includes("看板"));
+  input().value = "";
+  input().oninput?.();
+  // 键盘导航
+  const kd = (key) => { const e = { key, stopPropagationCalls: 0, preventDefault() {}, stopPropagation() { this.stopPropagationCalls++; } }; input().onkeydown?.(e); return e; };
+  const active = () => find(dlg(), (n) => String(n.className).includes("paletteitem is-active"))[0];
+  assert.ok(active().textContent.includes("清单"), "初始高亮第一项");
+  kd("ArrowDown");
+  assert.ok(active().textContent.includes("看板"), "↓ 到第二项");
+  kd("ArrowDown");
+  assert.ok(active().textContent.includes("刷新候选"), "↓ 到第三项");
+  kd("Enter");
+  assert.deepEqual(runs, ["refresh"], "Enter 执行高亮项");
+  assert.equal(dlg(), undefined, "执行后关闭");
+  assert.equal(onCloseCalls.length, 1, "onClose 回调");
+  // Esc 关闭 + stopPropagation 不泄给 keynav
+  openPalette(anchor, { t, actions, onClose: () => {} });
+  const e3 = kd("Escape");
+  assert.ok(e3.stopPropagationCalls >= 1, "Esc stopPropagation");
+  assert.equal(dlg(), undefined, "Esc 关闭");
+  // 空态
+  openPalette(anchor, { t, actions, onClose: () => {} });
+  input().value = "zzz";
+  input().oninput?.();
+  assert.ok(dlg().textContent.includes(t("palette.empty")), "空匹配文案");
+  dlg().remove();
+});
+
+test("workbench ⌘K 接线：typing 内可开/截获先于 keynav/paint 重置（P2-1/S4/S5）", async () => {
+  const { mountWorkbench } = await import("../src/client/components/workbench.mjs");
+  const cand = { key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t", stage: "inbox", triage: null };
+  const apiStub = {
+    state: async () => ({ auth: { account: "iasiv5", login: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }, watch: { repos: ["o/r"] }, snapshots: { lastIngestAt: null, perRepo: {} }, settings: { intervalMinutes: 0 }, candidates: [cand], runs: [], workflow: { templates: [] }, ingestLog: [] }),
+    auth: async () => ({ gates: { ghInstalled: true, ghLogin: true, credentialOk: true }, viewerLogin: "iasiv5", credential: { configured: true, healthy: true, verifiedAt: null, rateLimitedUntil: null } }),
+    workSessions: async () => ({ items: [] }),
+    refresh: async () => ({ authenticated: true }),
+  };
+  const shadow = new FakeElement("shadow"); shadow.host = new FakeElement("host");
+  mountWorkbench(shadow, { getLang: () => "zh-CN", build: "t", deps: { api: apiStub } });
+  await new Promise((r) => setTimeout(r, 5));
+  const keydownHandlers = () => (shadow._listeners ?? []).filter(([k]) => k === "keydown").map(([, fn]) => fn);
+  assert.equal(keydownHandlers().length, 1, "单 keydown 监听（S4：截获在 guard 体内）");
+  const dispatch = (e) => { for (const fn of keydownHandlers()) fn(e); return e; };
+  // typing 焦点内 ⌘K 可开
+  const e1 = dispatch({ key: "k", ctrlKey: true, metaKey: false, altKey: false, target: { tagName: "INPUT" }, preventDefault() {}, stopPropagation() {} });
+  assert.equal(e1.preventDefaultCalls ?? 0, 0, "事件对象无计数字段时容错");
+  assert.ok(find(shadow, (n) => String(n.className).includes("palette")).length >= 1, "typing 内 ⌘K 打开面板");
+  // 再按 ⌘K 关闭（toggle）
+  dispatch({ key: "k", ctrlKey: true, target: { tagName: "DIV" }, preventDefault() {}, stopPropagation() {} });
+  assert.equal(find(shadow, (n) => String(n.className).includes("palette")).length, 0, "toggle 关闭");
+  // paint 重置开启态（S5）：开面板 → 触发 reload 型 paint → 面板被重绘抹掉且再按 ⌘K 是「开」而非「关」
+  dispatch({ key: "k", ctrlKey: true, target: { tagName: "DIV" }, preventDefault() {}, stopPropagation() {} });
+  assert.ok(find(shadow, (n) => String(n.className).includes("palette")).length >= 1, "面板开着");
+  shadow.dispatchEvent && null;
+  const urgencySel = find(shadow, (n) => String(n.tagName).toUpperCase() === "SELECT" && n.getAttribute("aria-label") === t("filters.urgency"))[0];
+  urgencySel.value = "P0";
+  urgencySel.onchange();   // 触发 paint（面板 DOM 随重绘消失）
+  await new Promise((r) => setTimeout(r, 5));
+  assert.equal(find(shadow, (n) => String(n.className).includes("palette")).length, 0, "paint 后面板 DOM 消失");
+  const e4 = dispatch({ key: "k", ctrlKey: true, target: { tagName: "DIV" }, preventDefault() {}, stopPropagation() {} });
+  assert.ok(find(shadow, (n) => String(n.className).includes("palette")).length >= 1, "paint 后 ⌘K 语义为开（幂等不翻转错位，S5）");
+  e4.preventDefault && e4.preventDefault();
+});
