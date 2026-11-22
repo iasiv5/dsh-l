@@ -83,14 +83,14 @@ test("advanceRun ready 化：终态前 run 保持 running（评审 R4 采纳·�
   assert.equal(run.nodeStates.deliver.status, "ready");   // ready 即待执行（M2 执行器接手）
   assert.equal(run.status, "running");                    // deliver 未跑完，run 不终态
   const sum = summarizeRun({ ...run, id: "r1", candidateKey: "k" });
-  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "running", waitingGate: null, waitingGateId: null, currentNodeIds: ["deliver"], failedNodeIds: [], cancelledNodeIds: [], models: {}, templateId: null, error: null });
+  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "running", waitingGate: null, waitingGateId: null, currentNodeIds: ["deliver"], failedNodeIds: [], cancelledNodeIds: [], models: {}, templateId: null, error: null, waitingSince: null, history: [], nodeStatuses: LOOP_V1.nodes.map((n) => ({ id: n.id, name: n.name, type: n.type, status: n.id === "deliver" ? "ready" : "succeeded", error: null })) });   // P1：summarizeRun 增三字段（waitingSince/history/nodeStatuses），形状断言随语义更新
 });
 test("advanceRun 终态：全 succeeded 才收口（评审 R4 采纳·拆例②）", () => {
   let run = mkRun({ g1: "succeeded", build: "succeeded", verify: "succeeded", g2: "succeeded", "mr-open": "succeeded", "mr-push-check": "succeeded", "mr-open-check": "succeeded", deliver: "succeeded" });   // M6 三件套补态
   run = advanceRun(run);
   assert.equal(run.status, "succeeded");
   const sum = summarizeRun({ ...run, id: "r1", candidateKey: "k" });
-  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "succeeded", waitingGate: null, waitingGateId: null, currentNodeIds: [], failedNodeIds: [], cancelledNodeIds: [], models: {}, templateId: null, error: null });
+  assert.deepEqual(sum, { id: "r1", candidateKey: "k", status: "succeeded", waitingGate: null, waitingGateId: null, currentNodeIds: [], failedNodeIds: [], cancelledNodeIds: [], models: {}, templateId: null, error: null, waitingSince: null, history: [], nodeStatuses: LOOP_V1.nodes.map((n) => ({ id: n.id, name: n.name, type: n.type, status: "succeeded", error: null })) });   // P1：summarizeRun 增三字段，形状断言随语义更新
 });
 test("summarizeRun.cancelledNodeIds + templateId（M7 T5/评审 D3/D6）", () => {
   const run = mkRun({ g1: "succeeded", build: "cancelled", verify: "cancelled" }, { id: "r9", candidateKey: "k", status: "cancelled", waitingGate: null, templateId: "loop-v1" });
@@ -143,4 +143,41 @@ test("F5：onFailure hold 的节点失败 → run failed + hold=true", () => {
   run = applyFailure(run, "x", "boom");
   assert.equal(run.status, "failed");
   assert.equal(run.hold, true);
+});
+
+// ---- P1 小债 D：等待时长数据面（docs/plans/2026-11-22-p1-uiux-upgrade-implementation-plan.md Task 1）----
+test("gateArrive waitingSince：三参落字（ISO），缺参不产生该键（P1 小债 D）", () => {
+  const base = mkRun({ g1: "succeeded", build: "succeeded", verify: "succeeded" }, { id: "r1", candidateKey: "k" });
+  const withTs = gateArrive({ ...base }, "g2", "2026-01-01T00:00:00Z");
+  assert.equal(withTs.status, "waiting");
+  assert.equal(withTs.waitingSince, "2026-01-01T00:00:00Z");
+  const without = gateArrive({ ...base }, "g2");
+  assert.equal("waitingSince" in without, false, "缺参零行为变化");
+});
+
+test("summarizeRun P1 三新字段：waitingSince 按 status 收口 / history 截 20 / nodeStatuses 投影（P1 小债 D）", () => {
+  const history = Array.from({ length: 21 }, (_, i) => ({ at: "t" + i, event: "e" + i, detail: "" }));
+  const run = {
+    id: "r2", candidateKey: "k", status: "waiting", waitingGate: "g2", waitingGateId: "G2",
+    waitingSince: "2026-01-01T00:00:00Z",
+    nodeStates: { g1: { status: "succeeded", error: null }, build: { status: "failed", error: "boom" }, verify: { status: "pending", error: null }, g2: { status: "waiting", error: null } },
+    snapshot: { nodes: [ { id: "g1", name: "G1", type: "gate" }, { id: "build", name: "build", type: "agent" }, { id: "verify", name: "verify", type: "script" }, { id: "g2", name: "G2", type: "gate" } ] },
+    history, templateId: "loop-v1",
+  };
+  const sum = summarizeRun(run);
+  assert.equal(sum.waitingSince, "2026-01-01T00:00:00Z");
+  assert.equal(sum.history.length, 20);
+  assert.equal(sum.history[0].event, "e1", "slice(-20) 丢最老一条");
+  assert.deepEqual(sum.nodeStatuses, [
+    { id: "g1", name: "G1", type: "gate", status: "succeeded", error: null },
+    { id: "build", name: "build", type: "agent", status: "failed", error: "boom" },
+    { id: "verify", name: "verify", type: "script", status: "pending", error: null },
+    { id: "g2", name: "G2", type: "gate", status: "waiting", error: null },
+  ]);
+  const done = summarizeRun({ ...run, status: "succeeded", waitingGate: null });
+  assert.equal(done.waitingSince, null, "非 waiting 态恒 null（rev-plan S1 收口）");
+  const bare = summarizeRun({ id: "r3", candidateKey: "k", status: "running", waitingGate: null, nodeStates: {} });
+  assert.deepEqual(bare.nodeStatuses, [], "snapshot 缺失 → 空数组");
+  assert.deepEqual(bare.history, []);
+  assert.equal(bare.waitingSince, null);
 });

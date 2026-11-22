@@ -137,7 +137,7 @@ export const zhCN = {
     save: "保存", cancel: "取消", delete: "删除",
     deleteConfirm: "确认删除角色 {id}？（内置覆盖层删除后回落内置默认）", inUse: "被工作流节点引用，禁删",
   },
-  review: { gates: "待你放行", release: "待发版确认", failed: "执行失败", confirm: "确认已发版", empty: "没有待确认事项", notePlaceholder: "备注（可选，随动作留痕）", gateWait: "上游 {nodes} 已完成，run 停在 {gate} 等你放行。", gateWaitGeneric: "run 停在 {gate} 等你放行。", gatePassEffect: "放行后继续：{next}", gateRejectGeneric: "驳回将按该闸门配置的回退目标重跑后续节点。", passBtn: "放行（继续下游）", rejectBtn: "驳回（回退重跑）" },
+  review: { gates: "待你放行", release: "待发版确认", failed: "执行失败", confirm: "确认已发版", empty: "没有待确认事项", notePlaceholder: "备注（可选，随动作留痕）", gateWait: "上游 {nodes} 已完成，run 停在 {gate} 等你放行。", gateWaitGeneric: "run 停在 {gate} 等你放行。", gatePassEffect: "放行后继续：{next}", gateRejectGeneric: "驳回将按该闸门配置的回退目标重跑后续节点。", passBtn: "放行（继续下游）", rejectBtn: "驳回（回退重跑）", waited: "已等待 {d}" },
   feishu: { url: "飞书 Webhook URL", save: "保存 Webhook", saveOk: "Webhook 已保存", test: "发送测试消息", testOk: "测试消息已发送", testFail: "测试发送失败" },
   badge: { pending: "待确认 ({n})" },
   actions: { triageBatch: "分诊待分诊", override: "保存人工判断", overrideGroup: "人工推翻（诚实留痕 by:human）", reason: "理由", moveTo: "移到", pass: "放行", reject: "驳回", copyPackage: "复制任务包", cancelRun: "取消执行", retryRun: "重试该节点" },

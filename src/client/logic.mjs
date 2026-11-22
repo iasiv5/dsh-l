@@ -218,3 +218,24 @@ export function prettyKey(key) {
   const m = typeof key === "string" ? key.match(/^(.+)#(?:issue|pull)#(\d+)$/) : null;
   return m ? m[1] + "#" + m[2] : key;
 }
+
+// 时长档位（P1 小债 D）：纯数字逻辑，无文案 i18n；非法输入返回空段。<90s 归 1m。
+export function formatDuration(ms) {
+  const n = Number(ms);
+  if (!Number.isFinite(n)) return "";
+  if (n < 90_000) return "1m";
+  const m = n / 60_000;
+  if (m < 60) return Math.round(m) + "m";
+  const h = n / 3_600_000;
+  if (h < 24) return Math.round(h) + "h";
+  return Math.round(n / 86_400_000) + "d";
+}
+
+// 闸门等待排序（P1 小债 D）：waitingSince 升序（最久优先），缺省沉底且保持原序（稳定排序）。
+export function sortGateRunsByWait(runs) {
+  return [...(runs ?? [])].sort((a, b) => {
+    const ta = a?.waitingSince ? Date.parse(a.waitingSince) : Infinity;
+    const tb = b?.waitingSince ? Date.parse(b.waitingSince) : Infinity;
+    return ta - tb;
+  });
+}

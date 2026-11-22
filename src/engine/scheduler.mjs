@@ -35,11 +35,12 @@ export function descendantsOf(snapshot, nodeId) {
 // ---- 闸门语义（design-v2 §4）----
 
 // 调度器把 ready 的 gate 节点交给引擎时：节点转 waiting、run 挂起等待人工。
-export function gateArrive(run, nodeId) {
+export function gateArrive(run, nodeId, waitingSince = null) {
   return {
     ...run,
     status: "waiting",
     waitingGate: nodeId,
+    ...(waitingSince ? { waitingSince } : {}),   // P1 小债 D：闸门到达时刻（ISO 字符串，engine 传 now().toISOString()）；缺参零行为变化
     nodeStates: { ...run.nodeStates, [nodeId]: { ...run.nodeStates[nodeId], status: "waiting" } },
   };
 }
@@ -159,5 +160,12 @@ export function summarizeRun(run) {
     const s = run.nodeStates[n.id];
     if (s && ["running", "waiting", "ready"].includes(s.status) && s.model) models[n.id] = s.model;
   }
-  return { id: run.id, candidateKey: run.candidateKey, status: run.status, waitingGate: run.waitingGate ?? null, waitingGateId, currentNodeIds, failedNodeIds, cancelledNodeIds, models, templateId: run.templateId ?? null, error };
+  const waitingSince = run.status === "waiting" ? (run.waitingSince ?? null) : null;   // P1 小债 D：非 waiting 态恒 null（rev-plan S1 收口，applyGateDecision 不清残留）
+  const history = (run.history ?? []).slice(-20);   // P1-5：仅投影最近 20 条（存储侧 RUN_HISTORY_LIMIT=100）
+  const nodeStatuses = (run.snapshot?.nodes ?? []).map((n) => ({
+    id: n.id, name: n.name, type: n.type,
+    status: run.nodeStates[n.id]?.status ?? "pending",
+    error: run.nodeStates[n.id]?.error ?? null,
+  }));
+  return { id: run.id, candidateKey: run.candidateKey, status: run.status, waitingGate: run.waitingGate ?? null, waitingGateId, currentNodeIds, failedNodeIds, cancelledNodeIds, models, templateId: run.templateId ?? null, error, waitingSince, history, nodeStatuses };
 }

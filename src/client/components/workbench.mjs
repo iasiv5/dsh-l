@@ -468,7 +468,7 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {} } = {
     rolesWrap.style.display = activeTab === "roles" ? "" : "none";
     sessionsWrap.style.display = activeTab === "sessions" ? "" : "none";
     if (activeTab === "board") renderKanban(boardWrap, { t, candidates: state?.candidates ?? [], view });
-    if (activeTab === "review") renderReview(reviewWrap, { t, candidates: state?.candidates ?? [], runs: state?.runs ?? [], view, templates: state?.workflow?.templates ?? [] });
+    if (activeTab === "review") renderReview(reviewWrap, { t, candidates: state?.candidates ?? [], runs: state?.runs ?? [], view, templates: state?.workflow?.templates ?? [], nowMs: Date.now() });
     if (activeTab === "roles") renderRolesTab(rolesWrap, { t, workflow: state?.workflow ?? { templates: [] }, view });
     if (activeTab === "sessions") renderSessionsView(sessionsWrap, { t, items: sessionsItems, summaries: extend?.sessionsFeed?.() ?? [], onOpen: (id) => extend?.openWorkSession?.(id), onAnother: (key, cwd) => extend?.startAnother?.(key, cwd), onDeliver: async (key) => { try { await api.workDeliver(key, ""); } catch (e) { return t("sessions.deliverFailed") + " (" + String(e?.message ?? e) + ")"; } await view.reload(); return null; } });
     intake.style.display = activeTab === "list" ? "" : "none";

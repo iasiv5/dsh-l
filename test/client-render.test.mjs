@@ -1028,3 +1028,17 @@ test("review/kanban 吞错就地呈现：rverr 与 kberr（P0-5c/rev-impl B1）"
   await settle();
   assert.equal(find(kcard, (n) => n.className === "kberr").length, 0, "成功后移除 kberr");
 });
+
+test("review 等待时长行 + 最久优先排序（P1 小债 D）", async () => {
+  const { renderReview } = await import("../src/client/components/review.mjs");
+  const NOW = Date.parse("2026-01-01T02:00:00Z");
+  const mk = (id, since) => ({ id, candidateKey: "o/r#issue#1", status: "waiting", waitingGate: "g2", waitingGateId: "G2", currentNodeIds: ["g2"], failedNodeIds: [], cancelledNodeIds: [], templateId: null, error: null, waitingSince: since });
+  const cand = { key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t", stage: "building", currentRunId: "run-b" };
+  const runs = [mk("run-b", "2026-01-01T01:30:00Z"), mk("run-a", "2026-01-01T00:30:00Z")];   // run-a 等更久（1.5h → 2h）
+  const wrap = new FakeElement("div");
+  renderReview(wrap, { t, candidates: [cand], runs, view: { reload: async () => {} }, templates: [], deps: { api: {} }, nowMs: NOW });
+  const cards = find(wrap, (n) => n.className === "rvcard");
+  assert.equal(cards.length, 2);
+  assert.ok(cards[0].textContent.includes(t("review.waited").replace("{d}", "2h")), "最久等待卡在前（已等待 2h）");
+  assert.ok(cards[1].textContent.includes(t("review.waited").replace("{d}", "30m")), "次卡已等待 30m");
+});

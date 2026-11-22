@@ -232,3 +232,21 @@ test("prettyKey：owner/repo#type#number → owner/repo#number；畸形键原样
   assert.equal(prettyKey("weird"), "weird");
   assert.equal(prettyKey(null), null);
 });
+
+// ---- P1 小债 D：时长档位与闸门等待排序 ----
+test("formatDuration 档位（P1 小债 D）", async () => {
+  const { formatDuration } = await import("../src/client/logic.mjs");
+  assert.equal(formatDuration(undefined), "");
+  assert.equal(formatDuration("x"), "");
+  assert.equal(formatDuration(30_000), "1m");
+  assert.equal(formatDuration(45 * 60_000), "45m");
+  assert.equal(formatDuration(3 * 3_600_000), "3h");
+  assert.equal(formatDuration(27 * 86_400_000), "27d");
+});
+
+test("sortGateRunsByWait：waitingSince 升序（最久优先），缺省沉底稳定（P1 小债 D）", async () => {
+  const { sortGateRunsByWait } = await import("../src/client/logic.mjs");
+  const runs = [{ id: "a", waitingSince: "2026-01-02T00:00:00Z" }, { id: "b" }, { id: "c", waitingSince: "2026-01-01T00:00:00Z" }];
+  assert.deepEqual(sortGateRunsByWait(runs).map((r) => r.id), ["c", "a", "b"]);
+  assert.deepEqual(sortGateRunsByWait(null), []);
+});

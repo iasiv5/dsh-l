@@ -97,7 +97,7 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, tem
         const nodeId = ready[0];
         const node = run.snapshot.nodes.find((n) => n.id === nodeId);
         if (node.type === "gate") {
-          run = gateArrive(run, nodeId); store.saveRun(run); syncStage(run.candidateKey, run);
+          run = gateArrive(run, nodeId, now().toISOString()); store.saveRun(run); syncStage(run.candidateKey, run);
           fire({ type: "gate", key: run.candidateKey, runId, nodeId, title: titleOf(run.candidateKey) });
           continue;
         }

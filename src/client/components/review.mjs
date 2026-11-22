@@ -1,4 +1,4 @@
-import { needsReview, gateWaitInfo, prettyKey } from "../logic.mjs";
+import { needsReview, gateWaitInfo, prettyKey, formatDuration, sortGateRunsByWait } from "../logic.mjs";
 import { api } from "../api.mjs";
 
 // 待我确认视图（design-v2 §13.5 基础上 P0-3 升级）：
@@ -17,7 +17,7 @@ const el = (tag, cls, text) => {
 
 const gateLabelOf = (r, t) => t("gates." + (r.waitingGateId ?? (r.waitingGate ?? "").toUpperCase()));
 
-export function renderReview(container, { t, candidates, runs, view, templates = [], deps = {} } = {}) {
+export function renderReview(container, { t, candidates, runs, view, templates = [], deps = {}, nowMs = null } = {}) {
   const a = deps.api ?? api;
   const out = needsReview({ candidates, runs });
   const wrap = el("div", "rv");
@@ -69,12 +69,15 @@ export function renderReview(container, { t, candidates, runs, view, templates =
   const gatesSec = el("section");
   gatesSec.append(el("h3", null, t("review.gates")));
   if (out.gateRuns.length === 0) gatesSec.append(el("div", null, t("review.empty")));
-  for (const r of out.gateRuns) {
+  for (const r of sortGateRunsByWait(out.gateRuns)) {   // P1 小债 D：最久等待优先
     const c = candidateOf(r.candidateKey);
     const tpl = (templates ?? []).find((x) => x.id === r.templateId) ?? null;
     const info = gateWaitInfo({ run: r, template: tpl });
     const gateLabel = gateLabelOf(r, t);
     const { card: cardEl, note, errEl } = card(gatesSec, prettyKey(r.candidateKey) + " " + (c?.title ?? ""), r.error);
+    const waitMs = r.waitingSince && nowMs ? nowMs - Date.parse(r.waitingSince) : NaN;
+    const waited = formatDuration(waitMs);
+    if (waited) cardEl.append(el("div", "rvline", t("review.waited").replace("{d}", waited)));
     const line1 = info.upstreamNames.length > 0
       ? t("review.gateWait").replace("{nodes}", info.upstreamNames.join(", ")).replace("{gate}", gateLabel)
       : t("review.gateWaitGeneric").replace("{gate}", gateLabel);
