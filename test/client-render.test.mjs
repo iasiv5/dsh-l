@@ -6,8 +6,35 @@ import assert from "node:assert/strict";
 // ③ 失败态就地呈现（errKeyFor 映射）；④ renderLoginGate 首次 draw 不抛、静默补验、connect 链路、authorized→onConnected。
 
 // ── 最小 DOM stub（父链 remove/切换 class 支持完整语义） ──
+// P2 retro #3：style 走「写读一致」Proxy——cssText 解析进 decls（读 display/color 等不再得 undefined）、
+// 直接赋值回写 raw；placeholder/id 补 getter 对（P0 实测：写后读 undefined 的桩陷阱整类消除）。
+const mkStyle = () => {
+  const decls = {};
+  let raw = "";
+  return new Proxy({}, {
+    get(_, k) {
+      if (typeof k === "symbol") return undefined;
+      if (k === "cssText") return raw;
+      return decls[k] ?? "";
+    },
+    set(_, k, v) {
+      v = String(v ?? "");
+      if (k === "cssText") {
+        raw = v;
+        for (const d of v.split(";")) {
+          const i = d.indexOf(":");
+          if (i > 0) decls[d.slice(0, i).trim()] = d.slice(i + 1).trim();
+        }
+      } else {
+        decls[k] = v;
+        raw = Object.entries(decls).map(([kk, vv]) => kk + ":" + vv).join(";");
+      }
+      return true;
+    },
+  });
+};
 class FakeElement {
-  constructor(tag) { this.tagName = tag; this.children = []; this.attrs = {}; this._text = ""; this.onclick = null; this.type = ""; this.dataset = {}; this.disabled = false; this.checked = false; this.style = {}; this._parent = null; this.isConnected = true; }   // isConnected 供 success-turn 卸载语义检查（评审 N1）
+  constructor(tag) { this.tagName = tag; this.children = []; this.attrs = {}; this._text = ""; this.onclick = null; this.type = ""; this.dataset = {}; this.disabled = false; this.checked = false; this.style = mkStyle(); this._parent = null; this.isConnected = true; }   // isConnected 供 success-turn 卸载语义检查（评审 N1）
   get classList() {
     const self = this;
     const names = () => String(self.attrs.class ?? "").split(/\s+/).filter(Boolean);
@@ -38,6 +65,7 @@ class FakeElement {
   set id(v) { this.attrs.id = v; }
   get id() { return this.attrs.id ?? ""; }
   set placeholder(v) { this.attrs.placeholder = v; }
+  get placeholder() { return this.attrs.placeholder ?? ""; }   // P2 retro #3：写读一致
   set href(v) { this.attrs.href = v; }
   get href() { return this.attrs.href ?? ""; }
   focus() { this.focusCalls = (this.focusCalls ?? 0) + 1; }   // P1 起计数（焦点保留断言用）
@@ -1460,9 +1488,7 @@ test("openHelp 浮层：标题/键位行/关闭（P1-1）", async () => {
   const closeBtn = find(dlg, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("kbd.close"))[0];
   closeBtn.onclick();
   assert.equal(anchor.children.find((n) => String(n.className).includes("kbdhelp")), undefined, "关闭即移除");
-  const fs = await import("node:fs");
-  const knavSrc = fs.readFileSync(new URL("../src/client/components/keynav.mjs", import.meta.url), "utf8");
-  assert.ok(!knavSrc.includes("min-height:28px"), "帮助关闭钮无内联 28px（coarse 44px 接管，B3②）");
+  // 28px 判例已由 design-lint 内联 min-height 全量规则覆盖（P2 retro #2）
 });
 
 test("workbench 键盘接线：host keydown 安装 + dispose 对称（P1-1/S5）", async () => {
@@ -1521,14 +1547,7 @@ test("keynav 空行守卫：j/k 在 rowCount=0 时不动不消费（P2 Task 1）
 test("批量表单闭包态 + crimson 清偿 + 死基建移除 + navKey 候选键（P2 Task 1）", async () => {
   const { mountWorkbench } = await import("../src/client/components/workbench.mjs");
   const { installActions } = await import("../src/client/components/actions.mjs");
-  const fs = await import("node:fs");
-  // 静态断言：死基建与 crimson 清偿
-  const wbSrc = fs.readFileSync(new URL("../src/client/components/workbench.mjs", import.meta.url), "utf8");
-  assert.ok(!wbSrc.includes("checkboxEls"), "checkboxEls 死基建已清偿");
-  for (const f of ["actions.mjs", "rolesTab.mjs"]) {
-    const src = fs.readFileSync(new URL("../src/client/components/" + f, import.meta.url), "utf8");
-    assert.ok(!src.includes("crimson"), f + " crimson 已清偿");
-  }
+  // 静态防回潮断言已收敛至 test/design-lint.test.mjs（P2 retro #2）
   const c1 = { key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t1", stage: "triaged", triage: null };
   const c2 = { key: "o/r#issue#2", repo: "o/r", type: "issue", number: 2, title: "t2", stage: "triaged", triage: null };
   const c3 = { key: "o/r#issue#3", repo: "o/r", type: "issue", number: 3, title: "t3", stage: "triaged", triage: null };
@@ -1610,10 +1629,7 @@ test("palette：过滤/键盘导航/执行/Esc/空态（P2-1）", async () => {
   input().oninput?.();
   assert.ok(dlg().textContent.includes(t("palette.empty")), "空匹配文案");
   dlg().remove();
-  const fs = await import("node:fs");
-  const psrc = fs.readFileSync(new URL("../src/client/components/commandPalette.mjs", import.meta.url), "utf8");
-  assert.ok(!psrc.includes("min-height:32px"), "palette item 无内联 32px（coarse 44px 接管，B1）");
-  assert.ok(!psrc.includes("font-size:14px"), "palette input 无内联 14px（coarse 16px 接管）");
+  // 内联 min-height/font-size 防回潮已收敛至 design-lint（P2 retro #2）
 });
 
 test("workbench ⌘K 接线：typing 内可开/截获先于 keynav/paint 重置（P2-1/S4/S5）", async () => {
@@ -1808,4 +1824,15 @@ test("清单行置信 chip（P2 Task 8）", async () => {
   const root2 = new FakeElement("div");
   renderRow(root2, base, t, { expanded: false, onToggle: () => {} });
   assert.ok(!root2.textContent.includes(t("triage.confidence").replace("{n}", "")), "无置信不渲染");
+});
+
+test("FakeElement 写读一致：cssText 解析与 placeholder getter（P2 retro #3）", () => {
+  const n = new FakeElement("div");
+  n.style.cssText = "display:none;color:color-mix(in srgb,#d1242f 85%,currentColor)";
+  assert.equal(n.style.display, "none", "cssText 声明可按属性读回");
+  assert.ok(n.style.color.includes("color-mix"), "复合值保留");
+  n.style.opacity = ".55";
+  assert.equal(n.style.opacity, ".55", "直接赋值读回");
+  n.setAttribute("placeholder", "abc");
+  assert.equal(n.getAttribute("placeholder"), "abc");
 });
