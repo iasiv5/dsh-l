@@ -51,7 +51,7 @@ export function openPalette(anchorEl, { t, actions = [], onClose = () => {} } = 
     const items = filtered();
     if (e.key === "ArrowDown") { e.preventDefault?.(); index = Math.min(index + 1, Math.max(items.length - 1, 0)); paintList(); }
     else if (e.key === "ArrowUp") { e.preventDefault?.(); index = Math.max(index - 1, 0); paintList(); }
-    else if (e.key === "Enter") { e.preventDefault?.(); const a = items[index]; if (a) { dlg.remove(); onClose(); a.run?.(); } }
+    else if (e.key === "Enter") { e.preventDefault?.(); const picked = items[index]; if (picked) { dlg.remove(); onClose(); picked.run?.(); } }   // P2 retro：单字母 a 与 deps seam 命名规约冲突区（design-lint R4）
     else if (e.key === "Escape") { e.preventDefault?.(); close(); }
   };
   dlg.onclick = (e) => { if (e && e.target === dlg) close(); };

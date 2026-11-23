@@ -125,7 +125,7 @@ export function renderSessionsView(container, { t, items = [], summaries = [], o
         if (typeof err === "string" && err) {
           const c = document.createElement("span");
           c.className = "chip";
-          c.style.color = "color-mix(in srgb,#d1242f 85%,currentColor)";   // P1 小债 B：语义色统一（原 crimson）
+          c.style.color = "color-mix(in srgb,#d1242f 85%,currentColor)";   // P1 小债 B：语义色统一（硬编码红字清偿）
           c.textContent = err;
           row.append(c);
         }
