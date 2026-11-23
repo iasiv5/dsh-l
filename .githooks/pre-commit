@@ -1,0 +1,6 @@
+#!/bin/sh
+# dsh-l 提交门：全量测试绿才可提交（retro #1——「验证红却提交」机械拦截）。
+# 安装：git config core.hooksPath .githooks（本仓已配置；换机 clone 后重跑一次即可）。
+set -e
+echo "[pre-commit] npm test（全量，约 10s）"
+npm test
