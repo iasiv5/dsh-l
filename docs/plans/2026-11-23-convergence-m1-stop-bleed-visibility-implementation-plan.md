@@ -37,7 +37,7 @@
 - 双语：全部 UI 文案走 `zh-CN` / `en` 双字典（`test/i18n.test.mjs` + `test/locale-parity.test.mjs` 守护）；组件内静态字面量键。本计划不新增 i18n 键；会话标题是数据串，不入字典。
 - DESIGN.md：Host-Theme（禁硬编码浅色底）、One Voice（一屏一个反色主 CTA）、不声明 font-family（mono 除外）、状态语义复用 `st-*` 六态 token、reduced-motion 成对降级。
 - 宿主服务只经 `ctx.get()` 可选获取（兼容 `engines.dsh >=0.2.2-rc.1`；rc.5 实证在场）。
-- impeccable（Operate 模式，既有「瓷面工作台」世界内的窄改动）：动 UI 前读 `/home/ubuntu/.dsh/profiles/web/node_modules/@iasiv5/dsh-skills/skills/impeccable/reference/craft-floor.md`；交互组件六态齐全（default / hover / focus / active / disabled / loading）；不用浮层（行内按钮，无 overflow 裁切面）；UI 改动后在仓根跑 `/home/ubuntu/.dsh/profiles/web/node_modules/@iasiv5/dsh-skills/skills/impeccable/scripts/impeccable detect --json <本次改动的 UI 源文件>`，输出 `[]`（2026-11-23 对 `src/client/components/actions.mjs` 基线实测 `[]`）。`--changed` 会把 `lib/client.js` 一并扫描，产物里有 12 条既有 advisory（HEAD `924d2bb` 与 2026-11-24 重建实测同为 12 条），所以产物与 `src/client` 全量只比条数、不得多于旧值（执行期勘正 2026-11-24）；不重写 DESIGN.md。
+- impeccable（Operate 模式，既有「瓷面工作台」世界内的窄改动）：动 UI 前读 `/home/ubuntu/.dsh/profiles/web/node_modules/@iasiv5/dsh-skills/skills/impeccable/reference/craft-floor.md`；交互组件六态齐全（default / hover / focus / active / disabled / loading）；不用浮层（行内按钮，无 overflow 裁切面）；UI 改动后在仓根做逐文件 detector 集合比对（命令见第二部分「最终验证（两部分合并）」）：对每个改动的 UI 源文件与 `lib/client.js`，取基线版与当前版的条目，去行号后（`antipattern|snippet`）当前版的集合不得出现基线版没有的条目。`workbench.mjs`（基线 11 条）与 `lib/client.js`（基线 12 条）本就有既有 advisory，所以不要求输出 `[]`；只比条数也不够——会掩盖一减一加的换血（执行期勘正 2026-11-24，评审实施 I2）；不重写 DESIGN.md。
 - 测试判据：`node --test` 的选项必须写在文件参数前；判据看「精确用例名 + `ℹ tests/pass/fail` 计数」，计数不符即停；字符串核对用 `grep -F`；管道一律 `set -o pipefail`；红灯必须落在目标断言行。
 - 仓库在 `main` 直改（历批先例，主人已确认）；docs 类变更独立 commit。
 - 实机生效：host 行为变更需重启 DSH 服务；重启只用 `dshm_restart` 且须主人同意，放在本轮最后一个动作，核验放下一轮。
@@ -461,7 +461,7 @@ set -o pipefail; cd /home/ubuntu/workspace/dsh-l; node --test test/<文件>.test
   ```
 
   复用既有 `btn`（自带 pending 态）与 `workChip`；不加内联尺寸，不加浮层。回退文案改用既有键 `sessions.badgeMissing`（「不在会话列表」），对「尚未同步」与「已归档或删除」两种情况都如实；「另开」随 §20 第 19 条（里程碑 2），本计划不做。
-- Step 4（验）：`npm run build` 退出码 0；单文件判据 `client-render` → 68 / 68 / 0；`design-lint` → 1 / 1 / 0；`i18n` → 6 / 6 / 0；`locale-parity` → 1 / 1 / 0。在仓根跑 `/home/ubuntu/.dsh/profiles/web/node_modules/@iasiv5/dsh-skills/skills/impeccable/scripts/impeccable detect --json src/client/components/actions.mjs src/client/components/sessionsView.mjs` → `[]`；`lib/client.js` 的 detector 条数与旧产物相同（12）。全量 → 384 / 384 / 0。
+- Step 4（验）：`npm run build` 退出码 0；单文件判据 `client-render` → 68 / 68 / 0；`design-lint` → 1 / 1 / 0；`i18n` → 6 / 6 / 0；`locale-parity` → 1 / 1 / 0。在仓根按第二部分「最终验证」的逐文件集合比对命令核 `actions.mjs`、`sessionsView.mjs`、`lib/client.js`：新增条目均为 0（实测 0 = 0、0 = 0、12 = 12 且集合相同）。全量 → 384 / 384 / 0。
 
 ### Task 9: 构建、文档与收口
 
@@ -518,14 +518,13 @@ set -o pipefail; cd /home/ubuntu/workspace/dsh-l; node --test test/<文件>.test
 set -o pipefail; cd /home/ubuntu/workspace/dsh-l
 npm run build; echo "build exit=$?"
 npm test 2>&1 | grep -E "^ℹ (tests|pass|fail)"
-/home/ubuntu/.dsh/profiles/web/node_modules/@iasiv5/dsh-skills/skills/impeccable/scripts/impeccable detect --json src/client
-"$IMPECCABLE" detect --json lib/client.js | jq length
+# detector 逐文件集合比对：命令见第二部分「最终验证（两部分合并）」（本部分单独验时基线仍是 a859af6）
 git status --short
 ```
 
 - `build exit=0`。
 - `ℹ tests 384`、`ℹ pass 384`、`ℹ fail 0`。
-- detector：本次改动的 UI 源文件输出 `[]`；`src/client` 全量与 `lib/client.js` 的既有 advisory 都是 12 条，不增。
+- detector 逐文件集合比对：`actions.mjs`、`sessionsView.mjs` 新增条目 0；`lib/client.js` 12 = 12 且集合相同。
 - `git status --short` 无未提交改动（除实机核验后才写的落地注记）。
 - 修改摘要须列出：三笔提交的 sha、新增事件名清单、三类标题格式、宿主工作区名「DSH Loop Forge」、未迁移的存量会话数量。
 
@@ -563,7 +562,7 @@ git status --short
 
 ## 全局约束（里程碑 2 追加；其余逐字继承第一部分）
 
-- 第一部分的全部全局约束继续有效，尤其：零依赖、双语 parity、design-lint、impeccable（动 UI 前读 `craft-floor.md`；改动后 detector 输出 `[]`）、测试判据纪律、新符号动态导入。
+- 第一部分的全部全局约束继续有效，尤其：零依赖、双语 parity、design-lint、impeccable（动 UI 前读 `craft-floor.md`；改动后 detector 逐文件集合比对不新增条目，见第一部分全局约束）、测试判据纪律、新符号动态导入。
 - 第一部分的产物按原样消费，不回改：`sessionRoot`、`headerCwd`、`attachHost`、`workSessionTitle`、`state.runs[*].sessions`、`paths` 之外的钩子。
 - One Voice：确认块的「确认执行」不做反色；「开工」仍是该行唯一的反色主 CTA。
 - 新增 i18n 键全部静态字面量引用；模板参数用 `.replace("{x}", …)`，与 `sessions.ago` 同款。键与双语文案见各任务，逐字为准。
@@ -579,12 +578,12 @@ git status --short
 | github | 34 | 35 | Task 12 +1 |
 | client-render | 68 | 75 | Task 12 +1、Task 13 +2、Task 14 +3、Task 15 +1 |
 | host-smoke | 7 | 8 | Task 13 +1 |
-| worksession | 16 | 17 | Task 16 +1 |
+| worksession | 16 | 18 | Task 16 +1、Task 18 +1（执行期增补） |
 | logic | 31 | 32 | Task 11 −1 +1、Task 14 +1 |
 | 其余 | 不变 | 不变 | — |
-| 全量 | 384 | 406 | +22 |
+| 全量 | 384 | 407 | +22、Task 18 +1（执行期增补） |
 
-逐任务完成后的全量计数：Task 10 → 385；Task 11 → 385；Task 12 → 391；Task 13 → 400；Task 14 → 404；Task 15 → 405；Task 16 → 406；Task 17 → 406。
+逐任务完成后的全量计数：Task 10 → 385；Task 11 → 385；Task 12 → 391；Task 13 → 400；Task 14 → 404；Task 15 → 405；Task 16 → 406；Task 17 → 406；Task 18（执行期增补）→ 407。
 
 ## 文件结构与职责（增量）
 
@@ -649,7 +648,7 @@ git status --short
 - Step 1（红）：
   - `test/store.test.mjs` 新增「setDelivery：合并写入、留痕、持久化」（夹具沿用第 222 行用例的候选与 run 构造）。
   - `test/engine.test.mjs` 新增「deliver 成功 → 来源候选 delivery 记 PR 号与链接；链接仓库名不符则不记」：全链走到 `deliver`，resolve 的 `artifacts[0]` 末行为 `"https://github.com/o/r/pull/81 T [OPEN]"` → `delivery` deepEqual `{ prNumber: 81, prUrl: "https://github.com/o/r/pull/81", merged: false, mergedAt: null }`；另一轮用 `"https://github.com/other/r/pull/9 x [OPEN]"` → `delivery` 仍为 `null`。
-  - `test/github.test.mjs` 新增「getPr：映射 number/state/mergedAt/htmlUrl；非 2xx 抛带路径的错误」（夹具沿用文件内 `fetchPages`）。
+  - `test/github.test.mjs` 新增「getPr：映射 number/state/mergedAt/htmlUrl/headRef；非 2xx 抛带路径的错误」（夹具沿用文件内 `fetchPages`）。
   - `test/handlers.test.mjs` 新增两例：「postRefresh：该仓已记交付的 PR 不并入候选，total 不含它」；「postRefresh：未合并的交付 PR 已合并 → delivery.merged 回填」（PROVIDER 夹具沿用第 145 行用例，增补 `getPr` 桩）。
   - `test/client-render.test.mjs` 新增「candidateRow：delivery.prNumber → 脚注出『PR #n · 待合并』链接；merged → 已合并」（夹具沿用第 811 行用例的 `mk` 与 `renderRow` 读法）。
   - 单文件判据：`store` → 27 / 26 / 1；`engine` → 29 / 28 / 1；`github` → 35 / 34 / 1；`handlers` → 70 / 68 / 2；`client-render` → 69 / 68 / 1。
@@ -694,11 +693,11 @@ git status --short
 - Consumes：`resolveLocalWorkspace`（`src/worksession.mjs`）、第一部分的 `getRegistry`。Produces：`settings.workDirs`、`store.setWorkDir(repo, cwd)`、422 `workspace-not-found` 早守卫、`getWorkDefaultDir`、`getWorkspaceStatus.workspaceTitle`、handlers 依赖 `paths` / `resolveLocalDir` / `workspaceTitleOf`、`api.workDefaultDir(repo)`、客户端记忆流程与去向提示。
 - Step 1（红）：
   - `test/store.test.mjs` 新增「workDirs：新档缺省空对象；setWorkDir 写入并持久化；旧档回填」。
-  - `test/handlers.test.mjs` 新增五例：「postWorkStart：显式 cwd 不存在 → 422 workspace-not-found，零记账」（`stat: () => { throw new Error("ENOENT"); }`；另断言 `stat: () => null` 时照旧放行）；「postWorkStart：fresh 成功后按仓库记住目录（本地默认记解析后的真实目录）」；「postWorkStart：managed 成功后记住 "managed"」；「getWorkDefaultDir：命中 → cwd 与 workspaceTitle；未命中 → cwd null；非法 repo → 400」；「getWorkspaceStatus：响应带 workspaceTitle（注入 workspaceTitleOf）」。夹具分别沿用第 868、921 行用例。
+  - `test/handlers.test.mjs` 新增五例：「postWorkStart：显式 cwd 不存在 → 422 workspace-not-found，零记账（stat 抛错或非目录）；stat 返回 null 照旧放行」（`stat: () => { throw new Error("ENOENT"); }`；另断言 `stat: () => null` 时照旧放行）；「postWorkStart：fresh 成功后按仓库记住目录（本地默认记解析后的真实目录；显式目录记该目录）」；「postWorkStart：managed 成功后记住 "managed"」；「getWorkDefaultDir：命中 → cwd 与 workspaceTitle；未命中 → cwd null；非法 repo → 400；未登录 401」；「getWorkspaceStatus：响应带 workspaceTitle（注入 workspaceTitleOf；未注入为 null）」。夹具分别沿用第 868、921 行用例。
   - `test/handlers.test.mjs` 第 1027、1031 行两处 `assert.deepEqual` 的期望对象各加一键 `workspaceTitle: null`（`getWorkspaceStatus` 响应新增该字段，不加必红）。
-  - `test/host-smoke.test.mjs` 新增「host 冒烟⑧：work/default-dir 路由在位；getState.paths.workspacesDir = <数据目录>/workspaces；workspaceTitleOf 与 resolveLocalDir 装配（ctx.get 桩）」——夹具沿用冒烟⑥的 `hostFakes`（注册表桩加 `title: "dsh-m"`）。
-  - `test/client-render.test.mjs` 新增两例：「mkStart：有记忆目录 → 不弹选择器直接 workStart(key, dir, false, lang)；记忆为 "managed" → 带 workspace:"managed"；422 workspace-not-found → 回落选择器；重试态（building + G1 pass）→ `another === true`」（`deps.api` 桩记录调用）；「pickWorkspace：去向提示三行（defaultDir 注入；未命中显示未命中；托管克隆显示 DSH Loop Forge；以「取消」收尾时断言返回 `undefined`）」（夹具沿用第 475 行用例）。同一用例第 493 行「取消」的期望由 `null` 改为 `undefined`，第 489 行「本地默认检出」仍为 `null`；第 525 行（脏态确认框 `confirm(false)`）的期望同样改为 `undefined`，注释同步；`mkStart` 新用例再加两条：「选择器返回 `null`（本地默认检出）→ 调 `workStart(key, null, anotherFlag, lang)`」「返回 `undefined`（取消）→ 不调用」。
-  - 单文件判据：`store` → 28 / 27 / 1；`handlers` → 75 / 68 / 7（5 条新增转红，加上既有 `getWorkspaceStatus` 两条整形状断言）；`host-smoke` → 8 / 7 / 1；`client-render` → 71 / 68 / 4（两条新增转红，加上第 493 行与第 525 行改写后的「取消」期望）。
+  - `test/host-smoke.test.mjs` 新增「host 冒烟⑧：work/default-dir 路由在位；getState.paths；workspaceTitleOf 与 resolveLocalDir 装配（ctx.get 桩）」——夹具沿用冒烟⑥的 `hostFakes`（注册表桩加 `title: "dsh-m"`）。
+  - `test/client-render.test.mjs` 新增两例：「mkStart：有记忆目录 → 不弹选择器直接 workStart；managed → workspace:managed；重试态 → another:true；422 → 回落选择器；选择器 null → 本地默认，undefined → 不调用」（`deps.api` 桩记录调用）；「pickWorkspace：去向提示三行（defaultDir 注入；未命中显示未命中；托管克隆显示 DSH Loop Forge；取消收尾返回 undefined）」（夹具沿用第 475 行用例）。同一用例第 493 行「取消」的期望由 `null` 改为 `undefined`，第 489 行「本地默认检出」仍为 `null`；第 525 行（脏态确认框 `confirm(false)`）的期望同样改为 `undefined`，注释同步；`mkStart` 新用例再加两条：「选择器返回 `null`（本地默认检出）→ 调 `workStart(key, null, anotherFlag, lang)`」「返回 `undefined`（取消）→ 不调用」。
+  - 单文件判据：`store` → 28 / 27 / 1；`handlers` → 75 / 69 / 6（5 条新增转红，加上既有 `getWorkspaceStatus` 用例——两条整形状断言在同一用例里；执行期勘正 2026-11-24）；`host-smoke` → 8 / 7 / 1；`client-render` → 71 / 67 / 4（两条新增转红，加上第 493 行与第 525 行改写后的「取消」期望）。
 - Step 2（绿）：
   - `src/store.mjs`：打开路径回填 `doc.settings.workDirs ??= {}`；`setWorkDir(repo, cwd) { doc.settings.workDirs[repo] = cwd; persist(); }`。
   - `src/host.mjs`：
@@ -732,16 +731,16 @@ git status --short
 
 - Consumes：`startable`（Task 11）、`settings.workDirs`（Task 13）、`state.paths`（本任务产出后由确认条消费）。Produces：`runDirName`（`src/client/logic.mjs` 导出）、两按钮可见性、确认块 `autorun`。
 - Step 1（红）：
-  - `test/logic.test.mjs` 新增「runDirName：与 workspace.sanitizeKey 同构（`o/r#issue#1` → `o_r_issue_1`）」（`runDirName` 同样走顶层动态导入，不得加进静态 `import` 行；Task 11 已为 `startable` 加过动态导入行时，在同一行解构里并列即可）。
+  - `test/logic.test.mjs` 新增「runDirName：与 workspace.sanitizeKey 同构（o/r#issue#1 → o_r_issue_1）」（`runDirName` 同样走顶层动态导入，不得加进静态 `import` 行；Task 11 已为 `startable` 加过动态导入行时，在同一行解构里并列即可）。
   - `test/host-smoke.test.mjs` 冒烟⑧已断言 `paths`；本任务不新增。
   - `test/client-render.test.mjs` 改四条既有、新增三条：
     - 「rowActions 状态映射：待拍板=开工（issue 另有自动执行）；活跃行=打开会话唯一；重试态=开工」——原「G1 放行在主动作行」「G1 驳回不消失」两条断言替换为：`btns.some(x => x.includes("G1 ")) === false`，且 issue 行 `btns` 含 `t("work.autoRun")`；重试态保留「有开工」断言，并加一条「重试态无 `t("work.autoRun")`」。
-    - 「rowActions 开工路径映射：inbox/held/closed/shipped 首位=移到 待拍板；triaged 首位=开工；building/gating 不含」——循环去掉 `triaged`，另断言 `firstBtn("triaged").first === t("work.startBtn")`。
+    - 「rowActions 开工路径映射（disc Task 1）：inbox/held/closed/shipped 首位=移到 待拍板；triaged 首位=开工；building/gating 不含」——循环去掉 `triaged`，另断言 `firstBtn("triaged").first === t("work.startBtn")`。
     - 「rowActions：gating 无活跃行 → 开工在」（改名，断言不变，仍用 `t("work.startBtn")`）。
     - 「rowActions：gating 且已有活跃 work 行 → …我来开不渲染」第 650 行的 `assert.ok(!text.includes(t("work.startBtn")), …)` 改为按钮域断言 `assert.equal(find(detail, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent.includes(t("work.startBtn"))).length, 0)`——行内「人工推翻」的下拉选项里有「开工」（`recommendedActions.start`），`work.startBtn` 改值后整行文本恒含该词（改写后现即绿，不变量用例）。
-    - 新增「rowActions：可开工行出『开工』，issue 行另有『自动执行』，PR 行无；G1 放行与驳回按钮不再渲染」（用 `mkCandidate("triaged")` 与 `type: "pull"` 变体）。
+    - 新增「rowActions：可开工行出「开工」，issue 行另有「自动执行」，PR 行无；G1 放行与驳回按钮不再渲染」（用 `mkCandidate("triaged")` 与 `type: "pull"` 变体）。
     - 新增「自动执行确认条：四行事实（含执行目录路径）+ 确认调 runStart + 取消收起」（`hooks.strip` 注入 `state.paths = { workspacesDir: "/data/workspaces" }` 与 `runs: []`；断言确认块文本含 `/data/workspaces/o_r_issue_1`、四行文案（`t("work.autoFactMode")`、`t("work.autoFactPath")` 替换后的结果、`t("work.autoFactSession")`、`t("work.autoFactShip")`）、点「确认执行」后桩收到 `runStart("o/r#issue#1")`，点「取消」后确认块移除）。
-    - 新增「存活执行行：无开工与自动执行，只有打开会话与取消执行」（`lastRuns` 含 `status: "waiting"` 的 run 与一条 `sessions`）。
+    - 新增「存活执行行：无开工与自动执行，只有打开会话与取消执行，无 G1 按钮对」（`lastRuns` 含 `status: "waiting"` 的 run 与一条 `sessions`）。
   - 单文件判据：`logic` → 32 / 31 / 1；`client-render` → Expected `ℹ tests 74`、`ℹ pass 69`、`ℹ fail 5`（红 5＝两条改写「状态映射」「开工路径映射」＋三条新增；另两条改写——第 653 行改名、第 650 行改按钮域断言——现即绿，属不变量用例，点名单列。新增的「存活执行行」现为红：现状下 run 等待中的 gating 行仍渲染「我来开」）。
 - Step 2（绿）：
   - `src/client/logic.mjs`：`export const runDirName = (key) => String(key ?? "").replace(/[^A-Za-z0-9._-]/g, "_");`
@@ -753,25 +752,25 @@ git status --short
   - 双字典：`work.startBtn` 值改为「开工」/「Start work」；新键 `work.autoRun`「自动执行」/「Run automatically」、`work.autoConfirmTitle`「确认自动执行」/「Confirm the automatic run」、`work.autoFactMode`「走哪条路：引擎跑完构建与验证，停在 G2 等你放行」/「Path: the engine builds and verifies, then stops at G2 for your decision」、`work.autoFactPath`「在哪干活：执行目录 {dir}（从默认分支新起工作分支，不碰你的本地检出）」/「Where: run directory {dir} (a new branch off the default branch; your local checkout is untouched)」、`work.autoFactSession`「会话在哪：宿主侧栏的「DSH Loop Forge」分组」/「Sessions: under the "DSH Loop Forge" group in the host sidebar」、`work.autoFactShip`「谁交付：G2 放行后自动推送并开 PR，记在来源候选上」/「Who ships: after you pass G2, the engine pushes and opens the PR, recorded on this candidate」、`work.autoGo`「确认执行」/「Confirm run」。
   - `src/client/components/workbench.mjs` 样式块加 `.autorun{display:flex;flex-direction:column;gap:6px;padding:8px 10px;margin:6px 0;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:8px}`。
   - impeccable 前置同第一部分 Task 8（读 `craft-floor.md`；确认块是行内块，不是浮层；按钮六态沿用 `btn`）。
-- Step 3（验）：`logic` → 32 / 32 / 0；`client-render` → 74 / 74 / 0；`design-lint` → 1 / 1 / 0；`i18n`、`locale-parity` 不变；detector 对改动的 UI 源文件输出 `[]`、全量 advisory 不增（口径见第一部分全局约束的执行期勘正）。全量 → 404 / 404 / 0。
+- Step 3（验）：`logic` → 32 / 32 / 0；`client-render` → 74 / 74 / 0；`design-lint` → 1 / 1 / 0；`i18n`、`locale-parity` 不变；detector 逐文件集合比对：改动的 UI 源文件与 `lib/client.js` 不得出现基线版没有的条目（`workbench.mjs` 基线 11 条、`lib/client.js` 基线 12 条，实测集合相同；口径见第一部分全局约束的执行期勘正）。全量 → 404 / 404 / 0。
 
 ### Task 15: 「更多」折叠——换个目录开工、另开会话
 
 - Consumes：`pickWorkspace`（Task 13 的去向提示版）、`another + local` 守卫（既有）。Produces：行内 `<details class="override-box">`。
-- Step 1（红）：`test/client-render.test.mjs` 新增「更多折叠：可开工或有会话时在场；『换个目录开工…』在；存活执行或已有会话时『另开会话』在，点击调 workStart(key, <记住的非托管目录，没有则 null>, true, lang)」。定位：按 summary 文案 `t("actions.more")` 找那个 `<details>`——行内本就有「人工推翻」的 `<details class="override-box">`，按 DETAILS 计数会得 2；「不可开工」样例用 `inbox`（`building + G1 pass` 是重试态，可开工）。单文件判据 `client-render` → Expected `ℹ tests 75`、`ℹ pass 74`、`ℹ fail 1`。
+- Step 1（红）：`test/client-render.test.mjs` 新增「更多折叠：可开工或有会话时在场；『换个目录开工…』在；存活执行或已有会话时『另开会话』在并调 workStart(key, <记住的非托管目录或 null>, true, lang)」。定位：按 summary 文案 `t("actions.more")` 找那个 `<details>`——行内本就有「人工推翻」的 `<details class="override-box">`，按 DETAILS 计数会得 2；「不可开工」样例用 `inbox`（`building + G1 pass` 是重试态，可开工）。单文件判据 `client-render` → Expected `ℹ tests 75`、`ℹ pass 74`、`ℹ fail 1`。
 - Step 2（绿）：`src/client/components/actions.mjs` 的 `rowActions`：当 `canStart || c.work?.sessionId || runAlive` 时追加 `<details>`（summary 文案 `t("actions.more")`）；内含 `btn(t("work.changeDir"), …)` → 无视记忆直接弹选择器，按选择结果调用 `workStart`（与 `mkStart` 的分支同款，含哨兵：`undefined` 取消、`null` 本地默认；抽成内部函数复用）；当 `c.work?.sessionId || runAlive` 时再含 `btn(t("sessions.another"), …)` → 另开沿用记住的目录：记忆存在且非 `"managed"` 时传该目录，否则传 `null`（服务端解析本地默认）；不用托管克隆（B13「仅限本地目录」）。`rowActions` 现有的「移到 已分诊 / 待拍板 / 挂起 / 已关闭」四按钮与「人工推翻」暂不动（里程碑 3 收进「更多」）。双字典新键 `actions.more`「更多」/「More」、`work.changeDir`「换个目录开工…」/「Start in another directory…」。
 - Step 3（验）：`client-render` → 75 / 75 / 0。全量 → 405 / 405 / 0。
 
 ### Task 16: PR 候选的开工消息带分支提示
 
 - Consumes：`buildKickoff`（`src/worksession.mjs`）、候选 `pull.headRef`（摄取已存）。Produces：kickoff 的 PR 分支行。
-- Step 1（红）：`test/worksession.test.mjs` 新增「buildKickoff：PR 候选含 PR 分支行与 `gh pr checkout <n>`；issue 候选不含」。单文件判据 `worksession` → Expected `ℹ tests 17`、`ℹ pass 16`、`ℹ fail 1`。
+- Step 1（红）：`test/worksession.test.mjs` 新增「buildKickoff：PR 候选含 PR 分支行与 gh pr checkout <n>；issue 候选不含」。单文件判据 `worksession` → Expected `ℹ tests 17`、`ℹ pass 16`、`ℹ fail 1`。
 - Step 2（绿）：`src/worksession.mjs` 的 `T` 两张表各加 `prBranchLine`：zh「PR 分支：{head}（在本仓执行 `gh pr checkout {n}`；工作台不会替你切换分支）」、en「PR branch: {head} (run `gh pr checkout {n}` in this repo; the workbench never switches your branch)」；`buildKickoff` 在「默认分支」行之后，`candidate.type !== "issue"` 时插入 `"- " + t.prBranchLine.replace("{head}", candidate.pull?.headRef ?? "-").replace("{n}", candidate.number)`。
 - Step 3（验）：`worksession` → 17 / 17 / 0。全量 → 406 / 406 / 0。
 
 ### Task 17: 里程碑 2 的构建、文档与收口
 
-- Step 1：`npm run build`（退出码 0）；`npm test` → `ℹ tests 406`、`ℹ pass 406`、`ℹ fail 0`；detector 对改动的 UI 源文件输出 `[]`、全量 advisory 不增。
+- Step 1：`npm run build`（退出码 0）；`npm test` → `ℹ tests 406`、`ℹ pass 406`、`ℹ fail 0`；detector 逐文件集合比对每个文件新增条目为 0。
 - Step 2：文档三处。
   - `README.md` 第 24 行「开工会话（Work Session）」整条替换为：
 
@@ -796,6 +795,23 @@ git status --short
   - 任一候选首次点「开工」弹选择器且有三行去向提示；选完再展开同仓另一候选，按钮下方显示记住的目录，再点不弹选择器。
   - 把核验结果写进两段落地注记后提交 `docs(design): §20 M1/M2 落地注记`。
 
+### Task 18（执行期增补，评审实施 F1，主人 2026-11-24 批准）: 开工会话始终安装模型
+
+不在原 Task 0–17 之内。实机核验发现：设了 `workSessionPreset` 的开工会话首回合即报 `agent … has no provider/model`——rc.5 的预设只决定工具 schema 与提示段，不供模型，而 `composeWorkWorld.createAgent` 的预设分支既不传 `agentOptions` 也不 `select`；同时 `settings.workSessionModel` 只被校验和存储，`startWorkSession` 从不把它传给 `createAgent`。该分支早于本计划（引入于 `f62738e`），不是本次产出引入，但它让「开工」主路径在实机上建得出会话、跑不起来。
+
+- Step 1（红）：`test/worksession.test.mjs` 第 140 行用例改名为「composeWorkWorld 模型安装：显式模型优先；无显式模型时无论有没有预设都装宿主默认（rc.5 预设不供模型，实机 2026-11-24 定谳）」，分支 2 断言改为：有预设、无显式模型 → `agentOptions` 为宿主默认、`setup` 在场、`select` 被调；新增「startWorkSession 接线：settings.workSessionModel 传给 createAgent；未配则装宿主默认——设了预设也一样」。红 → `worksession` 18 / 16 / 2。
+- Step 2（绿）：`src/worksession.mjs`：`createAgent` 无论有没有预设都装模型（显式模型优先，否则宿主默认）；`startWorkSession` 把 `settings.workSessionModel` 作为 `model` 传入（未配不添键，既有 `createAgent` 入参形状断言不变）。绿 → `worksession` 18 / 18 / 0；全量 407 / 407 / 0。
+- Step 3：`npm run build`；提交 `fix(work): …`，`lib/host.js` + `lib/client.js` 同 commit。
+- Step 4（实机，须重启宿主后）：对已有活跃开工会话的候选点「另开会话」，新会话 `turn/end` 的 `reason.kind` 不再是 `error`。
+
+### Task 19（执行期增补，评审实施 I4 / I5 / I3，2026-11-24）: 文案脱节与回归防护
+
+- I4（重要）：「会话」页空态 `sessions.empty` 仍在教旧机制（「从清单里对候选 G1 放行并选「我来开」即可开工」），而 M2 之后行内已无「G1 放行」按钮、按钮改叫「开工」。`src/client/locale/zh-CN.mjs` 与 `en.mjs` 两句改为「展开候选点开工」的方向。
+- I5（建议）：`pickWorkspace` 脏态分支的「取消」按钮与点遮罩两处 `finish(undefined)` 没有回归防护——回退成 `null` 会让明确的取消变成「本地默认检出」。在脏态用例里补两条断言（现即绿，属不变量用例）。
+- I3（建议）：`test/client-render.test.mjs` 第 475 行用例名仍写「取消 null」、第 517 行注释仍写「confirm(false) → resolve null」，同步为 `undefined`。
+- Step 1（红）：`test/client-render.test.mjs` 会话页空态断言补「含『开工』、不含『G1 放行』与『我来开』」→ `client-render` 红 1。
+- Step 2（绿）：改双语两句 → `client-render` 75 / 75 / 0；`i18n`、`locale-parity` 不变；全量 407 / 407 / 0。`npm run build`；提交 `fix(i18n): …`，`lib/client.js` 同 commit。
+
 ## 执行纪律（第二部分追加；其余同第一部分）
 
 - 先完成第一部分 Task 0–8 与 Task 9 Step 1–4 并提交，全量 384 / 384 / 0 之后才开始 Task 10。
@@ -809,10 +825,20 @@ git status --short
 set -o pipefail; cd /home/ubuntu/workspace/dsh-l
 npm run build; echo "build exit=$?"
 npm test 2>&1 | grep -E "^ℹ (tests|pass|fail)"
-/home/ubuntu/.dsh/profiles/web/node_modules/@iasiv5/dsh-skills/skills/impeccable/scripts/impeccable detect --json src/client
-"$IMPECCABLE" detect --json lib/client.js | jq length
+# detector 逐文件集合比对：去行号后的条目集合不得出现基线版没有的条目
+#（旧版文件须放在项目目录内——检测器只对项目内文件套用 DESIGN.md；判据自证：注入一条新 advisory → 新增条目=1）
+IMPECCABLE=/home/ubuntu/.dsh/profiles/web/node_modules/@iasiv5/dsh-skills/skills/impeccable/scripts/impeccable
+norm() { jq -r '.[] | "\(.antipattern)|\(.snippet // "")"' | sort; }
+rm -rf .detector-old
+for f in $(git diff --name-only a859af6..HEAD -- src/client) lib/client.js; do
+  mkdir -p ".detector-old/$(dirname "$f")"; git show "a859af6:$f" > ".detector-old/$f" 2>/dev/null || : > ".detector-old/$f"
+  norm < <("$IMPECCABLE" detect --json "$f") > .detector-old/new.txt
+  norm < <("$IMPECCABLE" detect --json ".detector-old/$f") > .detector-old/old.txt
+  echo "$f 新增条目=$(comm -13 .detector-old/old.txt .detector-old/new.txt | wc -l)"   # 期望每个文件 0
+done
+rm -rf .detector-old
 git status --short
 ```
 
-- `build exit=0`；`ℹ tests 406`、`ℹ pass 406`、`ℹ fail 0`；detector 对改动的 UI 源文件输出 `[]`、全量 advisory 不增；`git status --short` 无未提交改动（落地注记除外）。
+- `build exit=0`；`ℹ tests 407`、`ℹ pass 407`、`ℹ fail 0`（含执行期增补 Task 18）；detector 逐文件集合比对每个文件「新增条目=0」；`git status --short` 无未提交改动（落地注记除外）。
 - 修改摘要须列出：全部提交 sha、新增路由与 i18n 键清单、`engine-issue-only` 与 `workspace-not-found` 两个新错误码、实机核验八条的读数。
