@@ -812,6 +812,15 @@ git status --short
 - Step 1（红）：`test/client-render.test.mjs` 会话页空态断言补「含『开工』、不含『G1 放行』与『我来开』」→ `client-render` 红 1。
 - Step 2（绿）：改双语两句 → `client-render` 75 / 75 / 0；`i18n`、`locale-parity` 不变；全量 407 / 407 / 0。`npm run build`；提交 `fix(i18n): …`，`lib/client.js` 同 commit。
 
+### Task 20（执行期增补，主人 2026-11-24 定）: 另开会话只用明确的本地目录
+
+不在原 Task 0–17 之内。第 5 轮复核（评审 M9）指出：「另开会话」对记住的是托管克隆的候选，UI 发 `cwd:null`，服务端回退到用户的本地检出 `~/workspace/<repo>`（审批 `never`），等于静默在真实检出里开会话。主人选「隐藏」。
+
+- Step 1（红）：`test/client-render.test.mjs`：「更多折叠」用例中「无记忆 → null」改为断言另开不出现；新增「另开的目录守卫」用例（记住托管 → 行内无另开；`startAnother(key, null)` 不调用；会话页「不在列表」行无目录 → 无另开，有目录 → 有另开）。红 → `client-render` 2 条失败。
+- Step 2（绿）：`src/client/components/actions.mjs`：「更多」中的「另开会话」仅当记住的是明确的本地目录、且有活跃会话或存活执行时出现；`startAnother` 无目录时不发起调用。`src/client/components/sessionsView.mjs`：「不在列表」行仅当会话带目录时出现另开。绿 → `client-render` 76 / 76 / 0；全量 408 / 408 / 0。
+- Step 3：`npm run build`；提交 `fix(work): 另开会话只用明确的本地目录…`（5431c85，`lib/client.js` 与 `lib/host.js` 同 commit）。
+- 服务端 `postWorkStart` 对空目录的本地回退未改（API 语义）；是否收紧待主人决定（见 design-v2 §20 落地注记的未结项）。
+
 ## 执行纪律（第二部分追加；其余同第一部分）
 
 - 先完成第一部分 Task 0–8 与 Task 9 Step 1–4 并提交，全量 384 / 384 / 0 之后才开始 Task 10。
