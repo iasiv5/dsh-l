@@ -27,7 +27,14 @@ const mkChip = (text) => { const s = document.createElement("span"); s.className
 // 终态折叠收纳（ssarchive：上游已关闭/closed/已确认 shipped；未确认 shipped 是活跃行——待 G3）。
 // onOpen(sessionId, item)：item 供 workbench 记账 runId 已读（P1 小债 C）；orphan 行传 null。
 // runs/seenRunIds/nowMs 注入（缺省零行为变化——nowMs 缺省 Date.now() 于调用点）。
-export function renderSessionsView(container, { t, items = [], summaries = [], onOpen = () => {}, onAnother = () => {}, onDeliver = null, runs = [], seenRunIds = [], nowMs = null } = {}) {
+// 托管根判定（评审 K21 I8）：工具目录落在托管根（state.paths.workspacesDir）之下的行，是托管克隆，不给另开。
+const underManaged = (p, root) => {
+  if (typeof p !== "string" || typeof root !== "string" || root === "") return false;
+  const r = root.replace(/\/+$/, "");
+  return p === r || p.startsWith(r + "/");
+};
+
+export function renderSessionsView(container, { t, items = [], summaries = [], onOpen = () => {}, onAnother = () => {}, onDeliver = null, runs = [], seenRunIds = [], nowMs = null, managedRoot = null } = {}) {
   container.innerHTML = "";
   const head = document.createElement("h3");
   head.textContent = t("sessions.title");
@@ -64,7 +71,7 @@ export function renderSessionsView(container, { t, items = [], summaries = [], o
       actions: [
         ...(item.sessionId && summary ? [{ text: t("sessions.open"), fn: () => onOpen(item.sessionId, item) }] : []),
         // 另开需要明确的目录（评审 M9 / 第 5 轮，主人 2026-11-24 定）：无目录时不给入口，避免回退到本地检出。
-        ...(missing && item.cwd ? [{ text: t("sessions.another"), fn: () => onAnother(item.key, item.cwd) }] : []),
+        ...(missing && item.cwd && !underManaged(item.cwd, managedRoot) ? [{ text: t("sessions.another"), fn: () => onAnother(item.key, item.cwd) }] : []),   // 托管根下的克隆不给另开（评审 K21 I8）
         // Task 13：确认交付（人工 G2 等价）——候选级拍板语义：building/verifying 的开工会话行均可交付
         //（含 missing 行——会话被归档/删除后用户仍须能拍板；路由守卫仍要求索引活跃行在场，评审 impl#O1 钉例）。
         ...(onDeliver && item.kind === "work" && ["building", "verifying"].includes(item.candidate?.stage) ? [{ text: t("sessions.deliver"), fn: async () => onDeliver(item.key) }] : []),

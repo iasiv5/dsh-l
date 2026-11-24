@@ -2100,3 +2100,21 @@ test("另开的目录守卫（评审 M9 / 第 5 轮，主人 2026-11-24 定：�
   renderSessionsView(root2, { t, items: [mkItem("/w/c")], summaries, onOpen: () => {}, onAnother: () => {} });
   assert.equal(find(root2, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent.includes(t("sessions.another"))).length, 1, "有目录的不在列表行有另开");
 });
+
+test("会话页另开：托管根下的工具目录（托管克隆）不给另开；本地检出给另开；同前缀非托管根不误判（评审 K21 I8）", async () => {
+  const { renderSessionsView } = await import("../src/client/components/sessionsView.mjs");
+  const summaries = [{ id: "dsh-l:work-other", displayTitle: "x", running: false }];
+  const mk = (cwd, id) => ({ kind: "work", key: "o/r#issue#9", sessionId: id, runId: null, cwd, approvalPolicy: null, createdAt: 1, updatedAt: 1, candidate: { repo: "o/r", number: 9, title: "T9", stage: "building" } });
+  const anotherCount = (root) => find(root, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent.includes(t("sessions.another"))).length;
+  const managedRoot = "/data/dsh-l/workspaces";
+  const r1 = new FakeElement("div");
+  renderSessionsView(r1, { t, items: [mk("/data/dsh-l/workspaces/iasiv5_dsh-m_pull_82", "dsh-l:work-m1")], summaries, managedRoot, onOpen: () => {}, onAnother: () => {} });
+  assert.equal(anotherCount(r1), 0, "托管克隆的不在列表行无另开");
+  const r2 = new FakeElement("div");
+  renderSessionsView(r2, { t, items: [mk("/home/u/workspace/dsh-m", "dsh-l:work-l1")], summaries, managedRoot, onOpen: () => {}, onAnother: () => {} });
+  assert.equal(anotherCount(r2), 1, "本地检出的不在列表行有另开");
+  const r3 = new FakeElement("div");
+  renderSessionsView(r3, { t, items: [mk("/data/dsh-l/workspaces-other/x", "dsh-l:work-o1")], summaries, managedRoot, onOpen: () => {}, onAnother: () => {} });
+  assert.equal(anotherCount(r3), 1, "同前缀但不在托管根下（workspaces-other）不误判为托管");
+});
+

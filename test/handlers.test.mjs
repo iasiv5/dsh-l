@@ -1230,3 +1230,19 @@ test("getWorkspaceStatus：响应带 workspaceTitle（注入 workspaceTitleOf；
   const h2 = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, home, stat: () => ({ isDirectory: () => true }) });
   assert.equal((await h2.getWorkspaceStatus(null, { url })).workspaceTitle, null);
 });
+
+test("postWorkStart：显式 cwd 落在托管根（sessionRoot）下 → 409 managed-dir-explicit，零记账、不写 workDirs（评审 K21 I8）", async () => {
+  const store = openStore(); login(store); seed(store);
+  await store.setStage("o/r#issue#1", "gating", "");
+  const sw = fakeStartWork();
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine: { hasAliveRun: () => false }, startWork: sw, home: wsHome(), stat: () => ({ isDirectory: () => true }), sessionRoot: "/data/workspaces" });
+  const r = await h.postWorkStart({ key: "o/r#issue#1", cwd: "/data/workspaces/iasiv5_dsh-m_pull_82" });
+  assert.deepEqual([r.error, r.status], ["managed-dir-explicit", 409]);
+  assert.equal(sw._calls.length, 0, "零调用");
+  assert.equal(store.getSettings().workDirs?.["o/r"], undefined, "不写记忆");
+  assert.equal(store.getCandidate("o/r#issue#1").stage, "gating", "不记账");
+  // 同前缀但不在托管根下（workspaces-other）：照常放行
+  const ok = await h.postWorkStart({ key: "o/r#issue#1", cwd: "/data/workspaces-other/x" });
+  assert.equal(ok.ok, true, "同前缀非托管根不误判");
+});
+

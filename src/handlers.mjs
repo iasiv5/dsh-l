@@ -54,6 +54,13 @@ export function buildTaskPackage(candidate, repoInfo = null, now = () => new Dat
   return pkg;
 }
 
+// 路径 p 是否落在目录 root 之下（含 root 自身）；忽略 root 末尾的斜杠。托管根判定用（评审 K21 I8）。
+const underDir = (p, root) => {
+  if (typeof p !== "string" || typeof root !== "string" || root === "") return false;
+  const r = root.replace(/\/+$/, "");
+  return p === r || p.startsWith(r + "/");
+};
+
 export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, githubClientId = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null, workflowCatalog = { templates: [], warnings: [] }, engine = null, feishu = null, templates = {}, startWork = null, home = null, stat = null, workspace = null, sessionRoot = null, listPresets = async () => [], resolveLocalDir = null, workspaceTitleOf = async () => null, paths = null }) {
   // 两级 token 链（gh-as-source 2026-11-20）：credentials 引用覆写 → gh 登录态兜底；token 只存 gh 凭据库。
   const token = () => provider.resolveToken({ credentials, tokenRef, execFile, ghPath: ghBin });
@@ -477,6 +484,9 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       const another = body?.another === true;
       const managed = body?.workspace === "managed";
       const cwdIn = typeof body?.cwd === "string" && body.cwd ? body.cwd : null;
+      // 托管根下的目录只经 workspace:"managed" 进入（评审 K21 I8）：显式传入托管克隆路径会被记成「记住的目录」，
+      // 并让会话头目录脱离 sessionRoot（设计 §20 第 14 条）。守卫先于一切记账与调用。
+      if (cwdIn && underDir(cwdIn, sessionRoot)) return fail("managed-dir-explicit", 409);
       const active = store.getWorkSession(key);
       if (active && !another && (!cwdIn || cwdIn === active.cwd)) {
         return { ok: true, sessionId: active.sessionId, reused: true, taskPackage: null };
