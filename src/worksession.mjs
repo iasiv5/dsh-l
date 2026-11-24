@@ -102,18 +102,12 @@ export function composeWorkWorld({ agents, workingDirectory, approval, agentDefa
       const policy = approvalPolicy ?? settingsOf()?.workSessionApprovalPolicy ?? null;
       const explicit = model && typeof model.provider === "string" && model.provider !== ""
         && typeof model.model === "string" && model.model !== "";
-      let agentOptions;
-      let setup;
-      if (explicit) {
-        agentOptions = resolveAgentSelection(model, hostDefault());
-        setup = (_agentCtx, agent) => { agent.model?.select?.(agentOptions); };
-      } else if (!preset) {
-        // 分支 3（实机 2026-11-21 截图定谳）：程序化会话必须显式安装宿主默认模型（autoloop/makeTriage
-        // 判例同款恒传）——不传 agentOptions 不 select 的会话无模型，首请求落 deepseek-official 兜底
-        // 路由 → MISSING_CREDENTIAL 失败。preset 分支仍不传（R1-6：不压制 preset 自带模型）。
-        agentOptions = resolveAgentSelection(null, hostDefault());
-        setup = (_agentCtx, agent) => { agent.model?.select?.(agentOptions); };
-      }
+      // 模型安装（评审实施 F1，实机 2026-11-24 定谳）：rc.5 的预设只决定工具 schema 与提示段，不供模型；程序化会话
+      // 不显式装模型，首回合 preStep 即报 has no provider/model（2026-11-21 截图定谳的「无模型 → 兜底路由
+      // MISSING_CREDENTIAL」是同一根因的另一表现）。所以无论有没有预设都装：显式模型优先，否则宿主默认
+      //（autoloop / makeTriage 判例同款恒传）。
+      const agentOptions = resolveAgentSelection(explicit ? model : null, hostDefault());
+      const setup = (_agentCtx, agent) => { agent.model?.select?.(agentOptions); };
       const handle = await agents.create({
         sessionId,
         meta: { cwd: headerCwd, agentPreset: preset },
@@ -147,7 +141,10 @@ export async function startWorkSession(world, { store, lang = "zh-CN", now = () 
   const sessionId = workSessionId(now);
   // kickoff 用派生包：工作区路径落 localPath（可读块引用），不改响应侧原包。
   const kpkg = { ...pkg, repo: { ...(pkg?.repo ?? {}), localPath: cwd ?? null } };
-  const handle = await world.createAgent(sessionId, { cwd, ...(headerCwd ? { headerCwd } : {}) });
+  // settings.workSessionModel（显式模型覆盖，null=宿主默认）在此消费——此前它只被校验和存储，开工路径从不读它（评审实施 F1）。
+  const settings = store.getSettings?.() ?? null;
+  const model = settings?.workSessionModel ?? null;
+  const handle = await world.createAgent(sessionId, { cwd, ...(headerCwd ? { headerCwd } : {}), ...(model ? { model } : {}) });
   try { world.setTitle?.(handle.agent, workSessionTitle(c)); } catch {}   // 收敛 M1 Task 6：创建时设标题（约束收窄为「创建后不改」）
   try {
     await world.send(handle.agent, buildKickoff(c, kpkg, lang));

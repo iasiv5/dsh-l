@@ -137,7 +137,7 @@ test("resolveLocalWorkspace：stat 命中返回绝对路径，未命中 null", (
 
 // ---- composeWorkWorld：三分支 + 调用序红线 ----
 
-test("composeWorkWorld 三分支：显式模型→agentOptions+select；preset 兜底；皆无→不传不 select", async () => {
+test("composeWorkWorld 模型安装：显式模型优先；无显式模型时无论有没有预设都装宿主默认（rc.5 预设不供模型，实机 2026-11-24 定谳）", async () => {
   // 分支 1：显式模型
   const s1 = makeServices({ settings: { workSessionPreset: "preset-x", workSessionApprovalPolicy: null } });
   const w1 = composeWorkWorld(s1);
@@ -149,14 +149,17 @@ test("composeWorkWorld 三分支：显式模型→agentOptions+select；preset �
   assert.ok(s1._ops.some((o) => o[0] === "select"));
   assert.equal(s1._ops.filter((o) => o[0] === "policy").length, 0, "policy null → 零 setPolicy（红线③）");
 
-  // 分支 2：preset 在场无显式模型 → agentOptions 不传、不 select，policy 生效
+  // 分支 2：preset 在场、无显式模型 → 仍装宿主默认模型，policy 生效。
+  // 旧断言是「不传 agentOptions、不 select」（R1-6：不压制 preset 自带模型）；rc.5 的预设只决定工具 schema 与提示段、不供模型，
+  // 不装模型的开工会话首回合 preStep 即报 has no provider/model（实机 2026-11-24，评审 F1）。
   const s2 = makeServices({ settings: { workSessionPreset: "preset-y", workSessionApprovalPolicy: "ask" } });
   const w2 = composeWorkWorld(s2);
   await w2.createAgent("s2", { cwd: "/w" });
   const create2 = s2._ops.find((o) => o[0] === "create")[1];
-  assert.equal(create2.agentOptions, undefined);
-  assert.equal(create2.setup, undefined);
+  assert.deepEqual(create2.agentOptions, { provider: "p0", model: "m0", reasoningEffort: "high" });
+  assert.ok(create2.setup, "有预设也 select 宿主默认");
   assert.equal(create2.meta.agentPreset, "preset-y");
+  assert.deepEqual(s2._ops.find((o) => o[0] === "select")[1], { provider: "p0", model: "m0", reasoningEffort: "high" });
   assert.deepEqual(s2._ops.find((o) => o[0] === "policy")[1], "ask");
 
   // 分支 3：皆无 → 安装宿主默认模型（实机 2026-11-21 定谳：程序化会话不显式 select 即无模型，
@@ -169,6 +172,24 @@ test("composeWorkWorld 三分支：显式模型→agentOptions+select；preset �
   assert.equal(create3.meta.agentPreset, undefined);
   assert.ok(create3.setup, "分支 3 也 select 宿主默认");
   assert.ok(s3._ops.some((o) => o[0] === "select"));
+});
+
+test("startWorkSession 接线：settings.workSessionModel 传给 createAgent；未配则装宿主默认——设了预设也一样", async () => {
+  // 生产接线用例（评审 F1：此前 workSessionModel 只被校验和存储，开工路径从不消费；分支用例按调用传参测，与接线脱节）
+  const run = async (settings) => {
+    const store = makeStore();
+    store.getSettings = () => settings;
+    const svc = makeServices({ settings });
+    await startWorkSession(composeWorkWorld(svc), { store, lang: "zh-CN", now: () => new Date(1700000000000) },
+      { key: candidate().key, cwd: "/w/dir", another: false, pkg: pkg() });
+    return svc._ops.find((o) => o[0] === "create")[1];
+  };
+  const explicit = await run({ workSessionApprovalPolicy: "ask", workSessionModel: { provider: "pm", model: "mm" }, workSessionPreset: "standard" });
+  assert.deepEqual(explicit.agentOptions, { provider: "pm", model: "mm", reasoningEffort: undefined }, "显式模型进 agentOptions");
+  assert.equal(explicit.meta.agentPreset, "standard", "预设照常生效");
+  const fallback = await run({ workSessionApprovalPolicy: null, workSessionModel: null, workSessionPreset: "standard" });
+  assert.deepEqual(fallback.agentOptions, { provider: "p0", model: "m0", reasoningEffort: "high" }, "未配显式模型 → 宿主默认");
+  assert.ok(fallback.setup, "有 setup select");
 });
 
 test("composeWorkWorld：显式 effort 在场即透传（覆盖设定）", async () => {
