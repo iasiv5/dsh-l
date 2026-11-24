@@ -277,7 +277,11 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
     openWorkSession,
     sessionsFeed: () => (sessionsFeed ? sessionsFeed() : []),
     // 无目录不发起（不得回退到本地检出）；有目录照常另开。
-    startAnother: (key, cwd) => (cwd ? a.workStart(key, cwd, true, getLang()) : null),
+    startAnother: async (key, cwd, t) => {
+      if (!cwd) return null;   // 无目录不发起（不得回退到本地检出）
+      const r = await a.workStart(key, cwd, true, getLang());
+      return r?.ok ? null : (t?.("sessions.anotherFailed") ?? "另开会话失败") + " (" + String(r?.error ?? "unknown") + ")";
+    },
     header(header, { t, state, view }) {
       const b = btn(t("settings.title"), () => openSettings(view.shadow, { t, current: state?.settings ?? { intervalMinutes: 0 }, onSaved: () => view.reload() }));
       b.setAttribute("aria-label", t("settings.title"));

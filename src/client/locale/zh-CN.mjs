@@ -131,7 +131,7 @@ export const zhCN = {
     title: "会话",
     badgeWork: "开工", badgeRun: "执行", badgeAuto: "自动放行", badgeGone: "上游已关闭",
     badgeMissing: "不在会话列表", badgeRunning: "运行中",
-    open: "打开", another: "另开会话", deliver: "确认交付", deliverFailed: "确认交付失败",
+    open: "打开", another: "另开会话", anotherFailed: "另开会话失败", deliver: "确认交付", deliverFailed: "确认交付失败",
     empty: "还没有 dsh-l 会话——展开清单里的候选点「开工」，或对 issue 点「自动执行」，会话会出现在这里。",
     ago: "{t} 前",
     archive: "已结束",

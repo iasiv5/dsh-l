@@ -563,6 +563,10 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       const gate = requireAuth(); if (gate) return gate;
       const { runId, nodeId, decision, note, targetNode } = body ?? {};
       if (!["pass", "reject"].includes(decision)) return fail("invalid gate");
+      // 引擎只服务 issue（ADR-0003）的补全：存量 PR run 也不得放行——按 run 归属的候选类型拦，先于触达引擎。
+      // run 从 store 读（引擎未对外暴露 getRun；测试桩须在 store 里真实建 run，不得靠桩上的假方法过测试）。
+      const run = store.getRun?.(runId) ?? null;
+      if (run && store.getCandidate(run.candidateKey)?.type !== "issue") return fail("engine-issue-only", 409);
       try { engine.applyGateDecision(runId, nodeId, decision, targetNode ?? null); return { ok: true }; }
       catch (e) { return fail(String(e?.message ?? e), e?.status ?? 400); }
     },

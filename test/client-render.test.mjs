@@ -2118,3 +2118,24 @@ test("会话页另开：托管根下的工具目录（托管克隆）不给另�
   assert.equal(anotherCount(r3), 1, "同前缀但不在托管根下（workspaces-other）不误判为托管");
 });
 
+test("会话页「另开」失败就地呈现原因；startAnother 把错误响应转成文案、成功返回 null（评审 K21 I15）", async () => {
+  const { renderSessionsView } = await import("../src/client/components/sessionsView.mjs");
+  const summaries = [{ id: "dsh-l:work-other", displayTitle: "x", running: false }];
+  const mk = (cwd, id) => ({ kind: "work", key: "o/r#issue#9", sessionId: id, runId: null, cwd, approvalPolicy: null, createdAt: 1, updatedAt: 1, candidate: { repo: "o/r", number: 9, title: "T9", stage: "building" } });
+  // 1) 会话页：onAnother 返回错误串 → 行内 chip
+  const root = new FakeElement("div");
+  renderSessionsView(root, { t, items: [mk("/home/u/workspace/r", "dsh-l:work-l1")], summaries, onOpen: () => {}, onAnother: () => t("sessions.anotherFailed") + " (gate-requires-gating)" });
+  const row = root.children.filter((n) => n._rowId === "dsh-l:work-l1")[0];
+  row.children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").find((b) => b.textContent.includes(t("sessions.another"))).onclick();
+  await new Promise((r) => setTimeout(r, 10));
+  assert.ok(row.textContent.includes(t("sessions.anotherFailed")), "另开失败原因就地呈现");
+  // 2) startAnother：错误响应 → 文案；成功 → null
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  const api = { workStart: async () => ({ error: "managed-dir-explicit", status: 409 }) };
+  const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [], deps: { api } });
+  const failed = await hooks.startAnother("o/r#issue#9", "/home/u/workspace/r");
+  assert.equal(failed, t("sessions.anotherFailed") + " (managed-dir-explicit)", "错误响应转成文案");
+  const api2 = { workStart: async () => ({ ok: true, sessionId: "dsh-l:work-n", reused: false }) };
+  const hooks2 = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [], deps: { api: api2 } });
+  assert.equal(await hooks2.startAnother("o/r#issue#9", "/home/u/workspace/r"), null, "成功返回 null（行内无痕）");
+});

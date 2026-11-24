@@ -1246,3 +1246,18 @@ test("postWorkStart：显式 cwd 落在托管根（sessionRoot）下 → 409 man
   assert.equal(ok.ok, true, "同前缀非托管根不误判");
 });
 
+test("postRunGate：PR 候选的 run 放行 → 409 engine-issue-only（引擎只服务 issue 的补全，评审 I6）", async () => {
+  const store = openStore(); login(store);
+  store.upsertCandidates([{ repo: "o/r", type: "pull", number: 9, title: "pr", author: "a", labels: [], createdAt: "2026-11-01T00:00:00Z", updatedAt: "T", url: "U", meta: {}, pull: { draft: false, headRef: "b" }, bodyExcerpt: "" }]);
+  await store.setStage("o/r#pull#9", "gating", "");
+  const applied = [];
+  // 存量 PR run：在 store 里真实建一条归属 PR 候选的 waiting run（早于「引擎只服务 issue」的例外）；引擎桩不带任何查询方法，
+  // 守卫必须靠 store 生效——靠桩上的假方法过测试的守卫在生产里不拦。
+  store.createRun({ id: "run-x", candidateKey: "o/r#pull#9", templateId: "loop-v1", templateRevision: "r1", snapshot: { nodes: [], edges: [] },
+    nodeStates: {}, status: "waiting", waitingGate: "g2", cancelReason: null, createdAt: "2026-11-22T00:00:00Z", updatedAt: "2026-11-22T00:00:00Z", history: [] });
+  const engine = { applyGateDecision: (...a) => { applied.push(a); } };
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine });
+  const r = await h.postRunGate({ runId: "run-x", nodeId: "g2", decision: "pass" });
+  assert.deepEqual([r.error, r.status], ["engine-issue-only", 409]);
+  assert.equal(applied.length, 0, "不触达引擎");
+});
