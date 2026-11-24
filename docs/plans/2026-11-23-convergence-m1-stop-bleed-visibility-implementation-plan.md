@@ -494,7 +494,7 @@ set -o pipefail; cd /home/ubuntu/workspace/dsh-l; node --test test/<文件>.test
   - 实机核验后：`docs(design): §20 M1 落地注记`。
 - Step 5（实机核验，须主人同意后执行 `dshm_restart`，且为当轮最后一个动作；核验放下一轮）：
   - 构建指纹：`grep -c -F "DSH Loop Forge" lib/host.js` → 不小于 1（单独执行、读输出；计数 0 时 grep 退出码为 1，不入 `&&` 链）。
-  - 服务时间戳：跑 `[ "$(systemctl show deepseek-harness.service -p ActiveEnterTimestamp --value --timestamp=unix | tr -d '@' | cut -d. -f1)" -gt "$(stat -c %Y lib/host.js)" ]`，退出码 0 即「重启晚于构建」（本机实测该选项输出形如 `@1795412998`；人类可读格式带时区缩写，跨机有歧义，不作判据）。`curl` 返回 200 与 `workspaces` 目录存在都是恒真信号，不作判据。
+  - 服务时间戳：跑 `[ "$(systemctl show deepseek-harness.service -p ActiveEnterTimestamp --value --timestamp=unix | tr -d '@' | cut -d. -f1)" -gt "$(stat -c %Y lib/host.js)" ]`，退出码 0 即「重启晚于构建」（本机实测该选项输出形如 `@1795412998`；人类可读格式带时区缩写，跨机有歧义，不作判据）。`curl` 返回 200 与 `workspaces` 目录存在都是恒真信号，不作判据。（2026-11-24 勘正，评审 K21 I7：本机重启后又构建过，该判据因此不成立；以 `GET /dsh-l/health` 的构建标识为主证据，见 design-v2 §20 落地注记。）
   - 在工作台点一次「分诊待分诊」或让任一 run 派发节点后：`ls /home/ubuntu/.dsh/sessions | grep -F "dsh-l-workspaces"` 出现新桶；宿主侧栏出现分组「DSH Loop Forge」，其下会话标题形如「分诊 · N 条」或「<仓库名>#<号> · <节点> ①」；分诊会话随即从侧栏消失（已归档）。
   - 新桶内标题读数：对新桶里最新的 `session.v4.jsonl.zstd` 跑 `zstd -dc <文件> | jq -r 'select(.type=="session/title") | .data.title' | tail -1`，输出形如 `分诊 · N 条` 或 `<仓库名>#<号> · <节点> ①`。
   - 人读核验（B7③）：在工作台展开候选，点「打开 · <节点名>」落到该会话；分诊会话归档后从侧栏消失。这一条同时是 `lib/client.js` 生效的证据：浏览器可能缓存旧 bundle，按钮不出现时先硬刷新再判失败。
