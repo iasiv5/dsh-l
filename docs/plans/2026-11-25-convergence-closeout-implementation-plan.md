@@ -13,7 +13,7 @@
 ## 架构快照
 
 1. **交付三态**：`candidate.delivery` 增 `closed: boolean` 与 `closedAt: string | null`。`postRefresh` 回填时先看 `mergedAt`（已合并），否则看 `state === "closed"`（已关闭，未合并）。已终态（`merged` 或 `closed`）的交付不再逐次查 `getPr`。脚注按三态显示「待合并 / 已合并 / 已关闭」。
-2. **结束开工会话**：`store.appendWorkSession` 追加一条带 `endedAt` 的行即视为结束（`getWorkSession` 取末位，末位带 `endedAt` → 活跃行为 null）。路由 `POST /dsh-l/work/end`：候选须有活跃行；留痕 `work-session.ended`；候选若在 `building` 回 `triaged`（与「取消执行」一致，可再次开工）；经 `world.archiveSession` 归档该宿主会话（复用 M1 Task 7 的钩子，宿主服务缺席静默）。入口：候选行「更多」里，活跃开工会话行出现「结束会话」。
+2. **结束开工会话**：`store.endWorkSession(key)` 给**末位活跃行**标上 `endedAt`（不追加新行——追加会让会话页多出幽灵行，评审 P2）。`getWorkSession` 返回自末位向前最近一条**无 `endedAt`** 的行；全部已结束 → null。这样同一候选的多条历史活跃行可以逐条结束，「结束会话」入口不会自己消失。路由 `POST /dsh-l/work/end`：候选须有活跃行；留痕 `work-session.ended`；候选若在 `building` 回 `triaged`（与「取消执行」一致，可再次开工）；经 `world.archiveSession` 归档该宿主会话（复用 M1 Task 7 的钩子，宿主服务缺席静默）。入口：候选行「更多」里，活跃开工会话行出现「结束会话」。
 3. **错误码人话**：新增纯函数 `errorText(error, t)`（`src/client/logic.mjs`）：在 `errors.codes.<码>` 查到则返回该文案，否则返回原码。三处拼接点（`go`、批量分诊、`startAnother`）统一经它翻译。词典 `errors.codes` 用静态字面量键，不走动态前缀，不触发 i18n 白名单。
 
 ## 全局约束（逐字继承 dsh-l 仓约与收敛计划）
@@ -39,11 +39,15 @@
 | i18n / locale-parity / design-lint | 6 / 1 / 1 | 6 / 1 / 1 | 不变 |
 | 全量 | 412 | 420 | +8 |
 
+**逐任务累计**（按顺序执行）：Task 1 → 414；Task 2 → 415；Task 3 → 417；Task 4 → 418；Task 5 → 420。
+
+**计数口径**：各任务 Step 2 / Step 4 写的是**按任务顺序执行到该点**的单文件与全量计数（含此前任务的增量）。若只单跑某一任务做红绿复核，数字会不同——例如只做 Task 2 + Task 3 时 handlers 红为 79 / 77 / 2、绿 79 / 79 / 0，全量 415（执行方 2026-11-25 在副本实测）。评审复核时请按「顺序累计」核对，或按此说明换算。
+
 ## 文件结构与职责
 
 | 文件 | 动作 | 职责 |
 |---|---|---|
-| `src/store.mjs` | 改 | `setDelivery` 增 `closed` / `closedAt` 字段透传（已是合并写，无需改）；新增 `endWorkSession(key, sessionId)` 追加带 `endedAt` 的行；`getWorkSession` 末位带 `endedAt` 时返回 null |
+| `src/store.mjs` | 改 | `setDelivery` 已是合并写，`closed` / `closedAt` 无需改；新增 `endWorkSession(key)` 给末位活跃行标 `endedAt`（不追加行）；`getWorkSession` 自末位向前取最近一条无 `endedAt` 的行 |
 | `src/handlers.mjs` | 改 | `postRefresh` 回填关闭态；新增 `postWorkEnd` |
 | `src/host.mjs` | 改 | `makeHandlers` 注入 `endSession`（调 world 的归档钩子）；路由表增 `/dsh-l/work/end` |
 | `src/client/logic.mjs` | 改 | 导出 `errorText(error, t)` |
@@ -77,13 +81,13 @@
       const asked = [];
       provider.getPr = async ({ number }) => { asked.push(number); return { number, state: "closed", mergedAt: null, htmlUrl: "https://github.com/o/good/pull/81", headRef: "b" }; };
       await makeHandlers({ store, provider, triage: noTriage }).postRefresh();
-      assert.deepEqual(store.getCandidate("o/good#issue#1").delivery, { prNumber: 81, prUrl: "https://github.com/o/good/pull/81", merged: false, mergedAt: null, closed: true, closedAt: "2026-11-24T00:00:00Z" });
+      assert.deepEqual(store.getCandidate("o/good#issue#1").delivery, { prNumber: 81, prUrl: "https://github.com/o/good/pull/81", merged: false, mergedAt: null, closed: true, closedAt: "2026-11-24T00:00:00.000Z" });   // toISOString 带毫秒（评审 P1：原期望缺 .000，照计划执行必卡）
       assert.equal(store.getCandidate("o/good#issue#1").history.at(-1).event, "delivery.closed");
       await makeHandlers({ store, provider, triage: noTriage }).postRefresh();
       assert.deepEqual(asked, [81], "已终态不再查");
     });
     ```
-    夹具：`PROVIDER()` 的 `now` 缺省取真实时间，回填的 `closedAt` 需确定——给 `makeHandlers` 传 `now: () => new Date("2026-11-24T00:00:00Z")`（两处都要传）。
+    夹具：回填的 `closedAt` 取自 `now()`，须确定——两处 `makeHandlers` 都传 `now: () => new Date("2026-11-24T00:00:00Z")`；期望值用 `toISOString` 的形态（带 `.000Z`）。
   - `test/client-render.test.mjs` 末尾追加：
     ```js
     test("candidateRow：delivery.closed → 脚注出『PR #n · 已关闭』；merged 仍为『已合并』（收敛收口 C1）", async () => {
@@ -122,63 +126,77 @@
 
 - Step 1（红）：`test/store.test.mjs` 末尾追加：
   ```js
-  test("endWorkSession：追加带 endedAt 的行，getWorkSession 此后返回 null；候选不存在 404（收敛收口 C2）", () => {
+  test("endWorkSession：给末位活跃行标 endedAt，不追加行；getWorkSession 回退到最近一条未结束行；全结束 → null（收敛收口 C2，评审 P2）", () => {
     const filePath = join(mkdtempSync(join(tmpdir(), "dsh-l-")), "store.json");
     const s = createStore({ filePath, now: () => new Date("2026-11-25T00:00:00Z") });
     s.upsertCandidates([raw(3)]);
     const key = candidateKey("iasiv5/dsh-skins", "issue", 3);
-    s.appendWorkSession(key, { sessionId: "dsh-l:work-a", cwd: "/w", approvalPolicy: null, createdAt: "t", updatedAt: "t" });
-    assert.equal(s.getWorkSession(key).sessionId, "dsh-l:work-a");
-    s.endWorkSession(key, "dsh-l:work-a");
-    assert.equal(s.getWorkSession(key), null, "末位带 endedAt → 无活跃行");
+    s.appendWorkSession(key, { sessionId: "dsh-l:work-a", cwd: "/w/a", approvalPolicy: null, createdAt: "t", updatedAt: "t" });
+    s.appendWorkSession(key, { sessionId: "dsh-l:work-b", cwd: "/w/b", approvalPolicy: null, createdAt: "t", updatedAt: "t" });
+    assert.equal(s.getWorkSession(key).sessionId, "dsh-l:work-b", "末位为活跃");
+    // 结束 b：标 endedAt，行数不变，回退到 a
+    assert.equal(s.endWorkSession(key), "dsh-l:work-b");
     const rows = s.listWorkSessions().find((r) => r.key === key).rows;
-    assert.equal(rows.length, 2); assert.equal(rows[1].sessionId, "dsh-l:work-a"); assert.equal(rows[1].endedAt, "2026-11-25T00:00:00.000Z");
-    assert.equal(createStore({ filePath }).getWorkSession(key), null, "落盘可读回");
-    assert.throws(() => s.endWorkSession("o/r#issue#404", "x"), /not found/);
+    assert.equal(rows.length, 2, "不追加行");
+    assert.equal(rows[1].endedAt, "2026-11-25T00:00:00.000Z");
+    assert.equal(rows[0].endedAt, undefined, "更早的行不动");
+    assert.equal(s.getWorkSession(key).sessionId, "dsh-l:work-a", "回退到最近一条未结束行");
+    assert.equal(createStore({ filePath }).getWorkSession(key).sessionId, "dsh-l:work-a", "落盘可读回");
+    // 结束 a：全结束 → null
+    assert.equal(s.endWorkSession(key), "dsh-l:work-a");
+    assert.equal(s.getWorkSession(key), null);
+    assert.equal(s.endWorkSession(key), null, "没有活跃行 → 返回 null，不抛");
     // 再开一个新行 → 又有活跃行（结束不封死候选）
-    s.appendWorkSession(key, { sessionId: "dsh-l:work-b", cwd: "/w", approvalPolicy: null, createdAt: "t", updatedAt: "t" });
-    assert.equal(s.getWorkSession(key).sessionId, "dsh-l:work-b");
+    s.appendWorkSession(key, { sessionId: "dsh-l:work-c", cwd: "/w/c", approvalPolicy: null, createdAt: "t", updatedAt: "t" });
+    assert.equal(s.getWorkSession(key).sessionId, "dsh-l:work-c");
+    assert.throws(() => s.endWorkSession("o/r#issue#404"), /not found/);
   });
   ```
 - Step 2：`node --test test/store.test.mjs` → 29 / 28 / 1，红在 `s.endWorkSession is not a function`。
-- Step 3（绿）：`src/store.mjs` 在 `appendWorkSession` 之后：
+- Step 3（绿）：`src/store.mjs` 的 `getWorkSession` 与新增 `endWorkSession`：
   ```js
-      // 结束开工会话（收敛收口 C2）：追加一条带 endedAt 的行即视为结束——getWorkSession 取末位，末位带 endedAt → 无活跃行。
-      // 不删历史行（留痕与「不在会话列表」兜底行依赖它）。
-      endWorkSession(key, sessionId) {
-        need(key);
-        (doc.workSessions[key] ??= []).push({ sessionId, cwd: null, approvalPolicy: null, createdAt: now().toISOString(), updatedAt: now().toISOString(), endedAt: now().toISOString() });
-        persist();
-      },
-  ```
-  `getWorkSession` 改为：
-  ```js
+      // 开工会话索引：末位向前最近一条无 endedAt 的行 = 活跃行（收敛收口 C2，评审 P2：结束是「标记」不是「追加」，
+      // 追加会让 getWorkSessions 多出幽灵行；回退语义让同一候选的多条历史活跃行可以逐条结束）。
       getWorkSession: (key) => {
-        const rows = doc.workSessions[key];
-        if (!rows || !rows.length) return null;
-        const last = rows[rows.length - 1];
-        return last.endedAt ? null : last;
+        const rows = doc.workSessions[key] ?? [];
+        for (let i = rows.length - 1; i >= 0; i--) if (!rows[i].endedAt) return rows[i];
+        return null;
+      },
+      endWorkSession(key) {
+        need(key);
+        const active = this.getWorkSession(key);
+        if (!active) return null;
+        active.endedAt = now().toISOString();
+        active.updatedAt = active.endedAt;
+        persist();
+        return active.sessionId;
       },
   ```
-- Step 4：`store` → 29 / 29 / 0；全量 → 414 / 414 / 0（Task 1 +1、Task 2 +1）。
-- 接口：Produces `store.endWorkSession(key, sessionId)`；`getWorkSession` 的结束语义。Task 3 消费。
+  注意 `endWorkSession` 内用 `this.getWorkSession`（对象字面量方法），不要写成裸调用。
+- Step 4：`store` → 29 / 29 / 0；全量 → 414 / 414 / 0。
+- 接口：Produces `store.endWorkSession(key) → sessionId | null`；`getWorkSession` 的回退语义。Task 3 消费。
 
 ### Task 3: 路由 `POST /dsh-l/work/end`
 
-- Step 1（红）：`test/handlers.test.mjs` 追加两条：
+- Step 1（红）：`test/handlers.test.mjs` 追加两条（下面一个围栏块含两条完整的 `test(...)`，整块追加到文件末尾）：
   ```js
-  test("postWorkEnd：活跃开工会话 → 结束索引行、留痕 work-session.ended、building 回 triaged、调 archiveSession（收敛收口 C2）", async () => {
+  test("postWorkEnd：活跃开工会话 → 结束末位活跃行、留痕 work-session.ended、building 回 triaged、调 archiveSession；多条历史活跃行可逐条结束（收敛收口 C2，评审 P2）", async () => {
     const store = openStore(); login(store); seed(store);
     store.appendWorkSession("o/r#issue#1", { sessionId: "dsh-l:work-a", cwd: "/w", approvalPolicy: null, createdAt: "t", updatedAt: "t" });
+    store.appendWorkSession("o/r#issue#1", { sessionId: "dsh-l:work-b", cwd: "/w", approvalPolicy: null, createdAt: "t", updatedAt: "t" });
     await store.setStage("o/r#issue#1", "building", "G1 pass");
     const archived = [];
     const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, archiveSession: async (id) => { archived.push(id); } });
     const r = await h.postWorkEnd({ key: "o/r#issue#1" });
-    assert.deepEqual([r.ok, r.sessionId], [true, "dsh-l:work-a"]);
-    assert.equal(store.getWorkSession("o/r#issue#1"), null);
+    assert.deepEqual([r.ok, r.sessionId], [true, "dsh-l:work-b"], "结束的是末位活跃行");
+    assert.equal(store.getWorkSession("o/r#issue#1").sessionId, "dsh-l:work-a", "回退到更早的活跃行——入口不消失");
     assert.equal(store.getCandidate("o/r#issue#1").stage, "triaged");
     assert.equal(store.getCandidate("o/r#issue#1").history.at(-1).event, "work-session.ended");
-    assert.deepEqual(archived, ["dsh-l:work-a"]);
+    assert.deepEqual(archived, ["dsh-l:work-b"]);
+    // 第二次：结束剩下那条；此时才没有活跃行
+    assert.deepEqual([await h.postWorkEnd({ key: "o/r#issue#1" })].map((x) => x.sessionId), ["dsh-l:work-a"]);
+    assert.equal(store.getWorkSession("o/r#issue#1"), null);
+    assert.deepEqual(archived, ["dsh-l:work-b", "dsh-l:work-a"]);
   });
 
   test("postWorkEnd：无活跃行 → 404 no-work-session；归档钩子抛错不影响结束（缺席静默）", async () => {
@@ -194,7 +212,7 @@
   ```
 - Step 2：`node --test test/handlers.test.mjs` → 80 / 78 / 2，红在 `h.postWorkEnd is not a function`。
 - Step 3（绿）：
-  - `src/handlers.mjs`：`makeHandlers` 解构增 `archiveSession = null`；在 `postWorkDeliver` 之后：
+  - `src/handlers.mjs`：`makeHandlers` 解构增 `archiveSession = null`（签名里 `sessionRoot = null,` 之后）；下面的围栏块是**方法实现**（一个对象方法，追加在 `postWorkDeliver` 之后、`getRoles` 之前），不是测试：
     ```js
       // 结束开工会话（收敛收口 C2）：索引活跃行结束并留痕；building 回已分诊（可再次开工）；宿主会话归档（钩子缺席或失败静默）。
       async postWorkEnd(body) {
@@ -204,7 +222,7 @@
         if (!c) return fail("not found", 404);
         const active = store.getWorkSession(key);
         if (!active) return fail("no-work-session", 404);
-        store.endWorkSession(key, active.sessionId);
+        store.endWorkSession(key);
         if (c.stage === "building") store.setStage(key, "triaged", "work session ended");
         store.recordHistory(key, "work-session.ended", active.sessionId);
         try { await archiveSession?.(active.sessionId); } catch {}
@@ -328,7 +346,7 @@
 - 遇到阻塞、重复失败或计划与仓库现实不符，立即停下来说明，不猜。
 - 任何一步全量计数低于前一步，即停。
 - 重启与实机核验在 Task 6 之后、评审通过后进行；重启须主人同意，`dshm_restart` 为当轮最后一个动作。
-- 实机核验 C2：对 #82 点「结束会话」三次（三条活跃行各一次，每次后重新展开），读 `GET /dsh-l/work/sessions` 确认 #82 无活跃行，候选回「已分诊」；#82 的三条宿主会话此前已归档，`archiveSession` 对已归档会话应幂等不报错——若报错，如实记录。
+- 实机核验 C2：对 #82 点「结束会话」三次（三条活跃行自末位起逐条结束，每次后重新展开——入口在前两次之后仍在），读 `GET /dsh-l/state` 确认该候选 `work` 为 null、候选回「已分诊」，且 `GET /dsh-l/work/sessions` 里 #82 的行数不增；#82 的三条宿主会话此前已归档，`archiveSession` 对已归档会话应幂等不报错——若报错，如实记录。
 
 ## 最终验证
 
