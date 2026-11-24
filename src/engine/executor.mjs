@@ -90,9 +90,14 @@ export function makeExecutor({ spawn: sp = spawn, world = null, ghBin = null, ag
         child = sp(node.script, { shell: true, cwd, env: env() });
         child.stdout?.on?.("data", (b) => outBuf.push(b));
         child.stderr?.on?.("data", (b) => errBuf.push(b));
-        child.on("close", (code) => finish(code === 0
-          ? { ok: true, error: null, artifacts: [tail(Buffer.concat(outBuf).toString()), tail(Buffer.concat(errBuf).toString())] }
-          : { ok: false, error: "exit " + code + ": " + tail(Buffer.concat(errBuf).toString()), artifacts: [] }));
+        child.on("close", (code) => {
+          // 失败记录并入 stdout 尾部（design-v2 §20 第 35 条）：检查脚本的诊断写在 stdout，只收 stderr 时回炉反馈为空。
+          const outText = Buffer.concat(outBuf).toString();
+          const errText = Buffer.concat(errBuf).toString();
+          finish(code === 0
+            ? { ok: true, error: null, artifacts: [tail(outText), tail(errText)] }
+            : { ok: false, error: "exit " + code + ": " + tail(errText) + tail(outText), artifacts: [] });
+        });
         timeoutTimer = setTimeout(() => finish({ ok: false, error: "script timeout", artifacts: [] }), scriptTimeoutMs);
       });
       return { promise, cancel: () => {   // 评审 R2-1：立即 settle 为 cancelled（后续 close 被 settled 守卫挡掉）；SIGTERM + 5s 兜底 SIGKILL

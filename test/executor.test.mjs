@@ -181,3 +181,16 @@ test("onSessionBound：createAgent 成功即回调确定性 sessionId；缺省 n
   w2.finish("completed");
   assert.equal((await p2).ok, true);
 });
+
+test("runScriptNode：非零退出的失败记录含 stdout 尾部（检查脚本诊断不再丢失）", async () => {
+  let c1 = null;
+  const ex = makeExecutor({ spawn: () => { c1 = fakeChild({ code: 1 }); return c1; } });
+  const p1 = ex.runScriptNode({ node: { id: "s", script: "check" }, cwd: "/w" }).promise;
+  c1.emitOut("存在未提交改动\n"); c1.emitExit(1);
+  assert.equal((await p1).error, "exit 1: 存在未提交改动\n");
+  let c2 = null;
+  const ex2 = makeExecutor({ spawn: () => { c2 = fakeChild({ code: 1 }); return c2; } });
+  const p2 = ex2.runScriptNode({ node: { id: "s", script: "check" }, cwd: "/w" }).promise;
+  c2.emitErr("E\n"); c2.emitOut("O"); c2.emitExit(1);
+  assert.equal((await p2).error, "exit 1: E\nO");
+});

@@ -432,3 +432,46 @@ test("M6 钉例(d)：rework 反馈文本进 build prompt（upstreamOf error 优�
   assert.ok(buildSents.length >= 2, "build 应被重派（含反馈轮）");
   assert.ok(buildSents.at(-1).msg.text.includes("存在未提交改动: a.ts"), "反馈文本未进 build prompt");
 });
+
+// ---- 收敛 M1 Task 3（design-v2 §20 第 17 条③）：run.history 补记闸门 / 节点 / 回炉 / 终态 ----
+
+test("run.history：run.started / node.start / node.done / gate.arrive / gate.pass / run.terminal 落痕（全链）", async () => {
+  const { store, engine, executor } = setup();
+  const { runId } = engine.startRun("o/r#issue#1", {});
+  const ev = (name) => store.getRun(runId).history.filter((h) => h.event === name);
+  await drain();
+  for (const node of ["build", "verify"]) { executor.inflight.get(runId + ":" + node).resolve({ ok: true, error: null, artifacts: [] }); await drain(); }
+  assert.equal(ev("gate.arrive").length, 1); assert.equal(ev("gate.arrive")[0].detail, "g2");
+  engine.applyGateDecision(runId, "g2", "pass"); await drain();
+  for (const node of ["mr-open", "mr-push-check", "mr-open-check", "deliver"]) { executor.inflight.get(runId + ":" + node).resolve({ ok: true, error: null, artifacts: [] }); await drain(); }
+  assert.equal(ev("run.started").length, 1); assert.ok(ev("run.started")[0].detail.startsWith("loop-v1 " + runId));
+  assert.equal(ev("node.start").length, 6); assert.equal(ev("node.start")[0].detail, "build attempt=1");
+  assert.equal(ev("node.done").length, 6); assert.equal(ev("node.done")[0].detail, "build ok");
+  assert.equal(ev("gate.pass")[0].detail, "g2"); assert.equal(ev("node.rework").length, 0);
+  assert.equal(ev("run.terminal").length, 1); assert.equal(ev("run.terminal")[0].detail, "succeeded");
+});
+
+test("run.history：回炉 node.done 带失败文本、node.rework 记回退目标；取消 run.terminal 带原因", async () => {
+  const { store, engine, executor } = setup();
+  const { runId } = engine.startRun("o/r#issue#1", {});
+  const ev = (name) => store.getRun(runId).history.filter((h) => h.event === name);
+  await drain();
+  executor.inflight.get(runId + ":build").resolve({ ok: true, error: null, artifacts: [] }); await drain();
+  executor.inflight.get(runId + ":verify").resolve({ ok: false, error: "exit 1: 存在未提交改动", artifacts: [] }); await drain();
+  assert.equal(ev("node.done").some((h) => h.detail === "verify failed: exit 1: 存在未提交改动"), true);
+  assert.equal(ev("node.rework").length, 1); assert.equal(ev("node.rework")[0].detail, "verify -> build");
+  assert.equal(ev("node.start").at(-1).detail, "build attempt=2");
+  engine.cancelRun(runId, "user");
+  assert.equal(ev("run.terminal").length, 1); assert.equal(ev("run.terminal")[0].detail, "cancelled (user)");
+});
+
+test("run.history：G1 驳回经 applyGateDecision 取消 run → gate.reject 与 run.terminal 落痕", async () => {
+  const { store, engine } = setup();
+  const { runId } = engine.startRun("o/r#issue#1", {});
+  const ev = (name) => store.getRun(runId).history.filter((h) => h.event === name);
+  await drain();
+  engine.applyGateDecision(runId, "g1", "reject");
+  assert.equal(store.getRun(runId).status, "cancelled");
+  assert.equal(ev("gate.reject").length, 1); assert.equal(ev("gate.reject")[0].detail, "g1");
+  assert.equal(ev("run.terminal").length, 1); assert.equal(ev("run.terminal")[0].detail, "cancelled (g1-rejected)");
+});

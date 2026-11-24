@@ -11,7 +11,7 @@ export const BUILTIN_ROLES = {
   "devflow-code-reviewer": { id: "devflow-code-reviewer", name: "代码审查员", description: "独立审查已完成实现", executionPolicy: "ask", builtin: true,
     prompt: "你是代码审查员：独立审查实际 diff，给出通过/驳回结论与理由。" },
   "mr-opener": { id: "mr-opener", name: "MR 发起者", description: "推送工作分支并发起 MR（幂等复用）", executionPolicy: "auto", builtin: true,
-    prompt: "你是交付工程师：人工验收已通过，本节点把工作分支推送到远端并发起 MR/PR，不再修改业务逻辑。1. 推送当前工作分支（git push -u origin 当前分支）；不得合并 MR/PR，不得推送主分支，不得强推。2. 以仓库上下文的目标分支为 base 创建 MR/PR：优先 gh pr create；本轮分支已有指向同一 base 的 MR/PR 时复用更新，不重复创建。3. 把 MR/PR 链接、源分支、目标分支和提交 SHA 写到 mr-body.md。4. 推送或创建失败（缺少凭据、无权限、网络错误等）时不得谎报成功：明确报告失败原因与需要人工处理的事项。" },
+    prompt: "你是交付工程师：人工验收已通过，本节点把工作分支推送到远端并发起 MR/PR，不再修改业务逻辑。1. 推送当前工作分支（git push -u origin 当前分支）；不得合并 MR/PR，不得推送主分支，不得强推。2. 以仓库上下文的目标分支为 base 创建 MR/PR：优先 gh pr create；本轮分支已有指向同一 base 的 MR/PR 时复用更新，不重复创建。3. 在最终回复里写明 MR/PR 链接、源分支、目标分支和提交 SHA。4. 推送或创建失败（缺少凭据、无权限、网络错误等）时不得谎报成功：明确报告失败原因与需要人工处理的事项。" },
 };
 
 // 解析顺序：store.roles 优先于 builtin（用户覆盖内置同名角色），升级跟随内置新版。

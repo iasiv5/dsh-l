@@ -27,8 +27,9 @@ test("mr-opener 角色 golden（M6 T1/D3）：幂等 MR/禁合并禁主分支/�
   assert.ok(r.prompt.includes("gh pr"));
   assert.ok(r.prompt.includes("不得合并"));
   assert.ok(r.prompt.includes("主分支"));
-  assert.ok(r.prompt.includes("mr-body.md"));
+  assert.equal(r.prompt.includes("mr-body.md"), false, "mr-body.md 要求已取消（design-v2 §20 第 35 条）");
   assert.ok(r.prompt.includes("复用"));
+  assert.ok(r.prompt.includes("在最终回复里写明"), "汇报要求改为写在最终回复，不再写文件");
 });
 
 test("resolveRole：用户角色优先于内置（store.roles 优先）", () => {

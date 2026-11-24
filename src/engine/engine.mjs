@@ -64,6 +64,7 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, tem
       store.createRun({ id: rid, candidateKey: key, templateId: tpl.id, templateRevision: tpl.revision,
         snapshot: clone(tpl), nodeStates, status: "running", cancelReason: null,
         createdAt: now().toISOString(), updatedAt: now().toISOString(), history: [] });
+      store.appendRunHistory(rid, "run.started", tpl.id + " " + rid);   // 收敛 M1 Task 3（design-v2 §20 第 17 条③）
       syncStage(key, store.getRun(rid));   // run 创建 → 候选 building（§8 映射）
       const repo = store.getCandidate(key).repo;
       workspace.ensure({ key, repo, branch: "dsh-l/" + rid }).then(({ dir }) => {   // M6 R7/R12-i：本轮工作分支
@@ -79,6 +80,7 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, tem
         run.status = "failed";                       // 评审 R1-3①/D2：clone 失败 → run failed
         store.saveRun(run);
         store.appendRunHistory(rid, "workspace.clone-failed", msg);   // 评审 R1-14
+        store.appendRunHistory(rid, "run.terminal", "failed");
         try { emit?.({ type: "failed", key, runId: rid, error: msg, title: titleOf(key) }); } catch {}
         store.setStage(key, "held", "workspace-clone-failed");
       });
@@ -98,6 +100,7 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, tem
         const node = run.snapshot.nodes.find((n) => n.id === nodeId);
         if (node.type === "gate") {
           run = gateArrive(run, nodeId, now().toISOString()); store.saveRun(run); syncStage(run.candidateKey, run);
+          store.appendRunHistory(runId, "gate.arrive", nodeId);
           fire({ type: "gate", key: run.candidateKey, runId, nodeId, title: titleOf(run.candidateKey) });
           continue;
         }
@@ -115,6 +118,7 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, tem
           : { ...run.nodeStates[nodeId], status: "running", attempt: (run.nodeStates[nodeId]?.attempt ?? 0) + 1 } };
         if (node.type === "agent") ns[nodeId] = { ...ns[nodeId], model: roleModel ?? null };   // M8/D3：模型观测最小记录形（脚本节点不落）
         run = { ...run, nodeStates: ns }; store.saveRun(run);
+        store.appendRunHistory(runId, "node.start", nodeId + " attempt=" + ns[nodeId].attempt);
         if (resume) store.appendRunHistory(runId, "node.resumed", `${nodeId} seq=${resumeSeq}`);   // M7/§18.4（评审建议10：循环内每 ready 节点各一条）
         const job = node.type === "agent"
           ? executor.runAgentNode({ run, node, cwd: workspace.dirOf(key), taskPackage, upstream, rolePrompt, executionPolicy: execPolicy, model: roleModel, resume, resumeSeq })
@@ -135,10 +139,17 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, tem
         store.appendRunHistory(runId, "deliver.mr", String(result.artifacts?.[0] ?? "").trim().split("\n").pop());
       }
       store.saveRun(run);
+      // 收敛 M1 Task 3：节点结束 / 回炉留痕——回炉的失败文本在相邻 node.done（GLOSSARY「回炉：带着失败记录」）。
+      store.appendRunHistory(runId, "node.done", nodeId + " " + (result.ok ? "ok" : "failed: " + String(result.error ?? "").slice(0, 200)));
+      if (!result.ok && !["succeeded", "failed", "cancelled"].includes(run.status)) {
+        const targets = (run0.snapshot?.edges ?? []).filter((e) => e.kind === "rework" && e.source === nodeId).map((e) => e.target);
+        if (targets.length) store.appendRunHistory(runId, "node.rework", nodeId + " -> " + targets.join(","));
+      }
       syncStage(run.candidateKey, run);
       if (run.status === "failed") fire({ type: "failed", key: run.candidateKey, runId, nodeId, error: run.nodeStates[nodeId]?.error ?? result.error ?? "", title: titleOf(run.candidateKey) });
       run = advanceRun(store.getRun(runId));   // 含回炉源重臂（评审 R1-2）
       store.saveRun(run);
+      if (["succeeded", "failed", "cancelled"].includes(run.status) && run.status !== run0.status) store.appendRunHistory(runId, "run.terminal", run.status);
       syncStage(run.candidateKey, run);
       engine.dispatch(runId);
       engine.dispatchAlive();   // 并发名额释放后全局拾起其余存活 run 的排队节点
@@ -148,9 +159,18 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, tem
     applyGateDecision(runId, nodeId, decision, overrideTarget = null) {
       const run = store.getRun(runId); if (!run) throw Object.assign(new Error("run not found"), { status: 404 });
       // M6/R3 连带：pass 后过 advanceRun——skipped 后代（rework 失效扫掠产生）的重激活在此，dispatch 前必须推进
+      const prevStatus = run.status;
+      const gateNode = (run.snapshot?.nodes ?? []).find((n) => n.id === nodeId) ?? {};
       let next = applyGateDecision(run, nodeId, decision, overrideTarget);
       next = advanceRun(next);
-      store.saveRun(next); syncStage(next.candidateKey, next); engine.dispatch(runId);
+      store.saveRun(next);
+      // 收敛 M1 Task 3：裁决留痕；驳回无回退目标（G1）只写 nodeId。G1 驳回在 scheduler 里直接 cancelRun，不经 cancelRun 方法，终态在此补记。
+      const target = decision === "reject" ? (overrideTarget ?? gateNode.rejectTarget) : null;
+      store.appendRunHistory(runId, decision === "pass" ? "gate.pass" : "gate.reject", target ? nodeId + " -> " + target : nodeId);
+      if (["succeeded", "failed", "cancelled"].includes(next.status) && next.status !== prevStatus) {
+        store.appendRunHistory(runId, "run.terminal", next.status === "cancelled" ? "cancelled (" + next.cancelReason + ")" : next.status);
+      }
+      syncStage(next.candidateKey, next); engine.dispatch(runId);
       return next;
     },
     cancelRun(runId, reason) {
@@ -158,6 +178,7 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, tem
       const run = store.getRun(runId); if (!run) throw Object.assign(new Error("run not found"), { status: 404 });
       const next = schedCancelRun(run, reason);
       store.saveRun(next); syncStage(next.candidateKey, next);
+      store.appendRunHistory(runId, "run.terminal", "cancelled (" + reason + ")");
     },
     // 再入环（评审 D7/R1-9/R1-4）：failed/cancelled run 的失败|取消节点人工重试；cancelled run 其余
     // cancelled 节点回 pending 续跑；run 必须回 running（否则 dispatch 终态守卫直接 return，评审 R1-4）。
