@@ -402,6 +402,16 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
         st.className = "chip";
         st.textContent = t("run.status." + runInfo.status) + ((runInfo.currentNodeIds ?? []).length ? " · " + runInfo.currentNodeIds.join("/") : "");
         runRow.append(st);
+        // 收敛 M1 Task 8（design-v2 §20 第 23 条行内部分）：按候选汇总全部 run 的会话（run 新→旧），逐个给「打开」入口。
+        const runsOf = lastRuns.filter((r) => r.candidateKey === c.key).sort((x, y) => (x.id < y.id ? 1 : -1));   // run-<epochMs>-…：id 字典序即时间序
+        const seenSessions = new Set();
+        for (const s of runsOf.flatMap((r) => r.sessions ?? [])) {
+          if (!s?.sessionId || seenSessions.has(s.sessionId)) continue;
+          seenSessions.add(s.sessionId);
+          runRow.append(btn(t("sessions.open") + " · " + (s.nodeName ?? s.nodeId), () => {
+            if (!openWorkSession(s.sessionId)) workChip(runRow, t("sessions.badgeMissing"));   // 「不在会话列表」：未同步与已归档两种情况都如实；「另开」随 §20-19（里程碑 2）
+          }));
+        }
         if (runInfo.status === "running" && (runInfo.currentNodeIds ?? []).length === 0) {
           const cl = document.createElement("span"); cl.className = "chip"; cl.style.opacity = ".7"; cl.textContent = t("run.workspaceCloning");
           runRow.append(cl);

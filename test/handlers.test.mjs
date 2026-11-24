@@ -933,6 +933,22 @@ test("postWorkStart：managed 通道 → ensure 分支命名 + startWork 收托�
   assert.equal(sw._calls[0].params.cwd, "/managed/dir");
 });
 
+test("postWorkStart：managed 通道 → startWork 收 headerCwd = sessionRoot；local 通道不传", async () => {
+  const store = openStore(); login(store); seed(store); seed(store, 2);
+  store.setRepoFacts("o/r", { defaultBranch: "trunk", cloneUrl: "git@github.com:o/r.git" });
+  await store.setStage("o/r#issue#1", "gating", "");
+  await store.setStage("o/r#issue#2", "gating", "");
+  const workspace = { ensure: async () => ({ dir: "/managed/dir" }) };
+  const sw = fakeStartWork();
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine: { hasAliveRun: () => false }, startWork: sw, workspace, home: wsHome(), stat: () => ({ isDirectory: () => true }), sessionRoot: "/data/workspaces" });
+  assert.equal((await h.postWorkStart({ key: "o/r#issue#1", workspace: "managed" })).ok, true);
+  assert.equal(sw._calls[0].params.headerCwd, "/data/workspaces");
+  const sw2 = fakeStartWork();
+  const h2 = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine: { hasAliveRun: () => false }, startWork: sw2, home: wsHome(), stat: () => ({ isDirectory: () => true }), sessionRoot: "/data/workspaces" });
+  assert.equal((await h2.postWorkStart({ key: "o/r#issue#2" })).ok, true);
+  assert.equal("headerCwd" in sw2._calls[0].params, false);
+});
+
 test("postWorkStart：another+managed+引擎活跃 → 409；another+local+引擎活跃 → 放行", async () => {
   const store = openStore(); login(store); seed(store);
   store.setRepoFacts("o/r", { defaultBranch: "trunk", cloneUrl: "git@github.com:o/r.git" });

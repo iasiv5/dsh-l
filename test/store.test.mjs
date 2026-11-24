@@ -233,6 +233,25 @@ test("runs CRUD：createRun 指针与留痕、saveRun 刷新、history FIFO", ()
   assert.throws(() => s.createRun({ id, candidateKey: key }), /exists/);
 });
 
+test("appendRunSession：sessionLog 追加 { nodeId, sessionId, at } 并持久化", () => {
+  const filePath = join(mkdtempSync(join(tmpdir(), "dsh-l-")), "store.json");
+  const s = createStore({ filePath, now: () => new Date("2026-11-23T00:00:00Z") });
+  s.upsertCandidates([raw(3)]);
+  const key = candidateKey("iasiv5/dsh-skins", "issue", 3);
+  const id = makeRunId();
+  s.createRun({ id, candidateKey: key, templateId: "loop-v1", templateRevision: "r1",
+    snapshot: { nodes: [], edges: [] }, nodeStates: {}, status: "running",
+    cancelReason: null, createdAt: "2026-11-16T00:00:00Z", updatedAt: "2026-11-16T00:00:00Z", history: [] });
+  s.appendRunSession(id, "build", "dsh-l:run:x:build:2");
+  s.appendRunSession(id, "mr-open", "dsh-l:run:x:mr-open:2");
+  assert.deepEqual(s.getRun(id).sessionLog, [
+    { nodeId: "build", sessionId: "dsh-l:run:x:build:2", at: "2026-11-23T00:00:00.000Z" },
+    { nodeId: "mr-open", sessionId: "dsh-l:run:x:mr-open:2", at: "2026-11-23T00:00:00.000Z" },
+  ]);
+  assert.equal(createStore({ filePath }).getRun(id).sessionLog.length, 2);   // 落盘可读回
+  assert.throws(() => s.appendRunSession("run-nope", "build", "s"), /run not found/);
+});
+
 test("F4：version 2 手改档缺 runs 块，打开即回填不炸", () => {
   const dir = mkdtempSync(join(tmpdir(), "dsh-l-f4-"));
   const file = join(dir, "store.json");

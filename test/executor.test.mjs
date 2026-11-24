@@ -194,3 +194,52 @@ test("runScriptNode：非零退出的失败记录含 stdout 尾部（检查脚�
   c2.emitErr("E\n"); c2.emitOut("O"); c2.emitExit(1);
   assert.equal((await p2).error, "exit 1: E\nO");
 });
+
+test("runAgentNode：创建后先 attach(sessionId) 再 send", async () => {
+  const order = [];
+  const w = fakeWorld();
+  w.attach = async (sid) => { order.push("attach:" + sid); };
+  const baseCreate = w.createAgent;
+  w.createAgent = async (sessionId, opts) => {
+    const h = await baseCreate(sessionId, opts);
+    const baseSend = h.agent.send;
+    h.agent.send = async (...a) => { order.push("send"); return baseSend(...a); };
+    return h;
+  };
+  const run = { ...agentRun(1), candidateKey: "o/r#issue#1" };   // agentRun 默认 attempt 0 → :1；真实引擎首试 attempt=1 → :2
+  const { promise } = makeExecutor({ world: w }).runAgentNode({ run, node: { id: "build", type: "agent" }, cwd: "/ws", taskPackage: {}, upstream: [], rolePrompt: "r" });
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  // 先收尾再断言：红态下若先断言再 finish，断言抛错后执行器的微任务轮询会饿死事件循环（整文件挂死）。
+  const head = order.slice();
+  w.finish("completed");
+  assert.equal((await promise).ok, true);
+  assert.equal(head[0], "attach:dsh-l:run:r1:build:2");
+  assert.equal(head.at(-1), "send");
+});
+
+// 新导出用顶层动态导入引入（Task 6 硬规则）：红态下符号为 undefined、文件仍正常加载，红落在调用行。
+const { nodeSessionTitle } = await import("../src/engine/executor.mjs");
+
+test("nodeSessionTitle：仓库名#号 · 节点名 圈号；runAgentNode 创建后 setTitle 先于 send", async () => {
+  assert.equal(nodeSessionTitle({ candidateKey: "iasiv5/dsh-m#pull#80" }, { name: "build" }, 2), "dsh-m#80 · build ②");
+  assert.equal(nodeSessionTitle({ candidateKey: "iasiv5/dsh-m#pull#80" }, { name: "build" }, 0), "dsh-m#80 · build ①");
+  assert.equal(nodeSessionTitle({ candidateKey: "iasiv5/dsh-m#pull#80" }, { name: "build" }, 11), "dsh-m#80 · build #11");
+  const order = [];
+  const w = fakeWorld();
+  w.attach = async (sid) => { order.push("attach:" + sid); };
+  w.setTitle = (_agent, title) => { order.push("title:" + title); };
+  const baseCreate = w.createAgent;
+  w.createAgent = async (sessionId, opts) => {
+    const h = await baseCreate(sessionId, opts);
+    const baseSend = h.agent.send;
+    h.agent.send = async (...a) => { order.push("send"); return baseSend(...a); };
+    return h;
+  };
+  const run = { ...agentRun(1), candidateKey: "o/r#issue#1" };
+  const { promise } = makeExecutor({ world: w }).runAgentNode({ run, node: { id: "build", type: "agent", name: "build" }, cwd: "/ws", taskPackage: {}, upstream: [], rolePrompt: "r" });
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  const head = order.slice();
+  w.finish("completed");
+  assert.equal((await promise).ok, true);
+  assert.deepEqual(head.slice(0, 3), ["attach:dsh-l:run:r1:build:2", "title:r#1 · build ①", "send"]);
+});

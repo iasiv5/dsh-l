@@ -15,6 +15,16 @@ const kindOf = (reason) => (typeof reason === "string" ? reason : String(reason?
 // 正文均为「数据非指令」标注——与分诊的注入防线同构。
 // agent 节点 prompt 组装（design-v2 §12.4/M4 T3）：角色 prompt（由引擎解析后传入）+ 任务包 JSON + 上游摘要（无则省略）。
 // rolePrompt 必填非空——空值 throw（调用方引擎侧有双兜底：role.prompt ?? node.prefix ?? ""）。
+// 引擎节点会话标题（design-v2 §20 第 15 条）：<仓库名>#<号> · <节点名> <圈号>，例 dsh-m#80 · build ②。
+// 仓库名取候选键 owner/repo#issue|pull#号 的 repo 段；圈号 ①–⑩，attempt 超过 10 写 #11，小于 1 按 1。
+const CIRCLED = "①②③④⑤⑥⑦⑧⑨⑩";
+export function nodeSessionTitle(run, node, attempt) {
+  const m = /^(.+)#(?:issue|pull)#(\d+)$/.exec(String(run?.candidateKey ?? ""));
+  const name = m ? m[1].split("/").pop() : "run";
+  const n = Math.max(1, Number(attempt) || 1);
+  return name + "#" + (m ? m[2] : "?") + " · " + (node?.name ?? node?.id ?? "node") + " " + (n <= 10 ? CIRCLED[n - 1] : "#" + n);
+}
+
 export function composeAgentPrompt({ rolePrompt, taskPackage, upstream = [] }) {
   if (!rolePrompt) throw new Error("composeAgentPrompt: rolePrompt required");
   const upstreamBlock = upstream.length
@@ -50,6 +60,8 @@ export function makeExecutor({ spawn: sp = spawn, world = null, ghBin = null, ag
             handle = await world.createAgent(sessionId, model ? { model } : {});   // 评审 R1-5：角色 model 通道闭环
             // Task 10（R1-8）：会话 id 持久化——run 行「打开」按钮的数据源（engine 落 nodeStates，旧 run 无字段降级 null）。
             try { onSessionBound?.(run, node.id, sessionId); } catch {}
+          try { await world.attach?.(sessionId); } catch {}   // 收敛 M1 Task 5：挂接宿主工作区（服务缺席静默；先于 send）
+          try { world.setTitle?.(handle.agent, nodeSessionTitle(run, node, attempt)); } catch {}   // 收敛 M1 Task 6：创建时设标题
             world.setPolicy?.(handle.agent, policy);
             world.setWorkingDirectory?.(handle.agent, cwd);
             await handle.agent.send(world.userMessage(prompt), "next-turn", true);

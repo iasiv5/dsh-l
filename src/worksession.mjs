@@ -4,6 +4,8 @@
 // 红线（评审闭环版全局约束）：①meta.cwd 与 workingDirectory.set 成对且早于 send；②对已登记会话零 dispose，
 // 唯一例外是创建事务回滚（本文件内 rollback-only 标记分支）；③审批策略未显式配置时零 setPolicy。
 // agent handle 不逃逸本文件：startWorkSession 只向调用方返回 sessionId。
+// 红线①补记（design-v2 §20 第 14 条）：会话头目录（meta.cwd）与工具目录（workingDirectory.set）成对设置，二者缺省相同；
+// 托管开工时会话头目录取会话根目录（headerCwd），工具目录仍是执行目录——send 晚于二者不变。
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 import { resolveAgentSelection } from "./agent-selection.mjs";
@@ -75,13 +77,23 @@ export function resolveLocalWorkspace(repo, { home, stat } = {}) {
 // services：{agents, workingDirectory, approval, agentDefaultModel, settings, userMessage}（host.mjs 装配注入；
 // 测试注 fake）。模型/preset 三分支（评审 R1-6/R2-3）：显式模型（resolveAgentSelection validity 判定）→
 // agentOptions + setup select；preset 在场且无显式 → agentOptions 不传、不 select；皆无 → 不传、不 select。
-export function composeWorkWorld({ agents, workingDirectory, approval, agentDefaultModel, settings = null, userMessage }) {
+// 开工会话标题（design-v2 §20 第 15 条）：<仓库名>#<号> <issue|PR> · <标题>。类型词沿用既有开工锚行约定
+//（同仓 issue / PR 同号消歧，parseWorkAnchor 依赖它）；截断沿用锚行规则：前缀加标题超过 72 字符时截断并加 …。
+export function workSessionTitle(c) {
+  const word = c?.type === "issue" ? "issue" : "PR";
+  const prefix = String(c?.repo ?? "").split("/").pop() + "#" + c?.number + " " + word + " · ";
+  let title = String(c?.title ?? "");
+  if (prefix.length + title.length > 72) title = title.slice(0, Math.max(1, 72 - prefix.length)) + "…";
+  return prefix + title;
+}
+
+export function composeWorkWorld({ agents, workingDirectory, approval, agentDefaultModel, settings = null, userMessage, attachHost = null, setTitle = null }) {
   const hostDefault = () => agentDefaultModel?.currentSelection?.() ?? { provider: "", model: "" };
   // settings 支持对象或函数（评审 impl#1）：store.setSettings 整体替换 doc.settings 引用——装配期对象快照会
   // stale，host.mjs 传 () => store.getSettings()，createAgent 每次调用时求值。
   const settingsOf = () => (typeof settings === "function" ? settings() : settings) ?? null;
   return {
-    async createAgent(sessionId, { cwd, agentPreset, model, approvalPolicy } = {}) {
+    async createAgent(sessionId, { cwd, headerCwd = cwd, agentPreset, model, approvalPolicy } = {}) {
       const preset = agentPreset ?? settingsOf()?.workSessionPreset ?? undefined;
       const policy = approvalPolicy ?? settingsOf()?.workSessionApprovalPolicy ?? null;
       const explicit = model && typeof model.provider === "string" && model.provider !== ""
@@ -100,15 +112,17 @@ export function composeWorkWorld({ agents, workingDirectory, approval, agentDefa
       }
       const handle = await agents.create({
         sessionId,
-        meta: { cwd, agentPreset: preset },
+        meta: { cwd: headerCwd, agentPreset: preset },
         agentOptions,
         setup,
       });
       // 红线①：meta.cwd 只落会话头，工具实际目录由此二跳设置；调用方必须在二者之后才 send（时序红线）。
       await workingDirectory.set(handle.agent, cwd);
       if (policy) approval.setPolicy(handle.agent, policy);
+      await attachHost?.(sessionId, headerCwd);   // 收敛 M1 Task 5：挂接宿主工作区（服务缺席静默；仍在 send 之前）
       return handle;
     },
+    setTitle: (agent, title) => setTitle?.(agent, title),
     send(agent, text) {
       return agent.send(userMessage(text), "next-turn", true);
     },
@@ -116,7 +130,7 @@ export function composeWorkWorld({ agents, workingDirectory, approval, agentDefa
 }
 
 // 创建事务（守卫与记账在路由层 postWorkStart——架构快照守卫序 1-7；本函数持守卫序 3/4 的域内防御复检）。
-export async function startWorkSession(world, { store, lang = "zh-CN", now = () => new Date() }, { key, cwd, another = false, pkg }) {
+export async function startWorkSession(world, { store, lang = "zh-CN", now = () => new Date() }, { key, cwd, another = false, pkg, headerCwd }) {
   const active = store.getWorkSession(key);
   if (active && !another && (!cwd || cwd === active.cwd)) {
     return { sessionId: active.sessionId, reused: true };
@@ -129,7 +143,8 @@ export async function startWorkSession(world, { store, lang = "zh-CN", now = () 
   const sessionId = workSessionId(now);
   // kickoff 用派生包：工作区路径落 localPath（可读块引用），不改响应侧原包。
   const kpkg = { ...pkg, repo: { ...(pkg?.repo ?? {}), localPath: cwd ?? null } };
-  const handle = await world.createAgent(sessionId, { cwd });
+  const handle = await world.createAgent(sessionId, { cwd, ...(headerCwd ? { headerCwd } : {}) });
+  try { world.setTitle?.(handle.agent, workSessionTitle(c)); } catch {}   // 收敛 M1 Task 6：创建时设标题（约束收窄为「创建后不改」）
   try {
     await world.send(handle.agent, buildKickoff(c, kpkg, lang));
   } catch (err) {

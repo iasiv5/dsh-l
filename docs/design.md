@@ -108,6 +108,7 @@ G1 放行的第二出口（与引擎执行并列）：把候选交给**用户亲
 - **kickoff 首条消息**：锚行 `[dsh-l] {repo}#{number} {issue|PR} · {title}`（固定 ASCII 前缀自动取题，>72 字符截断保前缀；issue|PR 为同号消歧的有意扩展）+ 可读块（链接/分诊/目标/默认分支/工作区）+ 任务包 JSON 围栏；语言跟随界面。
 - **三分支模型解析**（composeWorkWorld）：显式 workSessionModel（validity 判定，effort 在场即透传）→ agentOptions + setup select；preset 在场且无显式 → agentOptions 不传不 select（preset 自带组合生效）；皆无 → 部署默认。`meta.cwd` 只落会话头，`workingDirectory.set` 二跳设置，二者必须先于 send（红线①时序）；审批策略未显式配置零 setPolicy（红线③）；**已登记（索引内）会话零 dispose**（红线②，handle 不逃逸 worksession.mjs）。
 - **sweeper 保全与取舍**：每日清扫活跃集 = `sweepActiveKeys({runs, workSessions})`（running/waiting run ∪ work 索引全键）。取舍：曾有开工会话的候选其托管目录**永不自动清扫**（Q9 冷会话亦活跃的保守取舍），磁盘回收转手动。
+- 注记（2026-11-23）：开工会话的会话头目录、标题与宿主工作区归属见 docs/design-v2.md §20 第 14–15 条；托管开工时会话头目录取会话根目录，工具目录仍为执行目录。
 
 处理器写成纯函数 makeHandlers({ store, provider, triage, now })，路由层只做 JSON 编解码——单测不打真 HTTP。
 

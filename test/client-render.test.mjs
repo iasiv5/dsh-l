@@ -1312,6 +1312,23 @@ test("actions runRow 详情 toggle 展开/收起（P1-5）", async () => {
   assert.equal(panel._parent.style.display, "none", "再点收起（toggle 在外层 detailWrap）");
 });
 
+test("rowActions run 行：按候选汇总全部 run 的会话（run 新→旧），逐个成「打开 · 节点名」按钮，点击走 openWorkSession", async () => {
+  const opened = [];
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: (id) => { opened.push(id); return true; }, pickDirectory: null, sessionsFeed: () => [] });
+  const run = { id: "run-1", candidateKey: "o/r#issue#1", status: "waiting", waitingGate: "g2", waitingGateId: "G2", currentNodeIds: ["g2"], failedNodeIds: [], cancelledNodeIds: [], models: {}, templateId: "loop-v1", error: null, waitingSince: null, history: [], nodeStatuses: [],
+    sessions: [{ nodeId: "mr-open", nodeName: "发起 MR", sessionId: "dsh-l:run-1:mr-open:2" }, { nodeId: "build", nodeName: "build", sessionId: "dsh-l:run-1:build:2" }] };
+  const runOld = { ...run, id: "run-0", status: "failed", sessions: [{ nodeId: "verify", nodeName: "verify", sessionId: "dsh-l:run-0:verify:2" }, { nodeId: "build", nodeName: "build", sessionId: "dsh-l:run-1:build:2" }] };   // 末项与 run 重复，钉去重
+  hooks.strip(new FakeElement("div"), { t, state: { candidates: [], runs: [runOld, run], workflow: { templates: [] } } });
+  const d = new FakeElement("div");
+  hooks.rowActions(d, { ...mkCandidate("gating"), currentRunId: "run-1" }, { t, view: { reload: async () => {} }, lang: "zh-CN" });
+  const btns = find(d, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent.startsWith(t("sessions.open") + " · "));
+  assert.deepEqual(btns.map((b) => b.textContent), ["打开 · 发起 MR", "打开 · build", "打开 · verify"]);
+  btns[1].onclick();
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(opened, ["dsh-l:run-1:build:2"]);
+});
+
 test("withPending：pending 态 + 失败原位恢复（P1-2）", async () => {
   const { withPending } = await import("../src/client/components/uiFeedback.mjs");
   const b = new FakeElement("button");

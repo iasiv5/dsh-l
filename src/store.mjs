@@ -208,6 +208,13 @@ export function createStore({ filePath, now = () => new Date() }) {
       if (run.history.length > RUN_HISTORY_LIMIT) run.history.splice(0, run.history.length - RUN_HISTORY_LIMIT);
       persist();
     },
+    // run 会话登记（design-v2 §20 第 23 条行内部分）：节点会话按发生序追加，摘要倒序成「最近在前」。
+    appendRunSession(id, nodeId, sessionId) {
+      const run = doc.runs[id];
+      if (!run) throw Object.assign(new Error("run not found: " + id), { status: 404 });
+      (run.sessionLog ??= []).push({ nodeId, sessionId, at: now().toISOString() });
+      persist();
+    },
     // 仓库事实（任务包 repo 块数据源）。
     setRepoFacts(repo, facts) { doc.repos[repo] = { ...facts, fetchedAt: now().toISOString() }; persist(); },
     getRepoFacts: (repo) => doc.repos[repo] ?? null,

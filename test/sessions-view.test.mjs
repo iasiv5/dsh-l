@@ -21,3 +21,9 @@ test("parseWorkAnchor：锚行反解成功/失败/非字符串", () => {
   assert.equal(parseWorkAnchor("[dsh-l] broken"), null);
   assert.equal(parseWorkAnchor(null), null);
 });
+
+test("parseWorkAnchor：兼容新标题 `<仓库名>#<号> <issue|PR> · ` 与旧锚行", () => {
+  assert.deepEqual(parseWorkAnchor("dsh-m#80 PR · docs: add"), { repo: "dsh-m", number: 80, type: "PR" });
+  assert.deepEqual(parseWorkAnchor("[dsh-l] o/r#2 issue · T2"), { repo: "o/r", number: 2, type: "issue" });
+  assert.deepEqual(parseWorkAnchor("分诊 · 1 条"), null);
+});

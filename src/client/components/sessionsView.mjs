@@ -12,10 +12,11 @@ export function sortSessionRows(rows, summaries = null) {
   return [...running.sort(byUpdated), ...rest.sort(byUpdated)];
 }
 
-// 标题锚行 → 候选标识（buildKickoff 首行 `[dsh-l] {repo}#{number} {issue|PR} · {title}`）；不匹配 → null。
+// 标题锚行 → 候选标识：旧锚行 `[dsh-l] {repo}#{number} {issue|PR} · {title}`（kickoff 首行），或新会话标题
+// `{repo}#{number} {issue|PR} · {title}`（workSessionTitle，design-v2 §20 第 15 条）；不匹配 → null。
 export function parseWorkAnchor(title) {
   if (typeof title !== "string") return null;
-  const m = title.match(/^\[dsh-l\] (\S+)#(\d+) (issue|PR) · /);
+  const m = title.match(/^(?:\[dsh-l\] )?(\S+)#(\d+) (issue|PR) · /);
   return m ? { repo: m[1], number: Number(m[2]), type: m[3] } : null;
 }
 

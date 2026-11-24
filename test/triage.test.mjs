@@ -95,3 +95,52 @@ test("buildPrompt 含 confidence 自评要求（P2 Task 8）", () => {
   assert.ok(buildPrompt([cand], "zh-CN").includes("confidence"), "zh 提及 confidence");
   assert.ok(buildPrompt([cand], "en").includes("confidence"), "en 提及 confidence");
 });
+
+test("runTriage：创建后设标题（zh / en），且早于 send", async () => {
+  const mk = () => {
+    const ops = [];
+    const w = fakeWorld(() => [{ type: "turn/end", data: { reason: { kind: "completed" } } }]);
+    w.setTitle = (_agent, title) => { ops.push(["title", title]); };
+    const baseCreate = w.createAgent;
+    w.createAgent = async (sessionId) => {
+      const h = await baseCreate(sessionId);
+      const baseSend = h.agent.send;
+      h.agent.send = async (...a) => { ops.push(["send"]); return baseSend(...a); };
+      return h;
+    };
+    return { w, ops };
+  };
+  const zh = mk();
+  await runTriage(zh.w, { candidates: [cand], lang: "zh-CN" });
+  assert.deepEqual(zh.ops[0], ["title", "分诊 · 1 条"]);
+  assert.equal(zh.ops.at(-1)[0], "send");
+  const en = mk();
+  await runTriage(en.w, { candidates: [cand], lang: "en" });
+  assert.deepEqual(en.ops[0], ["title", "Triage · 1"]);
+  assert.equal(en.ops.at(-1)[0], "send");
+});
+
+test("runTriage：结束即归档（先归档后 dispose），超时路径同样归档", async () => {
+  const mk = (script = () => [msg(GOOD), { type: "turn/end", data: { reason: { kind: "completed" } } }]) => {
+    const ops = [];
+    const w = fakeWorld(script);
+    w.archiveSession = async (id) => { ops.push(["archive", id]); };
+    const baseCreate = w.createAgent;
+    w.createAgent = async (sessionId) => {
+      const h = await baseCreate(sessionId);
+      h.dispose = async () => { ops.push(["dispose"]); };
+      return h;
+    };
+    return { w, ops };
+  };
+  const done = mk();
+  const r = await runTriage(done.w, { candidates: [cand], lang: "zh-CN" });
+  assert.equal(r.failed, null);
+  assert.equal(done.ops[0][0], "archive");
+  assert.ok(done.ops[0][1].startsWith("dsh-l-triage-"));
+  assert.equal(done.ops[1][0], "dispose");
+  const silent = mk(() => []);   // 静默 world：不发任何事件 → timeout 路径
+  const r2 = await runTriage(silent.w, { candidates: [cand], lang: "zh-CN", timeoutMs: 0 });
+  assert.equal(r2.failed, "timeout");
+  assert.deepEqual(silent.ops.map((o) => o[0]), ["archive", "dispose"]);
+});

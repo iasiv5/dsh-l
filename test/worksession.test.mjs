@@ -87,6 +87,17 @@ const makeServices = ({ settings = {} } = {}) => {
   return services;
 };
 
+test("composeWorkWorld.createAgent：headerCwd 定会话头目录、cwd 仍是工具目录；attachHost 收会话头目录", async () => {
+  const svc = makeServices({});
+  svc.attachHost = async (sid, dir) => { svc._ops.push(["attach", sid, dir]); };
+  const w = composeWorkWorld(svc);
+  await w.createAgent("s9", { cwd: "/ws/clone", headerCwd: "/ws" });
+  await w.createAgent("s10", { cwd: "/w" });
+  assert.deepEqual(svc._ops.filter((o) => o[0] === "create").map((o) => o[1].meta.cwd), ["/ws", "/w"]);
+  assert.deepEqual(svc._ops.filter((o) => o[0] === "wd.set").map((o) => o[1]), ["/ws/clone", "/w"]);
+  assert.deepEqual(svc._ops.filter((o) => o[0] === "attach"), [["attach", "s9", "/ws"], ["attach", "s10", "/w"]]);
+});
+
 // ---- workSessionId / buildKickoff / resolveLocalWorkspace ----
 
 test("workSessionId：dsh-l:work- 前缀 + 唯一性", () => {
@@ -200,6 +211,26 @@ test("startWorkSession 创建：createAgent 收 cwd、send 锚行围栏、索引
   assert.equal(store._calls.append[0].row.cwd, "/w/dir");
   assert.ok(store._calls.history.some((h) => h.event === "work-session.opened"));
   assert.equal(store._calls.setGate.length, 0, "域层零记账（守卫在路由层）");
+});
+
+// 新导出用顶层动态导入引入（Task 6 硬规则）。
+const { workSessionTitle } = await import("../src/worksession.mjs");
+
+test("workSessionTitle + startWorkSession：创建后先 setTitle 再 send", async () => {
+  assert.equal(workSessionTitle({ repo: "iasiv5/dsh-m", number: 80, type: "pull", title: "docs: add SECURITY_MODEL.md threat model" }), "dsh-m#80 PR · docs: add SECURITY_MODEL.md threat model");
+  const long = workSessionTitle({ repo: "iasiv5/dsh-m", number: 80, type: "pull", title: "x".repeat(70) });   // 前缀 14 字符，72 − 14 = 58
+  assert.equal(long, "dsh-m#80 PR · " + "x".repeat(58) + "…");
+  assert.equal(workSessionTitle({ repo: "o/r", number: 1, type: "issue", title: "t" }), "r#1 issue · t");
+  const store = makeStore();
+  const world = makeWorld();
+  world.setTitle = (_agent, title) => { world._ops.push(["title", title]); };
+  await startWorkSession(world, { store, lang: "zh-CN", now: () => new Date(1700000000000) },
+    { key: candidate().key, cwd: "/w/dir", another: false, pkg: pkg() });
+  const titleIdx = world._ops.findIndex((o) => o[0] === "title");
+  const sendIdx = world._ops.findIndex((o) => o[0] === "send");
+  assert.ok(titleIdx >= 0, "创建后设了标题");
+  assert.equal(world._ops[titleIdx][1], workSessionTitle(candidate()));
+  assert.ok(titleIdx < sendIdx, "标题先于 send");
 });
 
 test("startWorkSession 复用：命中同 cwd（含 cwd=null）→ reused:true、world 零调用", async () => {

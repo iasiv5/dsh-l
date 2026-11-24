@@ -54,7 +54,7 @@ export function buildTaskPackage(candidate, repoInfo = null, now = () => new Dat
   return pkg;
 }
 
-export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, githubClientId = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null, workflowCatalog = { templates: [], warnings: [] }, engine = null, feishu = null, templates = {}, startWork = null, home = null, stat = null, workspace = null, listPresets = async () => [] }) {
+export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, githubClientId = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null, workflowCatalog = { templates: [], warnings: [] }, engine = null, feishu = null, templates = {}, startWork = null, home = null, stat = null, workspace = null, sessionRoot = null, listPresets = async () => [] }) {
   // 两级 token 链（gh-as-source 2026-11-20）：credentials 引用覆写 → gh 登录态兜底；token 只存 gh 凭据库。
   const token = () => provider.resolveToken({ credentials, tokenRef, execFile, ghPath: ghBin });
   // 任务包 v2 生产接线（M4 契约补全，M5 后落账）：makeRunId 先行 + 首个 agent 节点角色 + workflow 块；
@@ -492,7 +492,9 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
         store.setStage(key, "building", "G1 pass");
       }
       try {
-        const out = await startWork({ store, lang: body?.lang === "en" ? "en" : "zh-CN", now }, { key, cwd, another, pkg });
+        // 托管默认克隆：会话头目录取会话根目录（归「DSH Loop Forge」），工具目录仍是托管目录（design-v2 §20 第 14 条）。
+        const headerCwd = managed && !cwdIn ? sessionRoot : undefined;
+        const out = await startWork({ store, lang: body?.lang === "en" ? "en" : "zh-CN", now }, { key, cwd, another, pkg, ...(headerCwd ? { headerCwd } : {}) });
         return { ok: true, sessionId: out.sessionId, reused: out.reused, taskPackage: out.reused ? null : pkg };
       } catch (e) { return fail(String(e?.code ?? e?.message ?? e), e?.status ?? 500); }
     },

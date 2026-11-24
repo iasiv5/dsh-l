@@ -168,5 +168,9 @@ export function summarizeRun(run) {
     error: run.nodeStates[n.id]?.error ?? null,
     artifacts: (run.nodeStates[n.id]?.artifacts ?? []).slice(0, 2).map((a) => String(a ?? "").slice(0, 500)),   // P2 Task 4：工件投影（截 2 条/每条 500 字符，与上游摘要同口径）
   }));
-  return { id: run.id, candidateKey: run.candidateKey, status: run.status, waitingGate: run.waitingGate ?? null, waitingGateId, currentNodeIds, failedNodeIds, cancelledNodeIds, models, templateId: run.templateId ?? null, error, waitingSince, history, nodeStatuses };
+  // 收敛 M1 Task 4：run 会话摘要（最近在前）；无 sessionLog 的旧 run 回退到各节点的 nodeStates[*].sessionId。
+  const nameOf = Object.fromEntries((run.snapshot?.nodes ?? []).map((n) => [n.id, n.name]));
+  const log = run.sessionLog ?? Object.entries(run.nodeStates ?? {}).filter(([, s]) => s?.sessionId).map(([nodeId, s]) => ({ nodeId, sessionId: s.sessionId }));
+  const sessions = log.map((e) => ({ nodeId: e.nodeId, nodeName: nameOf[e.nodeId] ?? e.nodeId, sessionId: e.sessionId, at: e.at ?? null })).reverse();
+  return { id: run.id, candidateKey: run.candidateKey, status: run.status, waitingGate: run.waitingGate ?? null, waitingGateId, currentNodeIds, failedNodeIds, cancelledNodeIds, models, templateId: run.templateId ?? null, error, waitingSince, history, nodeStatuses, sessions };
 }

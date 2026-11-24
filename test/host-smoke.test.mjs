@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, chmodSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, chmodSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildRuntime } from "../src/host.mjs";
@@ -64,12 +64,12 @@ test("host 冒烟③：角色解析源探针（store.upsertRole→store.listRole
 
 // M7 T1：捕获型 stub（prompt 走 handle.agent.send 通道——评审问题2 实文修正）
 const stubCtxCapture = () => {
-  const captured = { create: [], send: [] };
+  const captured = { create: [], send: [], handlers: [] };
   const ctx = {
     credentials: { set: async () => {}, resolve: async () => null },
     workingDirectory: { set: async () => {} },
     approval: { setPolicy: async () => {} },
-    on: () => () => {},
+    on: (ev, fn) => { if (ev === "session/event") captured.handlers.push(fn); return () => {}; },
     agentDefaultModel: null,
     agents: { create: async (sessionId, opts) => {
       captured.create.push({ sessionId, opts });
@@ -135,5 +135,81 @@ test("host 冒烟③升格（M7 T1/评审 R-问题2/3）：rolePrompt 端到端�
     // 收尾：cancelRun 清 runAgentNode 的 30min 超时 timer（fake world 永不 turn/end——否则事件循环被挂起 timer 拖住，文件级 ~60s 强制中断）
     rt.engine.cancelRun(runId, "smoke-end");
     await new Promise((r) => setTimeout(r, 20));
+  } finally { restore(); }
+});
+
+// ---- 收敛 M1 Task 5/6/7：宿主可选服务桩（ctx.get）与会话归属 / 标题 / 归档的端到端冒烟 ----
+const hostFakes = () => {
+  const calls = { create: [], attach: [], archive: [], rename: [] };
+  const registry = {
+    create: async (p, t) => { calls.create.push([p, t]); },
+    resolveByPath: async (p) => ({ attachSession: async (id) => { calls.attach.push([p, id]); } }),
+    archiveSession: async (id, o) => { calls.archive.push([id, o]); },
+  };
+  const titles = { get: () => undefined, rename: (_s, title) => { calls.rename.push(title); return {}; } };
+  return { calls, get: (name) => ({ workspaceRegistry: registry, sessionTitle: titles })[name] };
+};
+
+test("host 冒烟⑥：引擎节点会话的会话头目录是 <数据目录>/workspaces，并挂接到「DSH Loop Forge」", async () => {
+  const restore = setupEnv();
+  try {
+    const { ctx, captured } = stubCtxCapture();
+    const f = hostFakes();
+    ctx.get = f.get;
+    const rt = buildRuntime(ctx, {});
+    const binDir = join(rt.dir, "bin");
+    mkdirSync(binDir, { recursive: true });
+    writeFileSync(join(binDir, "gh"), FAKE_GH);
+    chmodSync(join(binDir, "gh"), 0o755);
+    seed(rt.store);
+    const sessionRoot = join(rt.dir, "workspaces");
+    assert.equal(existsSync(sessionRoot), true, "会话根目录已建");
+    const { runId } = rt.engine.startRun("o/r#issue#1", {});
+    // 先在 try/finally 里收尾再断言：红态下断言抛错若跳过 cancelRun，fake world 永不 turn/end，
+    // runAgentNode 的轮询 timer 会把事件循环拖到文件级 60s 强制中断（同冒烟③升格的收尾注释）。
+    const seen = { create: null, calls: f.calls };
+    try {
+      await waitFor(() => captured.send.length > 0);
+      seen.create = captured.create[0].sessionId;
+    } finally {
+      rt.engine.cancelRun(runId, "smoke-end");
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    assert.equal(seen.create.meta.cwd, sessionRoot);
+    assert.deepEqual(seen.calls.create, [[sessionRoot, "DSH Loop Forge"]]);
+    assert.deepEqual(seen.calls.attach[0][1], "dsh-l:run:" + runId + ":build:2");
+    assert.deepEqual(seen.calls.rename, ["r#1 · build ①"]);
+  } finally { restore(); }
+});
+
+test("host 冒烟⑦：分诊会话端到端——标题「分诊 · 1 条」→ 挂接 → 用完归档 { stopActivity: true }", async () => {
+  const restore = setupEnv();
+  try {
+    // makeTriage 本任务改为导出；第三参不注入时 triage 是 UNWIRED，postTriage 返回 502 triage-not-wired。
+    const { makeTriage } = await import("../src/host.mjs");
+    const { ctx, captured } = stubCtxCapture();
+    const f = hostFakes();
+    ctx.get = f.get;
+    const ROW = { key: "o/r#issue#1", validity: "high", urgency: "P1", action: "start", reason: "r" };
+    ctx.agents.create = async (opts) => {
+      const sid = opts.sessionId;
+      return { agent: { send: async () => {
+        captured.send.push({ sessionId: sid });
+        queueMicrotask(() => {
+          for (const fn of captured.handlers) {
+            fn({ id: sid }, { type: "assistant/message", data: { message: { content: [{ type: "text", text: "```json\n" + JSON.stringify([ROW]) + "\n```" }] } } });   // 宿主的 session 参数是对象，onSessionEvent 取 session.id
+            fn({ id: sid }, { type: "turn/end", data: { reason: { kind: "completed" } } });
+          }
+        });
+      } }, dispose: async () => {} };
+    };
+    const rt = buildRuntime(ctx, {}, { makeTriage });
+    seed(rt.store);
+    rt.store.setStage("o/r#issue#1", "inbox", "");
+    const r = await rt.handlers.postTriage({ keys: ["o/r#issue#1"], lang: "zh-CN" });
+    assert.equal(r.updated.length, 1);
+    assert.deepEqual(f.calls.rename, ["分诊 · 1 条"]);
+    assert.equal(f.calls.attach.at(-1)[1].startsWith("dsh-l-triage-"), true);
+    assert.deepEqual(f.calls.archive.map(([id, o]) => [id.startsWith("dsh-l-triage-"), o]), [[true, { stopActivity: true }]]);
   } finally { restore(); }
 });

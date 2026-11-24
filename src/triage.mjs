@@ -46,6 +46,9 @@ const textOf = (message) => {
   return typeof blocks === "string" ? blocks : "";
 };
 
+// 分诊会话标题（design-v2 §20 第 15 条）：跟随批次语言。
+export const triageTitle = (n, lang) => (lang === "en" ? "Triage · " + n : "分诊 · " + n + " 条");
+
 export async function runTriage(world, { candidates, lang = "zh-CN", model = null, timeoutMs = 300000 }) {
   if (candidates.length > LIMIT) throw new Error("triage batch limit is " + LIMIT);
   if (candidates.length === 0) return { updated: [], failed: null };
@@ -61,6 +64,8 @@ export async function runTriage(world, { candidates, lang = "zh-CN", model = nul
   let handle = null;
   try {
     handle = await world.createAgent(sessionId, { model });
+    try { world.setTitle?.(handle.agent, triageTitle(candidates.length, lang)); } catch {}   // 收敛 M1 Task 6：创建时设标题
+    try { await world.attach?.(sessionId); } catch {}   // 收敛 M1 Task 6：挂接宿主工作区（先于 send）
     await handle.agent.send(world.userMessage(buildPrompt(candidates, lang)), "next-turn", true);
     const deadline = Date.now() + timeoutMs;
     while (endKind === null && Date.now() < deadline) await world.sleep(500);
@@ -73,6 +78,9 @@ export async function runTriage(world, { candidates, lang = "zh-CN", model = nul
     return parsed ? { updated: parsed, failed: null } : { updated: [], failed: "parse-failed" };
   } finally {
     off?.();
+    // 收敛 M1 Task 7（design-v2 §20 第 16 条）：dispose 不删存储，分诊会话会以冷会话残留侧栏——批次结束即归档；
+    // 先归档后 dispose（归档要求会话仍在场）。
+    try { await world.archiveSession?.(sessionId); } catch {}
     try { await handle?.dispose?.(); } catch {}
   }
 }

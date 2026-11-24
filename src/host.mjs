@@ -6,7 +6,7 @@ import { runTriage } from "./triage.mjs";
 import { resolveAgentSelection } from "./agent-selection.mjs";
 import { composeWorkWorld, startWorkSession } from "./worksession.mjs";
 import { homedir } from "node:os";
-import { statSync } from "node:fs";
+import { mkdirSync, statSync } from "node:fs";
 import { dataDir } from "./paths.mjs";
 import { createStore } from "./store.mjs";
 import { loadTemplates } from "./workflows/loader.mjs";
@@ -24,37 +24,74 @@ const execFile = promisify(execFileCb);
 const BUILD = typeof __DSH_L_BUILD__ === "string" ? __DSH_L_BUILD__ : "dev";
 const UNWIRED = { runTriage: async () => ({ updated: [], failed: "triage-not-wired" }) };
 
+// ---- 收敛 M1 Task 5（design-v2 §20 第 14 条）：会话归属宿主工作区 ----
+// 宿主规则：会话属于某个宿主工作区，当且仅当会话头目录（meta.cwd）就是该工作区目录；会话头目录建后不可改。
+// 四个 helper 只经 ctx.get 取可选服务，服务缺席或方法不是函数时静默跳过；任何失败只告警，不阻断开工或执行。
+// 先例：dsh-schedule/src/runtime.ts:482-502（joinWorkspace / nameSession）。
+const LOOP_WORKSPACE_TITLE = "DSH Loop Forge";
+const warnOf = (ctx, what) => (err) => (ctx.logger ?? console).warn?.("[dsh-l] " + what + ":", err);
+const getRegistry = (ctx) => {
+  const registry = ctx.get?.("workspaceRegistry");
+  return registry && typeof registry === "object" ? registry : null;
+};
+// 只挂接 cwd 对应的已登记工作区（未登记目录不新建工作区——主人目录的侧栏结构不替用户改）。
+async function joinWorkspace(ctx, sessionId, cwd) {
+  const registry = getRegistry(ctx);
+  if (registry === null || cwd === undefined || typeof registry.resolveByPath !== "function") return;
+  try { await (await registry.resolveByPath(cwd))?.attachSession(sessionId); } catch (err) { warnOf(ctx, "workspace join")(err); }
+}
+// 「DSH Loop Forge」：同路径 create 幂等（返回既有实体），再挂接。
+async function attachToLoopWorkspace(ctx, sessionId, sessionRoot) {
+  const registry = getRegistry(ctx);
+  if (registry === null || typeof registry.create !== "function") return;
+  try { await registry.create(sessionRoot, LOOP_WORKSPACE_TITLE); await joinWorkspace(ctx, sessionId, sessionRoot); } catch (err) { warnOf(ctx, "loop workspace")(err); }
+}
+// 仅当会话尚无标题时改名（dsh-schedule/src/runtime.ts:493-502 同款守卫）。
+function nameSession(ctx, agent, title) {
+  const titles = ctx.get?.("sessionTitle");
+  if (!titles || typeof titles.rename !== "function") return;
+  try { if (titles.get?.(agent?.session) === undefined) titles.rename(agent.session, title); } catch (err) { warnOf(ctx, "session title")(err); }
+}
+async function archiveSession(ctx, sessionId) {
+  const registry = getRegistry(ctx);
+  if (registry === null || typeof registry.archiveSession !== "function") return;
+  try { await registry.archiveSession(sessionId, { stopActivity: true }); } catch (err) { warnOf(ctx, "session archive")(err); }
+}
+
 export const name = "dsh-l";
 // 评审 R1-12：approval/workingDirectory 为 runtime rc.2/rc.3 的 cordis 声明式服务（类型声明实证），
 // M2 执行器的审批策略与工作目录注入依赖二者——不声明 inject 则 ctx 访问即抛错（fail-fast，非静默降级）。
 export const inject = ["webServer", "credentials", "agents", "agentDefaultModel", "timer", "llm", "approval", "workingDirectory", "agentPresets"];
 
-const makeTriage = (ctx, dir) => {
+export const makeTriage = (ctx, sessionRoot) => {
   const world = {
     async createAgent(sessionId, { model } = {}) {
       // autoloop dsh/src/host.ts:83-97：程序化会话须在 setup 里显式选模，宿主默认选择补齐。
       const configured = resolveAgentSelection(model, ctx.agentDefaultModel?.currentSelection?.() ?? { provider: "", model: "" });
       return ctx.agents.create({
         sessionId,
-        meta: { cwd: dir },
+        meta: { cwd: sessionRoot },
         agentOptions: configured,
         setup: (_agentCtx, agent) => { agent.model?.select?.(configured); },
       });
     },
     onSessionEvent: (handler) => ctx.on("session/event", (session, event) => handler(String(session?.id ?? ""), event)),
     userMessage: (text) => ({ id: randomUUID(), role: "user", content: [{ type: "text", text }], source: { kind: "user" } }),
+    attach: (sessionId) => attachToLoopWorkspace(ctx, sessionId, sessionRoot),
+    setTitle: (agent, title) => nameSession(ctx, agent, title),
+    archiveSession: (sessionId) => archiveSession(ctx, sessionId),   // 收敛 M1 Task 7：分诊会话用完归档
     sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   };
   return { runTriage: (params) => runTriage(world, params) };
 };
 
 // M2 执行器 world（makeTriage 同款 + 审批/工作目录直调——inject 已声明，缺失会在激活期抛错而非静默）。
-const makeExecWorld = (ctx, dir) => ({
+const makeExecWorld = (ctx, sessionRoot) => ({
   async createAgent(sessionId, { model } = {}) {
     const configured = resolveAgentSelection(model, ctx.agentDefaultModel?.currentSelection?.() ?? { provider: "", model: "" });
     return ctx.agents.create({
       sessionId,
-      meta: { cwd: dir },
+      meta: { cwd: sessionRoot },
       agentOptions: configured,
       setup: (_agentCtx, agent) => { agent.model?.select?.(configured); },
     });
@@ -64,14 +101,19 @@ const makeExecWorld = (ctx, dir) => ({
   sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   setPolicy: (agent, policy) => ctx.approval.setPolicy(agent, policy),
   setWorkingDirectory: (agent, cwd) => ctx.workingDirectory.set(agent, cwd),
+  attach: (sessionId) => attachToLoopWorkspace(ctx, sessionId, sessionRoot),   // 收敛 M1 Task 5：先于 send
+  setTitle: (agent, title) => nameSession(ctx, agent, title),   // 收敛 M1 Task 6
 });
 
 export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () => [], hostDefault = () => null, onSettingsChange } = {}) {
   const dir = dataDir();
+  // 会话根目录（design-v2 §20 第 14 条）：引擎节点 / 托管开工 / 分诊三类会话的会话头目录，也是「DSH Loop Forge」工作区的路径。
+  const sessionRoot = join(dir, "workspaces");
+  try { mkdirSync(sessionRoot, { recursive: true, mode: 0o700 }); } catch {}
   const store = createStore({ filePath: join(dir, "store.json") });
   const workspace = makeWorkspace({ dataDir: dir, ghBin: join(dir, "bin", "gh"), execFile });
   const executor = makeExecutor({
-    world: makeExecWorld(ctx, dir), spawn: spawnCb, ghBin: join(dir, "bin", "gh"),
+    world: makeExecWorld(ctx, sessionRoot), spawn: spawnCb, ghBin: join(dir, "bin", "gh"),
     // Task 10（R1-8）：会话 id 落 run 节点状态（nodeStates[nodeId] ??= {} 兜底——executor 以 ?.attempt 可选读，节点态可能未建）。
     onSessionBound: (run, nodeId, sessionId) => {
       try {
@@ -80,6 +122,7 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
         const ns = { ...cur.nodeStates };
         ns[nodeId] = { ...(ns[nodeId] ?? {}), sessionId };
         store.saveRun({ ...cur, nodeStates: ns });
+        store.appendRunSession(run.id, nodeId, sessionId);   // 收敛 M1 Task 4：候选行会话入口的数据源
       } catch (err) { (ctx.logger ?? console).warn?.("[dsh-l] onSessionBound:", err); }
     },
   });
@@ -91,6 +134,9 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     agentDefaultModel: ctx.agentDefaultModel,
     settings: () => store.getSettings(),
     userMessage: (text) => ({ id: randomUUID(), role: "user", content: [{ type: "text", text }], source: { kind: "user" } }),
+    // 会话头目录等于会话根目录（托管开工）→ 归「DSH Loop Forge」；否则挂到该目录已登记的工作区。
+    attachHost: (sessionId, cwd) => (cwd === sessionRoot ? attachToLoopWorkspace(ctx, sessionId, sessionRoot) : joinWorkspace(ctx, sessionId, cwd)),
+    setTitle: (agent, title) => nameSession(ctx, agent, title),   // 收敛 M1 Task 6
   });
   // 飞书通知（design-v2 §13.3/§13.4）：webhook 经 credentials 存取（ref=DSH_L_FEISHU_WEBHOOK_URL）；
   // emit → formatNotice → sendNotice，fire-and-forget（尽力而为，通知失败不影响引擎）。
@@ -112,7 +158,7 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
   });
   const handlers = makeHandlers({
     store, provider: github,
-    triage: makeTriage ? makeTriage(ctx, dir) : UNWIRED,
+    triage: makeTriage ? makeTriage(ctx, sessionRoot) : UNWIRED,
     credentials: ctx.credentials, tokenRef: config?.githubTokenRef ?? null,
     // 可覆写设备流 client_id（缺省 GitHub CLI 官方 App）；gh-as-source 后无自存凭据闭包（token 只存 gh 凭据库）
     githubClientId: config?.githubClientId ?? null,
@@ -130,6 +176,7 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     home: homedir(),
     stat: (p) => statSync(p),
     workspace,
+    sessionRoot,
     // preset 名册（Task 6）：agentPresets.list() 直读，异常降级空名册（UI 只显「跟随部署默认」）。
     listPresets: async () => {
       try { return await ctx.agentPresets.list(); } catch { return []; }
