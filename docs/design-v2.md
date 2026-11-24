@@ -327,7 +327,7 @@ coordinator adapter（会话协调者，role→派发缝）、sub-SOP / preview-
 - 会话与工作区：新桶 `--home-ubuntu-.dsh-profiles-web-data-dsh-l-workspaces--` 存在；分诊会话标题「分诊 · 4 条」，已归档（`archivedSessionIds` 含之）；宿主注册表中「DSH Loop Forge」登记了两个开工会话与该分诊会话；开工会话标题「dsh-m#82 PR · chore(deps-dev): …」。
 - Task 18 Step 4（F1，模型缺失）：临时将审批设为 `ask` 发起托管另开的会话 `dsh-l:work-mwumybtk-b23d97`，创建后已改回 `never`。`model/selection` 为 `zai-coding-cn / glm-5.3-flash`；`step/start` 1 次；`has no provider/model` 出现 0 次；提供方返回 429「已达到 5 小时的使用上限，限额 2026-11-24 23:12:17 重置」，重试 5 次后 `turn/end` 为 `error / RATE_LIMIT`；工具调用 0。**判定：本机的模型缺失已消除；Step 4 的字面判据「turn/end 不再是 error」未满足，原因是账号额度，额度恢复后复核。**
 - 人读项（计划 B7③：两按钮、确认条、去向提示、「打开 · <节点>」点击、硬刷新）：**未覆盖**。本轮没有在界面上人工操作，也无法从宿主侧确认浏览器已取到最新 bundle。
-- D1（16:46 重启）：两次重启都是先出现 `sudo systemctl show … Restart …` 查询，随后数秒内出现 `status=75/TEMPFAIL` 退出（16:45:56→16:45:59；19:46:18→19:46:19），走同一通道；发起者未知，待主人确认。
+- D1（16:46 重启）：两次重启都是先出现 `sudo systemctl show … Restart …` 查询，随后数秒内出现 `status=75/TEMPFAIL` 退出（16:45:56→16:45:59；19:46:18→19:46:19），走同一通道。16:46 的重启由用户本人触发（主人 2026-11-24 确认）；19:46 的重启为按主人授权执行的 dshm_restart。
 - 指针更正：PR80 取消后 `currentRunId` 保留为已取消的 run（设计 §2：指针＝当前执行、重开＝新 run、旧 run 留档），不清空。
 
 **执行期增补（计划外，均已入库）**
@@ -342,5 +342,6 @@ coordinator adapter（会话协调者，role→派发缝）、sub-SOP / preview-
 - F1 复核：额度恢复后（23:12 之后）对新会话读 `turn/end`，确认不再是 `error`。
 - 健康接口构建标识与磁盘构建（`b892e37e7b22`）的一致性：宿主热加载后复读。
 - 界面人读项：未覆盖。
-- 待主人：D1 发起者；「另开」的服务端空目录回退是否收紧。
+- 已决（主人 2026-11-24）：D1 发起者为用户本人；「另开」的服务端空目录回退保持现状（UI 已隐藏全部会把空目录交给服务端的入口）。
+- 重启：主人同意现在重启以加载 `abd902a8192d`（d2f31d3 与 5431c85 的最终代码）；核验放下一轮，核验项见下。
 - I6（建议，计划外）：交付 PR 被关闭但未合并时持续显示「待合并」；`/run/gate` 对 PR 候选无类型守卫。
