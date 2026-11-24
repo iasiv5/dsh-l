@@ -820,6 +820,7 @@ git status --short
 - Step 2（绿）：`src/client/components/actions.mjs`：「更多」中的「另开会话」仅当记住的是明确的本地目录、且有活跃会话或存活执行时出现；`startAnother` 无目录时不发起调用。`src/client/components/sessionsView.mjs`：「不在列表」行仅当会话带目录时出现另开。绿 → `client-render` 76 / 76 / 0；全量 408 / 408 / 0。
 - Step 3：`npm run build`；提交 `fix(work): 另开会话只用明确的本地目录…`（5431c85，`lib/client.js` 与 `lib/host.js` 同 commit）。
 - 服务端 `postWorkStart` 对空目录的本地回退未改（API 语义）；是否收紧待主人决定（见 design-v2 §20 落地注记的未结项）。
+- 执行期勘正（评审 K21 I8，主人原则「另开只用明确的本地目录」）：工具目录落在托管根（`workspacesDir`）下的会话行同样不给另开；服务端对托管根下的显式目录返回 409 `managed-dir-explicit`（`d2f31d3`，测试 410）。托管克隆只经 `workspace:"managed"` 进入。
 
 ## 执行纪律（第二部分追加；其余同第一部分）
 
