@@ -822,6 +822,13 @@ git status --short
 - 服务端 `postWorkStart` 对空目录的本地回退未改（API 语义）；是否收紧待主人决定（见 design-v2 §20 落地注记的未结项）。
 - 执行期勘正（评审 K21 I8，主人原则「另开只用明确的本地目录」）：工具目录落在托管根（`workspacesDir`）下的会话行同样不给另开；服务端对托管根下的显式目录返回 409 `managed-dir-explicit`（`d2f31d3`，测试 410）。托管克隆只经 `workspace:"managed"` 进入。
 
+### Task 21（执行期增补，评审 K21 I15 / I6，主人 2026-11-24 指示实施）: 另开失败回显与 run 放行的类型守卫
+
+- Step 1（红）：`test/client-render.test.mjs` 新增「会话页「另开」失败就地呈现原因；startAnother 把错误响应转成文案、成功返回 null」；`test/handlers.test.mjs` 新增「postRunGate：PR 候选的 run 放行 → 409 engine-issue-only」（用例在 store 里真实建一条归属 PR 候选的 run，引擎桩不带查询方法）。
+- Step 2（绿）：`actions.mjs` 的 `startAnother` 把错误响应转成 `sessions.anotherFailed (原因码)`；`workbench.mjs` 的 `onAnother` 把它交回会话页（与「确认交付」同一机制）；`handlers.mjs` 的 `postRunGate` 在触达引擎前按 run 归属的候选类型拦（run 从 store 读）。绿 → 全量 412 / 412 / 0。
+- Step 3：`npm run build`；提交 `fix(work): …`（070634f，`lib/client.js` 与 `lib/host.js` 同 commit）。
+- 不在本次范围：交付 PR 被关闭但未合并时仍显示「待合并」（I6 的另一半，需新增状态、文案与界面）。
+
 ## 执行纪律（第二部分追加；其余同第一部分）
 
 - 先完成第一部分 Task 0–8 与 Task 9 Step 1–4 并提交，全量 384 / 384 / 0 之后才开始 Task 10。
