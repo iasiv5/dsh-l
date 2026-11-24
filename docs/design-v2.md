@@ -361,3 +361,11 @@ coordinator adapter（会话协调者，role→派发缝）、sub-SOP / preview-
   - 「换个目录开工…」的选择器：标题「选择开工工作区」，三行去向提示逐字在场——「本地默认检出 /home/ubuntu/workspace/dsh-m：会话将出现在未分组」「选择目录…：选好后显示会话将出现在哪」「托管克隆：会话将出现在 DSH Loop Forge」；四个按钮齐全。读后取消，未发起会话。
   - 未核对：已分诊 issue 的两按钮与「自动执行」确认条（当前清单里没有未关闭的 issue 候选可点）。
 - F1 Step 4 复核通过（2026-11-24 23:18，额度重置后）：临时将审批设为 `ask` 发起托管另开的会话 `dsh-l:work-mwuu9f18-8720e5`，创建后立即改回 `never`。`model/selection` 为 `zai-coding-cn / glm-5.3-flash`；首回合 12 步、11 次工具调用，`llm/retry` 0、`has no provider/model` 0，`turn/end` 为 `completed`。工具调用经审计全部为读操作（查 PR、检出 `pr-82`、安装依赖、跑 lint），无提交、推送或 PR 写操作，远端 `main` 无新提交。
+
+**第二次重启后核验（2026-11-25 00:05）**
+
+- 健康接口 `build` = `3a0bde858618`（磁盘 `lib/host.js` 同值），即 `070634f` 的最终构建。
+- 服务启动 `ActiveEnterTimestamp` = 00:04:25（MainPID 2821388），晚于构建 `lib/host.js` 的 23:24:02；时间戳判据成立。重启时在途 run 为 0。
+- `/run/gate` 类型守卫实测：对已取消的 PR80 run（归属 PR 候选）请求 G2 放行 → `409 engine-issue-only`；前后 run 状态、候选 stage 与 run 历史长度均不变。
+- 界面（无头 Chromium）：侧栏「DSH Loop Forge」分组下已无验证会话；插件清单正常渲染（45 个可见按钮，无页面错误）。
+- 遗留可见问题：#82 仍显示在「进行中」分组——dsh-l 工作索引保留了 3 条已归档会话的活跃行（见上文「待办」）。
