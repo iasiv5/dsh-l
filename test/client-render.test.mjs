@@ -2062,10 +2062,41 @@ test("更多折叠：可开工或有会话时在场；『换个目录开工…�
   assert.equal(btnIn(more, t("work.changeDir")), undefined, "存活执行无换目录开工");
   btnIn(more, t("sessions.another")).onclick(); await settle();
   assert.deepEqual(calls.pop(), ["o/r#issue#1", "/home/u/workspace/r", true, "zh-CN"]);
-  // 无记忆 → null（服务端解析本地默认）
+  // 无记忆 → 另开不出现（服务端对空目录会回退到用户的本地检出、审批 never；前端不给这个入口——评审 M9 / 第 5 轮，主人 2026-11-24 定：隐藏）
   hooks.strip(new FakeElement("div"), { t, state: { candidates: [], runs: [run], workflow: { templates: [] }, settings: { workDirs: {} } } });
   d = new FakeElement("div");
   hooks.rowActions(d, { ...mkCandidate("gating"), currentRunId: "run-1" }, { t, view, lang: "zh-CN" });
-  btnIn(moreOf(d), t("sessions.another")).onclick(); await settle();
-  assert.deepEqual(calls.pop(), ["o/r#issue#1", null, true, "zh-CN"]);
+  assert.equal(find(d, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("sessions.another")).length, 0, "无记忆不出现另开");
+  assert.equal(calls.length, 0, "无记忆也不发起调用");
+});
+
+test("另开的目录守卫（评审 M9 / 第 5 轮，主人 2026-11-24 定：隐藏）：记住托管 → 行内无另开；会话页「不在列表」行无目录 → 无另开；startAnother(key, null) 不发起调用", async () => {
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  const calls = [];
+  const api = { workStart: async (...args) => { calls.push(args); return { ok: true, sessionId: "dsh-l:work-n", reused: false }; } };
+  const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [], deps: { api } });
+  const view = { reload: async () => {}, shadow: new FakeElement("shadow") };
+  const run = { id: "run-1", candidateKey: "o/r#issue#1", status: "waiting", waitingGate: "g2", waitingGateId: "G2", currentNodeIds: ["g2"], failedNodeIds: [], cancelledNodeIds: [], models: {}, templateId: "loop-v1", error: null, waitingSince: null, history: [], nodeStatuses: [], sessions: [] };
+  // 记住托管、存活执行 → 行内无另开
+  hooks.strip(new FakeElement("div"), { t, state: { candidates: [], runs: [run], workflow: { templates: [] }, settings: { workDirs: { "o/r": "managed" } } } });
+  const d = new FakeElement("div");
+  hooks.rowActions(d, { ...mkCandidate("gating"), currentRunId: "run-1" }, { t, view, lang: "zh-CN" });
+  assert.equal(find(d, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("sessions.another")).length, 0, "记住托管 → 无另开");
+  // startAnother：无目录不发起调用；有目录照常发起
+  hooks.startAnother("o/r#issue#1", null);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.equal(calls.length, 0, "startAnother(key, null) 不调用");
+  hooks.startAnother("o/r#issue#1", "/home/u/workspace/r");
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(calls.pop(), ["o/r#issue#1", "/home/u/workspace/r", true, "zh-CN"]);
+  // 会话页「不在列表」行：无目录 → 无另开；有目录 → 有另开
+  const { renderSessionsView } = await import("../src/client/components/sessionsView.mjs");
+  const mkItem = (cwd) => ({ kind: "work", key: "o/r#issue#9", sessionId: "dsh-l:work-missing-" + String(cwd).length, runId: null, cwd, approvalPolicy: null, createdAt: 1, updatedAt: 1, candidate: { repo: "o/r", number: 9, title: "T9", stage: "building" } });
+  const summaries = [{ id: "dsh-l:work-other", displayTitle: "x", running: false }];
+  const root1 = new FakeElement("div");
+  renderSessionsView(root1, { t, items: [mkItem(null)], summaries, onOpen: () => {}, onAnother: () => {} });
+  assert.equal(find(root1, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent.includes(t("sessions.another"))).length, 0, "无目录的不在列表行无另开");
+  const root2 = new FakeElement("div");
+  renderSessionsView(root2, { t, items: [mkItem("/w/c")], summaries, onOpen: () => {}, onAnother: () => {} });
+  assert.equal(find(root2, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent.includes(t("sessions.another"))).length, 1, "有目录的不在列表行有另开");
 });

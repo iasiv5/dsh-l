@@ -276,7 +276,8 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
     // Task 12：会话板块 hooks——openWorkSession（导航）、sessionsFeed（sessions.list 投影）、startAnother（另开）。
     openWorkSession,
     sessionsFeed: () => (sessionsFeed ? sessionsFeed() : []),
-    startAnother: (key, cwd) => a.workStart(key, cwd ?? null, true, getLang()),
+    // 无目录不发起（不得回退到本地检出）；有目录照常另开。
+    startAnother: (key, cwd) => (cwd ? a.workStart(key, cwd, true, getLang()) : null),
     header(header, { t, state, view }) {
       const b = btn(t("settings.title"), () => openSettings(view.shadow, { t, current: state?.settings ?? { intervalMinutes: 0 }, onSaved: () => view.reload() }));
       b.setAttribute("aria-label", t("settings.title"));
@@ -426,19 +427,21 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
       if (canAuto) detail.append(autoHost);   // 确认条紧跟工作行
       // 「更多」折叠（design-v2 §20 第 19、28 条；里程碑 3 再整体收敛行内动作）：换个目录开工 / 另开会话。
       // 行内 <details>，不用浮层（operate.md：overlay 会被滚动容器裁切）。
-      if (canStart || c.work?.sessionId || runAlive) {
+      // 另开只用「已记住的本地目录」（B13「仅限本地目录」）。托管记忆或无记录时不给入口：服务端对空目录会回退到
+      // 用户的本地检出（审批 never），前端不替用户做这个选择（评审 M9 / 第 5 轮，主人 2026-11-24 定：隐藏）。
+      const rememberedDir = lastState?.settings?.workDirs?.[c.repo];
+      const anotherDir = typeof rememberedDir === "string" && rememberedDir && rememberedDir !== "managed" ? rememberedDir : null;
+      const canAnother = Boolean(anotherDir) && (Boolean(c.work?.sessionId) || runAlive);
+      if (canStart || canAnother) {
         const more = document.createElement("details");
         more.className = "override-box";
         const moreSum = document.createElement("summary");
         moreSum.textContent = t("actions.more");
         more.append(moreSum);
         if (canStart) more.append(btn(t("work.changeDir"), () => go(async () => startIn(more, await pickWorkspace(view.shadow, pickOpts()))())));
-        if (c.work?.sessionId || runAlive) {
+        if (canAnother) {
           more.append(btn(t("sessions.another"), () => go(async () => {
-            // 另开沿用记住的非托管目录，没有则 null（服务端解析本地默认）；不用托管克隆（B13「仅限本地目录」）。
-            const remembered = lastState?.settings?.workDirs?.[c.repo];
-            const dir = typeof remembered === "string" && remembered && remembered !== "managed" ? remembered : null;
-            const r = await a.workStart(c.key, dir, true, lang);
+            const r = await a.workStart(c.key, anotherDir, true, lang);
             if (r?.ok && r.sessionId) {
               if (!r.reused && !openWorkSession(r.sessionId)) workChip(more, t("work.openPending"));
             } else if (r?.error) {

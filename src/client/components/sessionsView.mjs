@@ -63,7 +63,8 @@ export function renderSessionsView(container, { t, items = [], summaries = [], o
       label: item.candidate ? `${item.candidate.repo}#${item.candidate.number} · ${item.candidate.title}` : (item.sessionId ?? item.key ?? ""),
       actions: [
         ...(item.sessionId && summary ? [{ text: t("sessions.open"), fn: () => onOpen(item.sessionId, item) }] : []),
-        ...(missing ? [{ text: t("sessions.another"), fn: () => onAnother(item.key, item.cwd) }] : []),
+        // 另开需要明确的目录（评审 M9 / 第 5 轮，主人 2026-11-24 定）：无目录时不给入口，避免回退到本地检出。
+        ...(missing && item.cwd ? [{ text: t("sessions.another"), fn: () => onAnother(item.key, item.cwd) }] : []),
         // Task 13：确认交付（人工 G2 等价）——候选级拍板语义：building/verifying 的开工会话行均可交付
         //（含 missing 行——会话被归档/删除后用户仍须能拍板；路由守卫仍要求索引活跃行在场，评审 impl#O1 钉例）。
         ...(onDeliver && item.kind === "work" && ["building", "verifying"].includes(item.candidate?.stage) ? [{ text: t("sessions.deliver"), fn: async () => onDeliver(item.key) }] : []),
