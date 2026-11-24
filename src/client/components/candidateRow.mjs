@@ -19,8 +19,20 @@ export function metaFootnote(candidate, t) {
   const reactions = candidate?.meta?.reactionsTotal;
   if (reactions !== null && reactions !== undefined) segs.push("▲" + reactions);
   if (candidate?.type === "pull" && candidate?.pull?.draft) segs.push(t("candidate.draft"));
-  if (segs.length === 0) return null;
-  return el("span", "rowmeta", segs.join(" · "));
+  // 交付标记（design-v2 §20 第 30 条）：引擎开的 PR 记在来源候选上——「PR #n · 待合并 / 已合并」，链到该 PR。
+  const d = candidate?.delivery;
+  const hasPr = Boolean(d?.prNumber);
+  if (segs.length === 0 && !hasPr) return null;
+  const foot = el("span", "rowmeta", segs.join(" · "));
+  if (hasPr) {
+    const link = document.createElement("a");   // 变量名避开 a（design-lint 的 seam 遮蔽规则）
+    link.href = String(d.prUrl ?? "#");
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = (segs.length ? " · " : "") + "PR #" + d.prNumber + " · " + (d.merged ? t("delivery.merged") : t("delivery.pending"));
+    foot.append(link);
+  }
+  return foot;
 }
 
 export function renderRow(container, candidate, t, { expanded = false, onToggle, actions, run = null, seen = false, selectable = false, selected = false, onToggleSelect = null, onCheckboxEl = null } = {}) {

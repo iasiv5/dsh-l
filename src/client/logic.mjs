@@ -46,12 +46,11 @@ export function gateState(candidate) {
   return { G1: candidate?.stage === "gating", G2: false, G3: false };
 }
 
-// 开工路径引导（disc 评审 Task 2）：账号已绑定 ∧ 候选非空 ∧ 无待拍板候选——三态直测见 logic.test。
-export function shouldShowStartHint(state) {
-  const list = state?.candidates ?? [];
-  const hasGating = list.some((c) => c.stage === "gating");
-  return Boolean(state?.auth?.account) && list.length > 0 && !hasGating;
-}
+// 可开工阶段（design-v2 §20 第 19、28 条）：待拍板或已分诊。取消执行后候选回已分诊，可直接再次开工；
+// 「暂无待拍板候选」的引导文案随之退场（开工按钮出现在每一个可开工行上）。
+export const startable = (c) => c?.stage === "gating" || c?.stage === "triaged";
+// 执行目录名的客户端镜像（design-v2 §20 第 28 条）：与 src/engine/workspace.mjs 的 sanitizeKey 同构——非 A-Za-z0-9._- 一律换 _。
+export const runDirName = (key) => String(key ?? "").replace(/[^A-Za-z0-9._-]/g, "_");
 
 export function stageCounts(list) {
   const all = list ?? [];

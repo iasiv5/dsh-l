@@ -22,6 +22,7 @@ const T = {
     link: "链接", triage: "分诊", goal: "目标", branch: "默认分支", ws: "工作区",
     first: "建议首步",
     firstStep: "先读候选正文与本仓贡献规范，确认工作分支后再动手；完成或需要反馈时回到工作台拍板。",
+    prBranchLine: "PR 分支：{head}（在本仓执行 `gh pr checkout {n}`；工作台不会替你切换分支）",
     wsNone: "（未记录）",
   },
   en: {
@@ -29,6 +30,7 @@ const T = {
     link: "Link", triage: "Triage", goal: "Goal", branch: "Default branch", ws: "Workspace",
     first: "Suggested first step",
     firstStep: "Read the issue/PR body and the repo contribution guide first; confirm the working branch before coding. Return to the workbench to decide when done or blocked.",
+    prBranchLine: "PR branch: {head} (run `gh pr checkout {n}` in this repo; the workbench never switches your branch)",
     wsNone: "(not recorded)",
   },
 };
@@ -50,6 +52,8 @@ export function buildKickoff(candidate, pkg, lang = "zh-CN") {
     "- " + t.triage + ": " + (candidate.triage ? candidate.triage.validity + " / " + candidate.triage.urgency + " / " + candidate.triage.action + " — " + candidate.triage.reason : "-"),
     "- " + t.goal + ": " + (pkg?.instructions?.goal ?? title),
     "- " + t.branch + ": " + (pkg?.repo?.defaultBranch ?? "-"),
+    // PR 候选（design-v2 §20 第 29 条，ADR-0003）：写明 PR 分支与 gh pr checkout；不替用户切换本地检出的分支。
+    ...(candidate.type !== "issue" ? ["- " + t.prBranchLine.replace("{head}", candidate.pull?.headRef ?? "-").replace("{n}", String(candidate.number))] : []),
     "- " + t.ws + ": " + (localPath ?? t.wsNone),
     "- " + t.first + ": " + t.firstStep,
     "",

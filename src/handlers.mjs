@@ -54,7 +54,7 @@ export function buildTaskPackage(candidate, repoInfo = null, now = () => new Dat
   return pkg;
 }
 
-export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, githubClientId = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null, workflowCatalog = { templates: [], warnings: [] }, engine = null, feishu = null, templates = {}, startWork = null, home = null, stat = null, workspace = null, sessionRoot = null, listPresets = async () => [] }) {
+export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, githubClientId = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null, workflowCatalog = { templates: [], warnings: [] }, engine = null, feishu = null, templates = {}, startWork = null, home = null, stat = null, workspace = null, sessionRoot = null, listPresets = async () => [], resolveLocalDir = null, workspaceTitleOf = async () => null, paths = null }) {
   // 两级 token 链（gh-as-source 2026-11-20）：credentials 引用覆写 → gh 登录态兜底；token 只存 gh 凭据库。
   const token = () => provider.resolveToken({ credentials, tokenRef, execFile, ghPath: ghBin });
   // 任务包 v2 生产接线（M4 契约补全，M5 后落账）：makeRunId 先行 + 首个 agent 节点角色 + workflow 块；
@@ -108,7 +108,7 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       const c = store.getCredential();
       return { watch: store.getWatch(), snapshots: store.getSnapshots(), settings: store.getSettings(), candidates: store.listCandidates().map((cd) => ({ ...cd, work: store.getWorkSession(cd.key) })), ingestLog: store.getIngestLog(),
         auth: { ...store.getAuth(), credential: { configured: Boolean(c.source || c.verifiedAt), healthy: c.healthy !== false, verifiedAt: c.verifiedAt ?? null, rateLimitedUntil } },
-        runs: store.listRuns().map(summarizeRun), workflow: workflowCatalog };
+        runs: store.listRuns().map(summarizeRun), workflow: workflowCatalog, paths };   // paths：确认条的执行目录前缀（收敛 M2 Task 13/14）
     },
     async getAuth() {
       // 门禁重塑（Task 5）：三关布尔 + 凭据卡详情。account 保留供客户端回显绑定态；token 在手仍顺带探身份（缓存）。
@@ -309,7 +309,18 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
               provider.listOpenIssues({ repo, token: tk, fetch, budget }),
               provider.listOpenPulls({ repo, token: tk, fetch, budget }),
             ]);
-            merged.push(...issues, ...pulls);
+            // 收敛 M2 Task 12（design-v2 §20 第 30 条）：该仓已记交付的 PR 不并入候选；未合并的交付逐个查一次，已合并即回填。
+            const delivered = store.listCandidates().filter((c) => c.repo === repo && c.delivery?.prNumber);
+            const own = new Set(delivered.map((c) => c.delivery.prNumber));
+            const pullsKept = pulls.filter((p) => !own.has(p.number));
+            for (const c of delivered) {
+              if (c.delivery.merged) continue;
+              try {
+                const pr = await provider.getPr({ repo, number: c.delivery.prNumber, token: tk, fetch });
+                if (pr?.mergedAt) store.setDelivery(c.key, { merged: true, mergedAt: pr.mergedAt }, "delivery.merged");
+              } catch {}
+            }
+            merged.push(...issues, ...pullsKept);
             perRepo[repo] = { issues: issues.length, pulls: pulls.length, fetchedAt: now().toISOString(), error: null };
             // 仓库事实（任务包 repo 块）：失败不影响摄取本体，保留旧事实。
             try { store.setRepoFacts(repo, await provider.getRepo({ repo, token: tk, fetch })); } catch {}
@@ -410,8 +421,9 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       if (gate !== "G1") return fail("gate-not-available-in-v1", 409);
       const c = store.getCandidate(key);
       if (!c) return fail("not found", 404);
-      if (c.stage !== "gating") return fail("gate-requires-gating", 409);
+      if (!["gating", "triaged"].includes(c.stage)) return fail("gate-requires-gating", 409);   // 收敛 M2 Task 11：已分诊可直接开工
       if (decision === "pass") {
+        if (c.type !== "issue") return fail("engine-issue-only", 409);   // 收敛 M2 Task 10（ADR-0003）：PR 候选的 G1 pass 不建 run
         const runId = makeRunId(now);   // v2 接线（M4 契约补全）：与 postRunStart 同款 runId 先行
         const pkg = buildTaskPackage(c, store.getRepoFacts(c.repo), now, buildV2Ctx(LOOP_V1, runId));
         store.setGate(key, "G1", "pass", note ?? "", pkg, "workbench-ui");
@@ -437,7 +449,8 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       const c = store.getCandidate(key);
       if (!c) return fail("not found", 404);
       if (engine.hasAliveRun(key)) return fail("run-already-active", 409);   // 评审 R1-5：先于闸门校验
-      if (c.stage !== "gating") return fail("gate-requires-gating", 409);
+      if (c.type !== "issue") return fail("engine-issue-only", 409);   // 收敛 M2 Task 10（ADR-0003）：引擎只服务 issue，不动候选即拒
+      if (!["gating", "triaged"].includes(c.stage)) return fail("gate-requires-gating", 409);   // 收敛 M2 Task 11：已分诊可直接开工
       const templateId = body?.templateId ?? null;
       const tpl = resolveStartTpl(templateId);
       if (!tpl) return fail("unknown-template: " + templateId, 404);   // 早守卫：不动候选即拒
@@ -472,7 +485,11 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       if (another && c.gates?.G1?.decision !== "pass") return fail("gate-requires-gating", 409);
       const engineBusy = engine ? engine.hasAliveRun(key) : false;
       if (engineBusy && (!another || managed)) return fail("run-already-active", 409);
-      if (!another && c.stage !== "gating") return fail("gate-requires-gating", 409);
+      if (!another && !["gating", "triaged"].includes(c.stage)) return fail("gate-requires-gating", 409);   // 收敛 M2 Task 11：已分诊可直接开工
+      // 收敛 M2 Task 13：显式目录存在性早守卫（零记账）——stat 抛错＝不存在；返回对象但非目录＝拒绝；返回 null＝未知，照旧放行。
+      let cwdOk = true;
+      if (cwdIn) { try { const st = stat?.(cwdIn); cwdOk = st ? Boolean(st.isDirectory?.()) : true; } catch { cwdOk = false; } }
+      if (!cwdOk) return fail("workspace-not-found", 422);
       let cwd = cwdIn;
       if (!cwd) {
         if (managed) {
@@ -495,6 +512,7 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
         // 托管默认克隆：会话头目录取会话根目录（归「DSH Loop Forge」），工具目录仍是托管目录（design-v2 §20 第 14 条）。
         const headerCwd = managed && !cwdIn ? sessionRoot : undefined;
         const out = await startWork({ store, lang: body?.lang === "en" ? "en" : "zh-CN", now }, { key, cwd, another, pkg, ...(headerCwd ? { headerCwd } : {}) });
+        if (out && !out.reused) store.setWorkDir(c.repo, managed && !cwdIn ? "managed" : cwd);   // 收敛 M2 Task 13：按仓库记住目录
         return { ok: true, sessionId: out.sessionId, reused: out.reused, taskPackage: out.reused ? null : pkg };
       } catch (e) { return fail(String(e?.code ?? e?.message ?? e), e?.status ?? 500); }
     },
@@ -507,7 +525,7 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       if (!cwd || !cwd.startsWith("/")) return fail("invalid-path", 400);
       let exists = false;
       try { exists = Boolean(stat?.(cwd)?.isDirectory?.()); } catch { exists = false; }
-      if (!exists) return { exists: false, isRepo: false, dirty: false, branch: null };
+      if (!exists) return { exists: false, isRepo: false, dirty: false, branch: null, workspaceTitle: null };
       let isRepo = false;
       let dirty = false;
       let branch = null;
@@ -517,7 +535,18 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
         try { const po = await execFile("git", ["-C", cwd, "status", "--porcelain"]); dirty = String(po.stdout ?? "").trim() !== ""; } catch {}
         try { const bo = await execFile("git", ["-C", cwd, "rev-parse", "--abbrev-ref", "HEAD"]); branch = String(bo.stdout ?? "").trim() || null; } catch {}
       } catch {}
-      return { exists: true, isRepo, dirty, branch };
+      return { exists: true, isRepo, dirty, branch, workspaceTitle: await workspaceTitleOf(cwd) ?? null };   // 收敛 M2 Task 13：会话将出现在哪
+    },
+    // 收敛 M2 Task 13：本地默认检出是否命中及其宿主工作区名（选择器去向提示）。GET + repo 查询串。
+    async getWorkDefaultDir(_body, req) {
+      const gate = requireAuth(); if (gate) return gate;
+      let repo = null;
+      try { repo = new URL(req?.url ?? "/", "http://local").searchParams.get("repo"); } catch { repo = null; }
+      if (typeof repo !== "string" || !REPO_RE.test(repo)) return fail("invalid repo");
+      const cwd = resolveLocalDir ? resolveLocalDir(repo) : null;
+      let exists = false;
+      try { exists = Boolean(cwd && stat?.(cwd)?.isDirectory?.()); } catch { exists = false; }
+      return { repo, cwd: cwd ?? null, exists, workspaceTitle: cwd ? await workspaceTitleOf(cwd) ?? null : null };
     },
     async postRunGate(body) {
       if (!engine) return fail("engine-not-wired", 503);

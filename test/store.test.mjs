@@ -332,3 +332,30 @@ test("workSessions：缺候选 404；持久化重开读回；候选不存在时 
   assert.equal(reopened.getWorkSession(key).sessionId, "dsh-l:work-c");
   assert.equal(reopened.getWorkSession(candidateKey("iasiv5/dsh-skins", "issue", 99)), null);
 });
+
+test("setDelivery：合并写入、留痕、持久化", () => {
+  const filePath = join(mkdtempSync(join(tmpdir(), "dsh-l-")), "store.json");
+  const s = createStore({ filePath, now: () => new Date("2026-11-23T00:00:00Z") });
+  s.upsertCandidates([raw(3)]);
+  const key = candidateKey("iasiv5/dsh-skins", "issue", 3);
+  assert.equal(s.getCandidate(key).delivery, null);
+  s.setDelivery(key, { prNumber: 81, prUrl: "https://github.com/iasiv5/dsh-skins/pull/81", merged: false, mergedAt: null }, "delivery.pr");
+  assert.deepEqual(s.getCandidate(key).delivery, { prNumber: 81, prUrl: "https://github.com/iasiv5/dsh-skins/pull/81", merged: false, mergedAt: null });
+  s.setDelivery(key, { merged: true, mergedAt: "2026-11-24T00:00:00Z" }, "delivery.merged");   // 合并写：其余字段保留
+  assert.deepEqual(s.getCandidate(key).delivery, { prNumber: 81, prUrl: "https://github.com/iasiv5/dsh-skins/pull/81", merged: true, mergedAt: "2026-11-24T00:00:00Z" });
+  assert.deepEqual(s.getCandidate(key).history.slice(-2).map((h) => h.event), ["delivery.pr", "delivery.merged"]);
+  assert.equal(createStore({ filePath }).getCandidate(key).delivery.merged, true);   // 落盘可读回
+  assert.throws(() => s.setDelivery("o/r#issue#404", { merged: true }), /not found/);
+});
+
+test("workDirs：新档缺省空对象；setWorkDir 写入并持久化；旧档回填", () => {
+  const filePath = join(mkdtempSync(join(tmpdir(), "dsh-l-")), "store.json");
+  const s = createStore({ filePath });
+  assert.deepEqual(s.getSettings().workDirs, {});
+  s.setWorkDir("iasiv5/dsh-m", "/home/u/workspace/dsh-m");
+  assert.deepEqual(s.getSettings().workDirs, { "iasiv5/dsh-m": "/home/u/workspace/dsh-m" });
+  assert.deepEqual(createStore({ filePath }).getSettings().workDirs, { "iasiv5/dsh-m": "/home/u/workspace/dsh-m" });   // 落盘可读回
+  const legacy = join(mkdtempSync(join(tmpdir(), "dsh-l-")), "store.json");
+  writeFileSync(legacy, JSON.stringify({ version: 3, runs: {}, roles: {}, watch: { repos: [] }, candidates: {}, snapshots: {}, repos: {}, ingestLog: [], settings: { intervalMinutes: 0 }, auth: {}, credential: {} }));
+  assert.deepEqual(createStore({ filePath: legacy }).getSettings().workDirs, {});   // 旧档（无 workDirs 键）回填
+});

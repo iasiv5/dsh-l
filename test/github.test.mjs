@@ -372,3 +372,13 @@ test("ghInstall：latest release → 下载 → tar 解包 → 移动 destFile�
   assert.ok(fsMod.existsSync(destFile));
   assert.ok(calls[1].includes("/cli/cli/releases/download/v2.99.0/gh_2.99.0_linux_amd64.tar.gz"));
 });
+
+test("getPr：映射 number/state/mergedAt/htmlUrl/headRef；非 2xx 抛带路径的错误", async () => {
+  const { f, calls } = fetchPages({ ok: true, status: 200, json: async () => ({ number: 81, state: "MERGED", merged_at: "2026-11-24T00:00:00Z", html_url: "https://github.com/o/r/pull/81", head: { ref: "b" } }) });
+  const pr = await github.getPr({ repo: "o/r", number: 81, token: "tk", fetch: f });
+  assert.deepEqual(pr, { number: 81, state: "MERGED", mergedAt: "2026-11-24T00:00:00Z", htmlUrl: "https://github.com/o/r/pull/81", headRef: "b" });
+  assert.match(calls[0].url, /\/repos\/o\/r\/pulls\/81$/);
+  assert.equal(calls[0].init.headers.authorization, "Bearer tk", "带凭据（与 getRepo 同款）");
+  const bad = fetchPages({ ok: false, status: 404, json: async () => ({}) });
+  await assert.rejects(github.getPr({ repo: "o/x", number: 1, token: null, fetch: bad.f }), /github api 404 for \/repos\/o\/x\/pulls\/1/);
+});

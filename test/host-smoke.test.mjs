@@ -213,3 +213,25 @@ test("host 冒烟⑦：分诊会话端到端——标题「分诊 · 1 条」→
     assert.deepEqual(f.calls.archive.map(([id, o]) => [id.startsWith("dsh-l-triage-"), o]), [[true, { stopActivity: true }]]);
   } finally { restore(); }
 });
+
+test("host 冒烟⑧：work/default-dir 路由在位；getState.paths；workspaceTitleOf 与 resolveLocalDir 装配（ctx.get 桩）", async () => {
+  const restore = setupEnv();
+  try {
+    const { ctx } = stubCtxCapture();
+    const registry = {
+      create: async () => {},
+      resolveByPath: async (p) => (p.endsWith("/workspaces") ? { title: "DSH Loop Forge", attachSession: async () => {} } : undefined),
+      archiveSession: async () => {},
+    };
+    ctx.get = (name) => ({ workspaceRegistry: registry })[name];
+    const rt = buildRuntime(ctx, {});
+    assert.equal(typeof rt.table["/dsh-l/work/default-dir"]?.GET, "function", "路由在位");
+    rt.store.setAuth({ account: "o", login: "o" });
+    const st = await rt.handlers.getState();
+    assert.deepEqual(st.paths, { dataDir: rt.dir, workspacesDir: join(rt.dir, "workspaces") });
+    const ws = await rt.handlers.getWorkspaceStatus(null, { url: "/dsh-l/work/workspace-status?cwd=" + encodeURIComponent(join(rt.dir, "workspaces")) });
+    assert.equal(ws.workspaceTitle, "DSH Loop Forge");   // workspaceTitleOf 经 ctx.get 的注册表解析
+    const dd = await rt.handlers.getWorkDefaultDir(null, { url: "/dsh-l/work/default-dir?repo=o/zz-no-such-repo-9f3" });
+    assert.deepEqual([dd.repo, dd.cwd, dd.exists, dd.workspaceTitle], ["o/zz-no-such-repo-9f3", null, false, null]);   // resolveLocalDir 装配（机器无关的未命中）
+  } finally { restore(); }
+});

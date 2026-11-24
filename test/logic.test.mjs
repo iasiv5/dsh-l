@@ -148,16 +148,14 @@ test("badgeLabel：计数前缀格式（i18n 模板注入，logic 层零 i18n �
   assert.equal(badgeLabel({ count: 0, label: "DSH Loop Forge", template: "待确认 ({n})" }), "DSH Loop Forge");
 });
 
-// ---- 开工路径引导（disc 评审 Task 2）：shouldShowStartHint 三态 ----
-test("shouldShowStartHint：绑定+有候选+无gating → true；有gating → false；未绑定/空清单 → false", async () => {
-  const { shouldShowStartHint } = await import("../src/client/logic.mjs");
-  const mk = (stage) => ({ stage });
-  const base = { auth: { account: "o" }, candidates: [mk("inbox"), mk("closed")] };
-  assert.equal(shouldShowStartHint(base), true);
-  assert.equal(shouldShowStartHint({ ...base, candidates: [mk("gating")] }), false);
-  assert.equal(shouldShowStartHint({ auth: {}, candidates: [mk("inbox")] }), false);
-  assert.equal(shouldShowStartHint({ auth: { account: "o" }, candidates: [] }), false);
-  assert.equal(shouldShowStartHint({}), false);
+// ---- 开工可见性（design-v2 §20 第 19、28 条）：可开工阶段 = gating 或 triaged；引导文案随「待拍板」退场一并删除 ----
+// 新导出用动态导入引入（实施计划 Task 6 硬规则）：红态下符号为 undefined，红落在调用行。
+test("startable：gating 与 triaged 为真，其余为假", async () => {
+  const { startable } = await import("../src/client/logic.mjs");
+  assert.equal(startable({ stage: "gating" }), true);
+  assert.equal(startable({ stage: "triaged" }), true);
+  for (const st of ["inbox", "building", "verifying", "shipped", "held", "closed"]) assert.equal(startable({ stage: st }), false, st);
+  assert.equal(startable(null), false);
 });
 
 // ---- P0 UI/UX 升级纯函数（docs/plans/2026-11-22-p0-uiux-upgrade-implementation-plan.md Task 3）----
@@ -330,4 +328,11 @@ test("stalledOf 档位 + STALL_MS 常量（P2 Task 6）", async () => {
   assert.equal(stalledOf(now - 16 * 60_000, now), true, "超阈值 true");
   assert.equal(stalledOf(undefined, now), false, "非法 false");
   assert.equal(stalledOf(now + 5_000, now), false, "未来时间 false");
+});
+
+test("runDirName：与 workspace.sanitizeKey 同构（o/r#issue#1 → o_r_issue_1）", async () => {
+  const { runDirName } = await import("../src/client/logic.mjs");   // 新导出用动态导入（Task 6 硬规则）
+  assert.equal(runDirName("o/r#issue#1"), "o_r_issue_1");
+  assert.equal(runDirName("iasiv5/dsh-m#pull#80"), "iasiv5_dsh-m_pull_80");
+  assert.equal(runDirName(null), "");
 });

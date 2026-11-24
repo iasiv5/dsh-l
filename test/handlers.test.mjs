@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createStore } from "../src/store.mjs";
@@ -92,7 +92,7 @@ test("postOverride：人工推翻分诊 by=human，非法值拒绝", async () =>
   assert.equal((await h.postOverride({ key: "o/r#issue#1", validity: "x", urgency: "P0", action: "start" })).error, "invalid triage");
 });
 
-test("闸门：G1 仅 gating 可放行；pass→building+任务包；reject→triaged；G2/G3 409", async () => {
+test("闸门：G1 在 gating 或 triaged 可放行；pass→building+任务包；reject→triaged；G2/G3 409", async () => {
   const store = openStore(); seed(store);
   const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
   const early = await h.postGate({ key: "o/r#issue#1", gate: "G1", decision: "pass" });
@@ -105,6 +105,12 @@ test("闸门：G1 仅 gating 可放行；pass→building+任务包；reject→tr
   assert.equal(r.taskPackage.repo.defaultBranch, "trunk");
   assert.equal(store.getCandidate("o/r#issue#1").stage, "building");
   assert.equal((await h.postGate({ key: "o/r#issue#1", gate: "G2", decision: "pass" })).status, 409);
+  // 收敛 M2 Task 11：已分诊不经迁移可直接放行（取消执行后回已分诊，可再次开工）
+  seed(store, 3);
+  await h.postStage({ key: "o/r#issue#3", stage: "triaged" });
+  const r3 = await h.postGate({ key: "o/r#issue#3", gate: "G1", decision: "pass", note: "" });
+  assert.equal(r3.taskPackage.kind, "dsh-l.task-package");
+  assert.equal(store.getCandidate("o/r#issue#3").stage, "building");
   seed(store, 2);
   await h.postStage({ key: "o/r#issue#2", stage: "gating" });
   await h.postGate({ key: "o/r#issue#2", gate: "G1", decision: "reject", note: "不做" });
@@ -159,6 +165,32 @@ test("postRefresh：上游已关闭候选回收 + ingestLog 落痕 + state 可�
   assert.equal(log.length, 2);
   assert.deepEqual(log.at(-1).failedRepos, []);
   assert.equal(log.at(-1).closed, 1);
+});
+
+test("postRefresh：该仓已记交付的 PR 不并入候选，total 不含它", async () => {
+  const store = openStore(); login(store);
+  store.setWatch(["o/good"]);
+  store.upsertCandidates([{ repo: "o/good", type: "issue", number: 1, title: "t", author: "a", labels: [], createdAt: "2026-11-01T00:00:00Z", updatedAt: "T", url: "U", meta: {}, pull: null, bodyExcerpt: "" }]);
+  store.setDelivery("o/good#issue#1", { prNumber: 81, prUrl: "https://github.com/o/good/pull/81", merged: false, mergedAt: null }, "delivery.pr");
+  const provider = PROVIDER();
+  provider.listOpenPulls = async ({ repo }) => [{ repo, type: "pull", number: 81, title: "pr", author: "a", labels: [], createdAt: "2026-11-01T00:00:00Z", updatedAt: "T", url: "U", meta: {}, pull: { draft: false, headRef: "b" }, bodyExcerpt: "" }];
+  provider.getPr = async () => ({ number: 81, state: "OPEN", mergedAt: null, htmlUrl: "https://github.com/o/good/pull/81", headRef: "b" });
+  const r = await makeHandlers({ store, provider, triage: noTriage }).postRefresh();
+  assert.equal(r.total, 1);   // 只有 issue#1；PR#81 是它的交付，不成为候选
+  assert.equal(store.getCandidate("o/good#pull#81"), null);
+  assert.equal(store.getCandidate("o/good#issue#1").delivery.merged, false);
+});
+
+test("postRefresh：未合并的交付 PR 已合并 → delivery.merged 回填", async () => {
+  const store = openStore(); login(store);
+  store.setWatch(["o/good"]);
+  store.upsertCandidates([{ repo: "o/good", type: "issue", number: 1, title: "t", author: "a", labels: [], createdAt: "2026-11-01T00:00:00Z", updatedAt: "T", url: "U", meta: {}, pull: null, bodyExcerpt: "" }]);
+  store.setDelivery("o/good#issue#1", { prNumber: 81, prUrl: "https://github.com/o/good/pull/81", merged: false, mergedAt: null }, "delivery.pr");
+  const provider = PROVIDER();
+  provider.getPr = async ({ number }) => (number === 81 ? { number, state: "MERGED", mergedAt: "2026-11-24T00:00:00Z", htmlUrl: "https://github.com/o/good/pull/81", headRef: "b" } : null);
+  await makeHandlers({ store, provider, triage: noTriage }).postRefresh();
+  assert.deepEqual(store.getCandidate("o/good#issue#1").delivery, { prNumber: 81, prUrl: "https://github.com/o/good/pull/81", merged: true, mergedAt: "2026-11-24T00:00:00Z" });
+  assert.equal(store.getCandidate("o/good#issue#1").history.at(-1).event, "delivery.merged");
 });
 
 test("postTriage 失败：502 透传且候选留原阶段、history 记 triage.error", async () => {
@@ -729,7 +761,7 @@ test("run 路由：start 链/409/gate/cancel/retry/engine 缺省 503", async () 
   await drainRun();
   assert.equal((await h.postRunRetry({ runId: r.runId, nodeId: "deliver" })).error, "retry-requires-failed-or-cancelled");   // 评审 R2-2
   assert.equal((await h.postRunCancel({ runId: r.runId, reason: "test" })).ok, true);
-  assert.equal(store.getCandidate("o/r#issue#1").stage, "gating");
+  assert.equal(store.getCandidate("o/r#issue#1").stage, "triaged");   // 收敛 M2 Task 11：取消后回已分诊
   const noEngine = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
   assert.equal((await noEngine.postRunStart({ key: "o/r#issue#1" })).error, "engine-not-wired");
 });
@@ -949,6 +981,22 @@ test("postWorkStart：managed 通道 → startWork 收 headerCwd = sessionRoot�
   assert.equal("headerCwd" in sw2._calls[0].params, false);
 });
 
+test("postRunStart / postGate：PR 候选 G1 pass → 409 engine-issue-only，零记账零 run", async () => {
+  const store = openStore(); login(store);
+  store.upsertCandidates([{ repo: "o/r", type: "pull", number: 9, title: "pr", author: "a", labels: [], createdAt: "2026-11-01T00:00:00Z", updatedAt: "T", url: "U", meta: {}, pull: { draft: false, headRef: "b" }, bodyExcerpt: "" }]);
+  await store.setStage("o/r#pull#9", "gating", "");
+  let starts = 0;
+  // postRunStart 在守卫之前先调 hasAliveRun——桩必须带它（评审 R3-03）
+  const engine = { hasAliveRun: () => false, startRun: () => { starts++; return { runId: "run-x" }; } };
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine });
+  const r1 = await h.postRunStart({ key: "o/r#pull#9" });
+  assert.deepEqual([r1.error, r1.status], ["engine-issue-only", 409]);
+  const r2 = await h.postGate({ key: "o/r#pull#9", gate: "G1", decision: "pass" });
+  assert.deepEqual([r2.error, r2.status], ["engine-issue-only", 409]);
+  const c = store.getCandidate("o/r#pull#9");
+  assert.equal(c.stage, "gating"); assert.equal(c.gates.G1, null); assert.equal(starts, 0);
+});
+
 test("postWorkStart：another+managed+引擎活跃 → 409；another+local+引擎活跃 → 放行", async () => {
   const store = openStore(); login(store); seed(store);
   store.setRepoFacts("o/r", { defaultBranch: "trunk", cloneUrl: "git@github.com:o/r.git" });
@@ -1040,11 +1088,11 @@ test("workspace-status：repo+dirty+branch / 非 repo / 不存在 / 相对路径
   const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, execFile: wsExec({ dirty: true, branch: "dev" }), stat: () => ({ isDirectory: () => true }), home: wsHome() });
   const req = (q) => ({ url: "/dsh-l/work/workspace-status" + q });
   const dirty = await h.getWorkspaceStatus(null, req("?cwd=%2Fw%2Fdir"));
-  assert.deepEqual(dirty, { exists: true, isRepo: true, dirty: true, branch: "dev" });
+  assert.deepEqual(dirty, { exists: true, isRepo: true, dirty: true, branch: "dev", workspaceTitle: null });   // 收敛 M2 Task 13：响应增 workspaceTitle
   const clean = await h.getWorkspaceStatus(null, req("?cwd=%2Fw%2Fdir"));
   assert.equal(clean.dirty, true);
   const noRepo = await makeHandlers({ store, provider: PROVIDER(), triage: noTriage, execFile: wsExec({ notRepo: true }), stat: () => ({ isDirectory: () => true }) }).getWorkspaceStatus(null, req("?cwd=%2Fw%2Fx"));
-  assert.deepEqual(noRepo, { exists: true, isRepo: false, dirty: false, branch: null });
+  assert.deepEqual(noRepo, { exists: true, isRepo: false, dirty: false, branch: null, workspaceTitle: null });
   const gone = await makeHandlers({ store, provider: PROVIDER(), triage: noTriage, execFile: wsExec(), stat: () => { throw new Error("ENOENT"); } }).getWorkspaceStatus(null, req("?cwd=%2Fgone"));
   assert.equal(gone.exists, false);
   const rel = await h.getWorkspaceStatus(null, req("?cwd=relative%2Fpath"));
@@ -1119,4 +1167,66 @@ test("postTriage confidence 透传 + 缺失率日志（P2 Task 8）", async () =
     assert.equal(infos.length, 1, "缺失率日志一次（S1）");
     assert.ok(infos[0].includes("1/2"), "缺失计数 1/2");
   } finally { console.info = origInfo; }
+});
+
+// ---- 收敛 M2 Task 13：目录记忆与选择器去向提示（design-v2 §20 第 13、14、28 条） ----
+
+test("postWorkStart：显式 cwd 不存在 → 422 workspace-not-found，零记账（stat 抛错或非目录）；stat 返回 null 照旧放行", async () => {
+  const store = openStore(); login(store); seed(store);
+  await store.setStage("o/r#issue#1", "gating", "");
+  const mkh = (stat) => makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine: { hasAliveRun: () => false }, startWork: fakeStartWork(), home: wsHome(), stat });
+  const gone = await mkh(() => { throw new Error("ENOENT"); }).postWorkStart({ key: "o/r#issue#1", cwd: "/gone/dir" });
+  assert.deepEqual([gone.error, gone.status], ["workspace-not-found", 422]);
+  const notDir = await mkh(() => ({ isDirectory: () => false })).postWorkStart({ key: "o/r#issue#1", cwd: "/file.txt" });
+  assert.deepEqual([notDir.error, notDir.status], ["workspace-not-found", 422]);
+  assert.equal(store.getCandidate("o/r#issue#1").stage, "gating");
+  assert.equal(store.getWorkSession("o/r#issue#1"), null);
+  assert.equal(store.getSettings().workDirs?.["o/r"], undefined);
+  const ok = await mkh(() => null).postWorkStart({ key: "o/r#issue#1", cwd: "/w" });   // 未知（null）照旧放行——既有夹具形态
+  assert.equal(ok.ok, true);
+});
+
+test("postWorkStart：fresh 成功后按仓库记住目录（本地默认记解析后的真实目录；显式目录记该目录）", async () => {
+  const store = openStore(); login(store); seed(store); seed(store, 2);
+  await store.setStage("o/r#issue#1", "gating", "");
+  await store.setStage("o/r#issue#2", "gating", "");
+  const home = wsHome();
+  mkdirSync(join(home, "workspace", "r"), { recursive: true });
+  const mkh = () => makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine: { hasAliveRun: () => false }, startWork: fakeStartWork(), home, stat: () => ({ isDirectory: () => true }) });
+  assert.equal((await mkh().postWorkStart({ key: "o/r#issue#1" })).ok, true);   // 本地默认：服务端解析 ~/workspace/r
+  assert.equal(store.getSettings().workDirs["o/r"], join(home, "workspace", "r"));
+  assert.equal((await mkh().postWorkStart({ key: "o/r#issue#2", cwd: "/picked" })).ok, true);
+  assert.equal(store.getSettings().workDirs["o/r"], "/picked");   // 同仓后一次选择覆盖前一次
+});
+
+test("postWorkStart：managed 成功后记住 \"managed\"", async () => {
+  const store = openStore(); login(store); seed(store);
+  await store.setStage("o/r#issue#1", "gating", "");
+  const workspace = { ensure: async () => ({ dir: "/managed/dir" }) };
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine: { hasAliveRun: () => false }, startWork: fakeStartWork(), workspace, home: wsHome(), stat: () => null, sessionRoot: "/data/workspaces" });
+  assert.equal((await h.postWorkStart({ key: "o/r#issue#1", workspace: "managed" })).ok, true);
+  assert.equal(store.getSettings().workDirs["o/r"], "managed");
+});
+
+test("getWorkDefaultDir：命中 → cwd 与 workspaceTitle；未命中 → cwd null；非法 repo → 400；未登录 401", async () => {
+  const store = openStore();
+  const home = wsHome();
+  const mkh = () => makeHandlers({ store, provider: PROVIDER(), triage: noTriage, home, stat: () => ({ isDirectory: () => true }), resolveLocalDir: (repo) => (repo === "o/r" ? join(home, "workspace", "r") : null), workspaceTitleOf: async (cwd) => (cwd.endsWith("/r") ? "r" : null) });
+  assert.equal((await mkh().getWorkDefaultDir(null, { url: "/dsh-l/work/default-dir?repo=o/r" })).error, "auth-required");
+  login(store);
+  assert.deepEqual(await mkh().getWorkDefaultDir(null, { url: "/dsh-l/work/default-dir?repo=o/r" }), { repo: "o/r", cwd: join(home, "workspace", "r"), exists: true, workspaceTitle: "r" });
+  assert.deepEqual(await mkh().getWorkDefaultDir(null, { url: "/dsh-l/work/default-dir?repo=o/none" }), { repo: "o/none", cwd: null, exists: false, workspaceTitle: null });
+  assert.equal((await mkh().getWorkDefaultDir(null, { url: "/dsh-l/work/default-dir?repo=bad" })).error, "invalid repo");
+});
+
+test("getWorkspaceStatus：响应带 workspaceTitle（注入 workspaceTitleOf；未注入为 null）", async () => {
+  const store = openStore(); login(store);
+  const home = wsHome();
+  const url = "/dsh-l/work/workspace-status?cwd=" + encodeURIComponent(home);
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, home, stat: () => ({ isDirectory: () => true }), workspaceTitleOf: async (cwd) => (cwd === home ? "dsh-m" : null) });
+  const r = await h.getWorkspaceStatus(null, { url });
+  assert.equal(r.exists, true);
+  assert.equal(r.workspaceTitle, "dsh-m");
+  const h2 = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, home, stat: () => ({ isDirectory: () => true }) });
+  assert.equal((await h2.getWorkspaceStatus(null, { url })).workspaceTitle, null);
 });

@@ -315,3 +315,14 @@ test("composeWorkWorld：settings 支持函数形态——store.getSettings 引�
   assert.equal(c2.meta.agentPreset, "p2", "函数形态下读到替换后的新 settings");
   assert.deepEqual(svc._ops.filter((o) => o[0] === "policy").at(-1)[1], "never");
 });
+
+test("buildKickoff：PR 候选含 PR 分支行与 gh pr checkout <n>；issue 候选不含", () => {
+  const pr = { ...candidate(), type: "pull", number: 80, pull: { draft: false, headRef: "devin/security-model" } };
+  const zh = buildKickoff(pr, pkg(), "zh-CN");
+  assert.ok(zh.includes("PR 分支：devin/security-model"), "PR 分支行");
+  assert.ok(zh.includes("gh pr checkout 80"), "gh pr checkout");
+  assert.ok(zh.includes("工作台不会替你切换分支"), "不替用户切分支");
+  const en = buildKickoff(pr, pkg(), "en");
+  assert.ok(en.includes("PR branch: devin/security-model") && en.includes("gh pr checkout 80"), "en");
+  assert.ok(!buildKickoff(candidate(), pkg(), "zh-CN").includes("PR 分支"), "issue 候选不含");
+});

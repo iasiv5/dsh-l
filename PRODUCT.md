@@ -35,7 +35,7 @@ DSH Loop Forge（dsh-l）：DeepSeek Harness 的侧栏工作台插件。把你�
 
 - 三道闸门（G1 开工前 / G2 交付前 / G3 发版前）永远人工放行；G3 永久人工（npm 发版不可撤）。落点：G1=环首 gate 节点、G2=环内交付前 gate 节点、G3=环外收尾闸（放行=人工确认已发版留痕，dsh-l 不代跑发版）。
 - 分诊结果是建议，v1 绝不自动触发任何下游动作。
-- 开工会话（G1 放行第二出口）：交给用户亲自开工的普通 DSH 会话，官方会话系统全权承载，dsh-l 只留索引与导航；三红线 = cwd 成对设置且先于首条消息、已登记会话零 dispose、未配置审批策略零 setPolicy。
+- 开工会话（开工两模式之一；另一模式是自动执行，仅 issue 候选）：交给用户亲自开工的普通 DSH 会话，官方会话系统全权承载，dsh-l 只留索引与导航；三红线 = cwd 成对设置且先于首条消息、已登记会话零 dispose、未配置审批策略零 setPolicy。
 - 收活闸门：未绑定 GitHub 账号前，仓库勾选与摄取一律 401 拒绝；进入工作台前另有三关强制门禁，全绿才放行。退出只解绑工作台，不动本机 gh 登录态。
 - GitHub only（v1）；provider 接口预留 GitLab 适配位。gh-as-source（2026-11-20 翻案，替代 2026-11-19 自持案）：授权 token 只存 gh 凭据库，工作台 store.json credential 块只落元数据（source/scopes/verifiedAt/healthy/ghWrittenAt，store 版本 3 迁移剥离旧 token）；resolveToken 链 = credentials 引用覆写 → gh auth token。授权路径：CTA「连接 GitHub」设备流（gh 未装 409 拒绝发起）/ 辅助行「使用访问令牌」（verify-before-handoff：校验 → 强制移交 gh → 元数据落库，移交失败 502 不落库）；凭据可重新校验、更换、删除（gh logout 需显式勾选且限工作台自建登录）。限流（403/429）不误伤凭据健康、仅 401 置失效；摄取全量 ETag + 每刷新 60 请求预算。
 - 中英双语：接宿主 locale 服务 + zh-CN / en 双字典，无私有语言开关；分诊理由语言跟随界面语言。

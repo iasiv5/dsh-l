@@ -1,5 +1,5 @@
 import { makeT } from "../i18n.mjs";
-import { groupCandidates, filterCandidates, needsReview, shouldShowStartHint, runBlock, facetCounts, loadPins, savePins, makePinId } from "../logic.mjs";
+import { groupCandidates, filterCandidates, needsReview, runBlock, facetCounts, loadPins, savePins, makePinId } from "../logic.mjs";
 import { api } from "../api.mjs";
 import { badge } from "../badge.mjs";
 import { renderRow } from "./candidateRow.mjs";
@@ -195,12 +195,13 @@ const CSS = [
     ".stage-chips{display:flex;gap:8px;overflow-x:auto}",
     ".stage-chips button{min-height:44px;flex:0 0 auto}",
     ".override-box{border:1px solid color-mix(in srgb,currentColor 14%,transparent);border-radius:8px;padding:6px 10px}",
+    ".wtip{font-size:12px;opacity:.75}",
+    ".autorun{display:flex;flex-direction:column;gap:6px;padding:8px 10px;margin:6px 0;border:1px solid color-mix(in srgb,currentColor 18%,transparent);border-radius:8px}",
     ".override-box summary{cursor:pointer;min-height:44px;display:flex;align-items:center}",
     ".ux-wide{display:none}",
   "}",
   ".ux-narrow{display:none}",
   ".ux-chev{display:none}",
-  ".start-hint{font-size:13px;opacity:.75;margin:2px 16px 0}",
   /* ── P1-1 键盘游标高亮（fine pointer 语义，不进 coarse 层）── */
   ".knav-cursor{background:color-mix(in srgb,currentColor 8%,transparent)}",
   /* ── P0-2 六态色标 token（小面积点，Host-Theme Rule 合规；唯一新固定色 #4493f8 = unread 蓝）── */
@@ -517,7 +518,6 @@ export function mountWorkbench(shadow, { getLang, build, extend, deps = {}, stor
     // 板块二：分诊与拍板 —— 工作流条 + 过滤条 + 阶段分组列表。
     const triage = el("section", "triage");
     triage.append(el("h3", null, t("sections.triage")));
-    if (shouldShowStartHint(state ?? {})) triage.append(el("div", "start-hint", t("work.startHint")));
     triage.append(strip, bar);
     // P1-7 批量栏（B4 收尾语义）：全成 → 清勾选 + reload；部分失败 → 不 reload、汇总 notice、失败键保留勾选
     if (selectedKeys.size > 0) {

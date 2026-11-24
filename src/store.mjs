@@ -82,6 +82,7 @@ export function createStore({ filePath, now = () => new Date() }) {
   doc.settings.workspaceRetentionDays ??= 7;        // design-v2 §5：工作区保留期
   doc.settings.workSessionModel ??= null;           // 开工会话（Work Session）：显式模型覆盖，null=宿主默认
   doc.settings.workSessionPreset ??= null;          // 开工会话 agent preset，null=部署默认
+  doc.settings.workDirs ??= {};                    // 收敛 M2 Task 13：按仓库记住的开工目录（repo → 目录 | "managed"）
   doc.settings.workSessionApprovalPolicy ??= null;  // 开工会话初始审批策略，null=宿主部署默认（零 setPolicy）
   doc.workSessions ??= {};                          // 开工会话索引：candidateKey → 行数组（末位=活跃）
   const need = (key) => {
@@ -142,6 +143,8 @@ export function createStore({ filePath, now = () => new Date() }) {
     },
     getSettings: () => doc.settings,
     setSettings(patch) { doc.settings = { ...doc.settings, ...patch }; persist(); },
+    // 开工目录记忆（design-v2 §20 第 13 条）：postWorkStart 成功后按仓库写入。
+    setWorkDir(repo, cwd) { (doc.settings.workDirs ??= {})[repo] = cwd; persist(); },
     // 开工会话索引（GLOSSARY「开工会话」）：append 追加行（末位=活跃）；get 取末位或 null（候选不存在不炸——
     // 读路径无候选校验，写路径 need(key) 404）。
     getWorkSession: (key) => {
@@ -213,6 +216,13 @@ export function createStore({ filePath, now = () => new Date() }) {
       const run = doc.runs[id];
       if (!run) throw Object.assign(new Error("run not found: " + id), { status: 404 });
       (run.sessionLog ??= []).push({ nodeId, sessionId, at: now().toISOString() });
+      persist();
+    },
+    // 交付记在来源候选（design-v2 §20 第 30 条）：引擎为 issue 新开的 PR 不另成候选；合并写并留痕。
+    setDelivery(key, patch, event = "delivery") {
+      const c = need(key);
+      c.delivery = { ...(c.delivery ?? {}), ...patch };
+      touch(c, event, JSON.stringify(patch).slice(0, 120));
       persist();
     },
     // 仓库事实（任务包 repo 块数据源）。

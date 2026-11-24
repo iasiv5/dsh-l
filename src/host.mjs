@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { runTriage } from "./triage.mjs";
 import { resolveAgentSelection } from "./agent-selection.mjs";
-import { composeWorkWorld, startWorkSession } from "./worksession.mjs";
+import { composeWorkWorld, startWorkSession, resolveLocalWorkspace } from "./worksession.mjs";
 import { homedir } from "node:os";
 import { mkdirSync, statSync } from "node:fs";
 import { dataDir } from "./paths.mjs";
@@ -177,6 +177,14 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     stat: (p) => statSync(p),
     workspace,
     sessionRoot,
+    // 收敛 M2 Task 13：选择器去向提示的数据面——本地默认检出解析、宿主工作区名（未登记为 null → 界面显示「未分组」）。
+    paths: { dataDir: dir, workspacesDir: sessionRoot },
+    resolveLocalDir: (repo) => resolveLocalWorkspace(repo, { home: homedir(), stat: (p) => statSync(p) }),
+    workspaceTitleOf: async (cwd) => {
+      const registry = getRegistry(ctx);
+      if (!registry || typeof registry.resolveByPath !== "function") return null;
+      try { return (await registry.resolveByPath(cwd))?.title ?? null; } catch { return null; }
+    },
     // preset 名册（Task 6）：agentPresets.list() 直读，异常降级空名册（UI 只显「跟随部署默认」）。
     listPresets: async () => {
       try { return await ctx.agentPresets.list(); } catch { return []; }
@@ -195,6 +203,7 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     "/dsh-l/run/start": { POST: handlers.postRunStart },
     "/dsh-l/work/start": { POST: handlers.postWorkStart },
     "/dsh-l/work/workspace-status": { GET: handlers.getWorkspaceStatus },
+    "/dsh-l/work/default-dir": { GET: handlers.getWorkDefaultDir },
     "/dsh-l/work/sessions": { GET: handlers.getWorkSessions },
     "/dsh-l/work/deliver": { POST: handlers.postWorkDeliver },
     "/dsh-l/run/gate": { POST: handlers.postRunGate },

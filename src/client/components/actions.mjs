@@ -1,5 +1,5 @@
 import { api } from "../api.mjs";
-import { pickTriageBatch, gateState, settingsPatch, workSessionSettingsPatch, runBlock } from "../logic.mjs";
+import { pickTriageBatch, gateState, settingsPatch, workSessionSettingsPatch, runBlock, startable, runDirName } from "../logic.mjs";
 import { renderRunDetail } from "./runDetail.mjs";
 import { withPending } from "./uiFeedback.mjs";
 import { openRepoPicker } from "./repoPicker.mjs";
@@ -183,9 +183,11 @@ const row = () => { const d = document.createElement("div"); d.style.cssText = "
 const copy = (obj) => navigator.clipboard?.writeText(JSON.stringify(obj, null, 2)).catch(() => {});
 
 // 工作区选择器（Task 8，GLOSSARY「开工会话」工作区三来源）：本地默认（服务端解析）｜选择目录（uiWorkspace
-// pickDirectory + 脏态警示不阻止，评审 Q10）｜托管克隆（workspace:"managed"）。返回 null（取消/本地默认）|
-// "managed" | cwd。confirm 注入可测；活体走原生 confirm。
-export function pickWorkspace(shadow, { t, candidate, ui = {}, status = async () => ({ exists: false, isRepo: false, dirty: false, branch: null }), confirm = (msg) => Boolean(globalThis.confirm?.(msg)) } = {}) {
+// pickDirectory + 脏态警示不阻止，评审 Q10）｜托管克隆（workspace:"managed"）。
+// 返回值（收敛 M2 Task 13）：undefined＝取消或点遮罩，什么都不做；null＝「本地默认检出」（服务端解析目录并写记忆）；
+// "managed"＝托管克隆；字符串＝所选目录。确认框注入可测；活体走原生 confirm。
+// 去向提示（design-v2 §20 第 14、28 条）：三个选项各一行「会话将出现在哪」，未登记的目录显示「未分组」。
+export function pickWorkspace(shadow, { t, candidate, ui = {}, status = async () => ({ exists: false, isRepo: false, dirty: false, branch: null, workspaceTitle: null }), confirm = (msg) => Boolean(globalThis.confirm?.(msg)), defaultDir = null, note: initialNote = null } = {}) {
   return new Promise((resolve) => {
     const overlay = document.createElement("div");
     overlay.style.cssText = "position:absolute;inset:0;z-index:70;display:flex;align-items:flex-start;justify-content:center;padding-top:18vh;background:color-mix(in srgb,canvas 55%,transparent)";
@@ -201,17 +203,31 @@ export function pickWorkspace(shadow, { t, candidate, ui = {}, status = async ()
     sub.textContent = candidate.repo + "#" + candidate.number + " · " + (candidate.title ?? "");
     const note = document.createElement("div");
     note.style.cssText = "font-size:12.5px;display:none";
+    const appears = document.createElement("div");   // 所选目录的去向（脏态确认步骤里与警示行并列）
+    appears.className = "wtip";
+    appears.style.display = "none";
+    const hints = document.createElement("div");   // 三行去向提示
+    const localLine = document.createElement("div");
+    localLine.className = "wtip";
+    const pickLine = document.createElement("div");
+    pickLine.className = "wtip";
+    pickLine.textContent = t("work.appearsPick");
+    const managedLine = document.createElement("div");
+    managedLine.className = "wtip";
+    managedLine.textContent = t("work.appearsManaged");
+    hints.append(localLine, pickLine, managedLine);
     let done = false;
     const finish = (v) => { if (done) return; done = true; overlay.remove(); resolve(v); };
     let currentButtons = [];
     const setButtons = (...bs) => { for (const b of currentButtons) b.remove(); currentButtons = bs; dialog.append(...bs); };
     const showMain = () => {
       note.style.display = "none";
+      appears.style.display = "none";
       setButtons(
         btn(t("work.pickLocal"), () => finish(null)),
         btn(t("work.pickBrowse"), () => { pickDir(); }),
         btn(t("work.pickManaged"), () => finish("managed")),
-        btn(t("work.pickCancel"), () => finish(null)),
+        btn(t("work.pickCancel"), () => finish(undefined)),
       );
     };
     const pickDir = async () => {
@@ -220,32 +236,42 @@ export function pickWorkspace(shadow, { t, candidate, ui = {}, status = async ()
       if (!cwd) { showMain(); return; }
       let st = null;
       try { st = await status(cwd); } catch { st = null; }
+      appears.textContent = t("work.appearsAt").replace("{where}", st?.workspaceTitle ?? t("work.ungrouped"));
+      appears.style.display = "block";
       if (st?.dirty) {
         note.textContent = t("work.dirtyHint") + (st.branch ? " · " + st.branch : "");
         note.style.display = "block";
         setButtons(
           btn(t("work.pickProceed"), async () => {
             let ok = true;
-            try { ok = await confirm(note.textContent); } catch { ok = false; }
-            finish(ok ? cwd : null);
+            try { ok = await confirm(note.textContent + " " + appears.textContent); } catch { ok = false; }
+            finish(ok ? cwd : undefined);
           }),
-          btn(t("work.pickCancel"), () => finish(null)),
+          btn(t("work.pickCancel"), () => finish(undefined)),
         );
       } else {
         finish(cwd);
       }
     };
-    overlay.onclick = (e) => { if (e && e.target === overlay) finish(null); };
-    dialog.append(title, sub, note);
+    overlay.onclick = (e) => { if (e && e.target === overlay) finish(undefined); };
+    dialog.append(title, sub, hints, note, appears);
+    if (initialNote) { note.textContent = initialNote; note.style.display = "block"; }
     overlay.append(dialog);
     shadow.append(overlay);
     showMain();
+    // 本地默认检出的去向异步补上，不阻塞选择（defaultDir = GET /dsh-l/work/default-dir）。
+    Promise.resolve().then(() => defaultDir?.(candidate.repo)).then((r) => {
+      if (done) return;
+      localLine.textContent = r?.exists
+        ? t("work.appearsDefault").replace("{dir}", r.cwd).replace("{where}", r.workspaceTitle ?? t("work.ungrouped"))
+        : t("work.pickLocalFailed");
+    }).catch(() => { if (!done) localLine.textContent = t("work.pickLocalFailed"); });
   });
 }
-
 export function installActions({ getLang, openWorkSession = () => false, pickDirectory = null, sessionsFeed = null, deps = {} } = {}) {
   const a = deps.api ?? api;   // deps seam（计划 §3-10）：覆盖受测路径（rowActions/bar/startAnother），openSettings 等未受测路径维持模块 api
   let lastRuns = [];   // strip 钩子先于行渲染被调（workbench 组装顺序），行内 run 区块由此取 runs 摘要
+  let lastState = null;   // 收敛 M2 Task 13：settings.workDirs（目录记忆）与 paths（确认条执行目录）的数据源
   return {
     // Task 12：会话板块 hooks——openWorkSession（导航）、sessionsFeed（sessions.list 投影）、startAnother（另开）。
     openWorkSession,
@@ -263,6 +289,7 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
     },
     strip(container, { t, state, stagePick, stageFilter }) {
       lastRuns = state?.runs ?? [];   // 评审 R1-15：着色数据源
+      lastState = state ?? null;
       renderStrip(container, { t, candidates: state?.candidates ?? [], workflow: state?.workflow, runs: lastRuns, onStagePick: stagePick, stageFilter });   // P1-6：透传联动回调
     },
     bar(bar, { t, state, filters, view }) {
@@ -320,11 +347,13 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
       const mkOpen = (target) => btn(t("work.openBtn"), () => {
         if (!openWorkSession(c.work.sessionId)) workChip(target, t("work.openPending"));
       });
-      const mkStart = (target) => btn(t("work.startBtn"), () => go(async () => {
-        // Task 8：先弹工作区选择器（M2）——null=取消或本地默认（服务端解析）；"managed"=托管克隆。
-        const pick = await pickWorkspace(view.shadow, { t, candidate: c, ui: { pickDirectory }, status: (cwd) => api.workspaceStatus(cwd) });
-        if (pick === null) return;
-        const anotherFlag = c.gates?.G1?.decision === "pass" && c.stage === "building";
+      // 收敛 M2 Task 13（design-v2 §20 第 13、28 条）：按仓库记住的目录一键直达；首次或目录失效才弹选择器。
+      // 选择器返回值：undefined＝取消；null＝本地默认检出（服务端解析目录并写记忆）；"managed"＝托管克隆；字符串＝所选目录。
+      const pickOpts = (extra = {}) => ({ t, candidate: c, ui: { pickDirectory }, status: (cwd) => api.workspaceStatus(cwd), defaultDir: (repo) => a.workDefaultDir(repo), ...extra });
+      // startIn：按选择器返回值分流发起开工（mkStart 的三条路径与「更多 › 换个目录开工」共用）。
+      const startIn = (target, pick) => async () => {
+        if (pick === undefined) return;
+        const anotherFlag = c.gates?.G1?.decision === "pass" && c.stage === "building";   // 重试态：靠 another 过 stage 守卫
         const r = pick === "managed"
           ? await a.workStart(c.key, null, anotherFlag, lang, "managed")
           : await a.workStart(c.key, pick, anotherFlag, lang);
@@ -333,30 +362,104 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
         } else if (r?.error) {
           workChip(target, t("work.startFailed") + " (" + r.error + ")", true);
         }
+      };
+      const mkStart = (target) => btn(t("work.startBtn"), () => go(async () => {
+        const remembered = lastState?.settings?.workDirs?.[c.repo];
+        if (remembered === "managed") return startIn(target, "managed")();
+        if (typeof remembered === "string" && remembered) {
+          try { return await startIn(target, remembered)(); }
+          catch (e) {
+            if (String(e?.message ?? e) !== "workspace-not-found") throw e;   // 记住的目录已不存在 → 回落选择器并说明
+            return startIn(target, await pickWorkspace(view.shadow, pickOpts({ note: t("work.dirGone") })))();
+          }
+        }
+        return startIn(target, await pickWorkspace(view.shadow, pickOpts()))();
       }));
-      const mkG1Pair = () => [
-        btn("G1 " + t("gates.G1") + " · " + t("actions.pass"), () => go(async () => { const r = await a.gate(c.key, "G1", "pass", ""); if (r.taskPackage) await copy(r.taskPackage); }), !g.G1),
-        btn("G1 · " + t("actions.reject"), () => go(() => a.gate(c.key, "G1", "reject", "")), !g.G1),
-      ];
+      // 「开工」按钮下的小字：记住的目录 / 托管克隆 / 首次提示。
+      const startDirTip = () => {
+        const remembered = lastState?.settings?.workDirs?.[c.repo];
+        const tip = document.createElement("span");
+        tip.className = "wtip";
+        tip.textContent = remembered === "managed" ? t("work.dirManaged")
+          : (typeof remembered === "string" && remembered ? t("work.dirMemory").replace("{dir}", remembered) : t("work.dirFirst"));
+        return tip;
+      };
+      // 收敛 M2 Task 14（design-v2 §20 第 28 条）：「自动执行」的行内确认条——四行事实 + 确认 / 取消。
+      // 不是浮层；「确认执行」不做反色（One Voice：该行唯一的反色主 CTA 是「开工」）。
+      const autoHost = document.createElement("div");
+      const mkAutoRun = () => btn(t("work.autoRun"), () => {
+        const base = lastState?.paths?.workspacesDir;
+        const runDir = (base || "…/workspaces") + "/" + runDirName(c.key);
+        const block = document.createElement("div");
+        block.className = "autorun";
+        const head = document.createElement("div");
+        head.textContent = t("work.autoConfirmTitle");
+        const line = (text) => { const ln = document.createElement("div"); ln.className = "wtip"; ln.textContent = text; return ln; };
+        const acts = row();
+        acts.append(
+          btn(t("work.autoGo"), () => go(async () => { await a.runStart(c.key, ""); })),
+          btn(t("work.pickCancel"), () => { autoHost.innerHTML = ""; }),
+        );
+        block.append(head,
+          line(t("work.autoFactMode")),
+          line(t("work.autoFactPath").replace("{dir}", runDir)),
+          line(t("work.autoFactSession")),
+          line(t("work.autoFactShip")),
+          acts);
+        autoHost.innerHTML = "";
+        autoHost.append(block);
+      });
       const workRow = row();
       workRow.className += " ux-wide";
       if (c.work?.sessionId) workRow.append(mkOpen(workRow));
-      const freshReady = g.G1 === true && !c.work?.sessionId;   // 评审计划外建议②：已有活跃行 → 打开会话唯一入口
+      // 收敛 M2 Task 14（design-v2 §20 第 19、28 条）：可开工 = 待拍板 / 已分诊，或重试态（building + G1 pass + 无活跃行）；
+      // 有存活执行（running / waiting）或已有会话则不出「开工」。「自动执行」只在可开工的 issue 行出现（ADR-0003）——
+      // 选「开工」即记 G1 放行，行内不再有并列的 G1 放行 / 驳回按钮。
+      const runAlive = Boolean(runInfo && ["running", "waiting"].includes(runInfo.status));
       const retryReady = c.gates?.G1?.decision === "pass" && c.stage === "building" && !c.work;
-      if (freshReady || retryReady) workRow.append(mkStart(workRow));
+      const freshReady = startable(c) && !c.work?.sessionId && !runAlive;
+      const canStart = !c.work?.sessionId && !runAlive && (freshReady || retryReady);
+      const canAuto = freshReady && c.type === "issue";
+      if (canStart) { workRow.append(mkStart(workRow)); workRow.append(startDirTip()); }
+      if (canAuto) workRow.append(mkAutoRun());
       if (workRow.children.length > 0) detail.append(workRow);
+      if (canAuto) detail.append(autoHost);   // 确认条紧跟工作行
+      // 「更多」折叠（design-v2 §20 第 19、28 条；里程碑 3 再整体收敛行内动作）：换个目录开工 / 另开会话。
+      // 行内 <details>，不用浮层（operate.md：overlay 会被滚动容器裁切）。
+      if (canStart || c.work?.sessionId || runAlive) {
+        const more = document.createElement("details");
+        more.className = "override-box";
+        const moreSum = document.createElement("summary");
+        moreSum.textContent = t("actions.more");
+        more.append(moreSum);
+        if (canStart) more.append(btn(t("work.changeDir"), () => go(async () => startIn(more, await pickWorkspace(view.shadow, pickOpts()))())));
+        if (c.work?.sessionId || runAlive) {
+          more.append(btn(t("sessions.another"), () => go(async () => {
+            // 另开沿用记住的非托管目录，没有则 null（服务端解析本地默认）；不用托管克隆（B13「仅限本地目录」）。
+            const remembered = lastState?.settings?.workDirs?.[c.repo];
+            const dir = typeof remembered === "string" && remembered && remembered !== "managed" ? remembered : null;
+            const r = await a.workStart(c.key, dir, true, lang);
+            if (r?.ok && r.sessionId) {
+              if (!r.reused && !openWorkSession(r.sessionId)) workChip(more, t("work.openPending"));
+            } else if (r?.error) {
+              workChip(more, t("work.startFailed") + " (" + r.error + ")", true);
+            }
+          })));
+        }
+        detail.append(more);
+      }
       // ── 窄视口编排（ux-narrow：主动作行/阶段 chips/折叠人工推翻；桌面 display:none，像素零变化）──
       const uxNarrow = document.createElement("div");
       uxNarrow.className = "ux-narrow";
       const uxPrimary = row(); uxPrimary.className = "primary-actions";
       // 开工路径可发现性（disc 评审）：白名单源阶段 → 首位「移到 待拍板」（gating 态不插——我来开已是主动作；
       // building/verifying 排除——禁手工迁移口径 + 开工成功产生的 building 行不得出现首位按钮）。
-      if (["inbox", "triaged", "held", "closed", "shipped"].includes(c.stage)) {
+      if (["inbox", "held", "closed", "shipped"].includes(c.stage)) {   // 收敛 M2 Task 14：已分诊可直接开工，不再需要先「移到 待拍板」
         uxPrimary.append(btn(t("actions.moveTo") + " " + t("groups.gating"), () => go(() => a.stage(c.key, "gating", ""))));
       }
       if (c.work?.sessionId) uxPrimary.append(mkOpen(uxPrimary));
-      if (freshReady || retryReady) uxPrimary.append(mkStart(uxPrimary));
-      uxPrimary.append(...mkG1Pair());
+      if (canStart) { uxPrimary.append(mkStart(uxPrimary)); uxPrimary.append(startDirTip()); }
+      if (canAuto) uxPrimary.append(mkAutoRun());
       if (c.taskPackage) uxPrimary.append(btn(t("actions.copyPackage"), () => copy(c.taskPackage)));
       const uxChips = row(); uxChips.className = "stage-chips";
       for (const s of ["triaged", "gating", "held", "closed"]) {
@@ -388,9 +491,7 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
         gates.append(modelChip);
       }
       const g2Ready = runInfo?.waitingGate === "g2";   // 评审 D6/R1-19：G2 从字面量禁用改为挂起激活；G3 仍禁用（M3 发版分区）
-      gates.append(
-        btn("G1 " + t("gates.G1") + " · " + t("actions.pass"), () => go(async () => { const r = await a.gate(c.key, "G1", "pass", ""); if (r.taskPackage) await copy(r.taskPackage); }), !g.G1),
-        btn("G1 · " + t("actions.reject"), () => go(() => a.gate(c.key, "G1", "reject", "")), !g.G1),
+      gates.append(   // G1 放行并入「开工 / 自动执行」（design-v2 §20 第 28 条）；「不做」走人工推翻或关闭
         btn("G2 " + t("gates.G2") + " · " + t("actions.pass"), () => go(() => a.runGate(runInfo.id, "g2", "pass", "")), !g2Ready),
         btn("G2 · " + t("actions.reject"), () => go(() => a.runGate(runInfo.id, "g2", "reject", "")), !g2Ready),
         btn("G3 " + t("gates.G3"), () => {}, true),

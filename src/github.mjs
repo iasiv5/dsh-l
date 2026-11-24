@@ -92,6 +92,15 @@ export async function getRepo({ repo, token, fetch: f = globalThis.fetch }) {
   return { defaultBranch: r.default_branch ?? "main", cloneUrl: r.ssh_url ?? ("git@github.com:" + repo + ".git") };
 }
 
+// 单个 PR（收敛 M2 Task 12，design-v2 §20 第 30 条）：交付 PR 的合并回填数据源；单次 GET，非 2xx 抛带路径的错误（getRepo 同款）。
+export async function getPr({ repo, number, token, fetch: f = globalThis.fetch }) {
+  const path = "/repos/" + repo + "/pulls/" + number;
+  const res = await f(API_BASE + path, { headers: headers(token) });
+  if (!res.ok) throw new Error("github api " + res.status + " for " + path);
+  const r = await res.json();
+  return { number: r.number, state: r.state, mergedAt: r.merged_at ?? null, htmlUrl: r.html_url ?? null, headRef: r.head?.ref ?? null };
+}
+
 // 仓库发现（Task 4）：affiliation 对齐 loopforge 口径；read:org 分句经查证对本端点不适用（repo scope 即可用）。
 export async function listUserRepos({ token, fetch, budget }) {
   const { items } = await pagedGet("/user/repos?affiliation=owner,collaborator,organization_member&sort=pushed", { token, fetch, budget });

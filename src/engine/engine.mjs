@@ -29,7 +29,7 @@ export function hasAliveRun(store, key) {
 }
 
 // 候选 stage 同步（design-v2 §8）：run 终态/闸门等待映射候选粗粒度 stage。
-const stageOf = (run) => run.status === "succeeded" ? "shipped" : run.status === "failed" ? "held" : run.status === "cancelled" ? "gating"
+const stageOf = (run) => run.status === "succeeded" ? "shipped" : run.status === "failed" ? "held" : run.status === "cancelled" ? "triaged"   // 收敛 M2 Task 11：取消后回已分诊（原 gating）
   : run.waitingGate ? "gating" : "building";
 
 export function makeEngine({ store, workspace, executor, template = LOOP_V1, templates = {}, now = () => new Date(), concurrencyOf = () => 2, emit = null, listRoles = () => ({}) }) {
@@ -136,7 +136,14 @@ export function makeEngine({ store, workspace, executor, template = LOOP_V1, tem
         : applyFailure(run0, nodeId, result.error);
       // M6 D4：deliverEvidence 命中节点成功 → 落 deliver.mr 事件（G3 证据源；stdout 末行）
       if (result.ok && run0.snapshot?.deliverEvidence === nodeId) {
-        store.appendRunHistory(runId, "deliver.mr", String(result.artifacts?.[0] ?? "").trim().split("\n").pop());
+        const line = String(result.artifacts?.[0] ?? "").trim().split("\n").pop();
+        store.appendRunHistory(runId, "deliver.mr", line);
+        // 收敛 M2 Task 12（design-v2 §20 第 30 条）：引擎开的 PR 记在来源候选上，不另成候选；链接仓库名须与候选一致（大小写不敏感）。
+        const m = /https:\/\/github\.com\/([^/\s]+\/[^/\s]+)\/pull\/(\d+)/.exec(line);
+        const src = store.getCandidate(run0.candidateKey);
+        if (m && src && m[1].toLowerCase() === String(src.repo).toLowerCase()) {
+          store.setDelivery(run0.candidateKey, { prNumber: Number(m[2]), prUrl: m[0], merged: false, mergedAt: null }, "delivery.pr");
+        }
       }
       store.saveRun(run);
       // 收敛 M1 Task 3：节点结束 / 回炉留痕——回炉的失败文本在相邻 node.done（GLOSSARY「回炉：带着失败记录」）。

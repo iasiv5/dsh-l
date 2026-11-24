@@ -131,7 +131,7 @@ test("并发上限：concurrency=1 时第二个 run 的节点不被派发，直�
 });
 
 // ---- Task 7：取消链与 retry 钉例①-⑤ ----
-test("钉例①取消：agent 在途时 engine.cancelRun → executor cancel 被调用 + run cancelled + 候选 gating", async () => {
+test("钉例①取消：agent 在途时 engine.cancelRun → executor cancel 被调用 + run cancelled + 候选回已分诊", async () => {
   const { store, engine, executor } = setup();
   const key = "o/r#issue#1";
   const { runId } = engine.startRun(key, {});
@@ -140,7 +140,7 @@ test("钉例①取消：agent 在途时 engine.cancelRun → executor cancel 被
   engine.cancelRun(runId, "user");
   assert.equal(entry.cancelled, true);
   assert.equal(store.getRun(runId).status, "cancelled");
-  assert.equal(store.getCandidate(key).stage, "gating");
+  assert.equal(store.getCandidate(key).stage, "triaged");   // 收敛 M2 Task 11（design-v2 §20 第 19 条）：取消后回已分诊，可再次开工
 });
 test("M7 T6 多 ready 补钉（M8 T3/评审建议）：resume 多 ready 节点各落一条 node.resumed", async () => {
   const { store, engine } = setup();
@@ -474,4 +474,21 @@ test("run.history：G1 驳回经 applyGateDecision 取消 run → gate.reject �
   assert.equal(store.getRun(runId).status, "cancelled");
   assert.equal(ev("gate.reject").length, 1); assert.equal(ev("gate.reject")[0].detail, "g1");
   assert.equal(ev("run.terminal").length, 1); assert.equal(ev("run.terminal")[0].detail, "cancelled (g1-rejected)");
+});
+
+test("deliver 成功 → 来源候选 delivery 记 PR 号与链接；链接仓库名不符则不记", async () => {
+  const deliver = async (lastLine) => {
+    const { store, engine, executor } = setup();
+    const { runId } = engine.startRun("o/r#issue#1", {});
+    await drain();
+    for (const node of ["build", "verify"]) { executor.inflight.get(runId + ":" + node).resolve({ ok: true, error: null, artifacts: [] }); await drain(); }
+    engine.applyGateDecision(runId, "g2", "pass"); await drain();
+    for (const node of ["mr-open", "mr-push-check", "mr-open-check"]) { executor.inflight.get(runId + ":" + node).resolve({ ok: true, error: null, artifacts: [] }); await drain(); }
+    executor.inflight.get(runId + ":deliver").resolve({ ok: true, error: null, artifacts: ["url title state\n" + lastLine] });
+    await drain();
+    return store.getCandidate("o/r#issue#1").delivery;
+  };
+  assert.deepEqual(await deliver("https://github.com/o/r/pull/81 T [OPEN]"), { prNumber: 81, prUrl: "https://github.com/o/r/pull/81", merged: false, mergedAt: null });
+  assert.deepEqual(await deliver("https://github.com/O/R/pull/82 T [OPEN]"), { prNumber: 82, prUrl: "https://github.com/O/R/pull/82", merged: false, mergedAt: null });   // 仓库名大小写不敏感
+  assert.equal(await deliver("https://github.com/other/r/pull/9 x [OPEN]"), null);   // 仓库名不符：不记
 });

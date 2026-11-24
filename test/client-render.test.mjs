@@ -490,7 +490,7 @@ test("pickWorkspace：三选项渲染 + 本地默认 null + 取消 null + 托管
   const shadow2 = new FakeElement("shadow-root");
   const p2 = pickWorkspace(shadow2, { t, candidate: c, ui: {}, status: async () => ({ exists: false }) });
   shadow2.children[0].children[0].children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").find((b) => b.textContent.includes(t("work.pickCancel"))).onclick();
-  assert.equal(await p2, null);
+  assert.equal(await p2, undefined);   // 收敛 M2 Task 13：取消 = undefined（null 留给「本地默认检出」）
   const shadow3 = new FakeElement("shadow-root");
   const p3 = pickWorkspace(shadow3, { t, candidate: c, ui: {}, status: async () => ({ exists: false }) });
   shadow3.children[0].children[0].children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON").find((b) => b.textContent.includes(t("work.pickManaged"))).onclick();
@@ -522,7 +522,7 @@ test("pickWorkspace：选择目录 → 脏态警示行 + confirm 双分支", asy
   await new Promise((r) => setTimeout(r, 10));
   btns2().find((b) => b.textContent.includes(t("work.pickProceed"))).onclick();
   await new Promise((r) => setTimeout(r, 10));
-  assert.equal(await p2, null);
+  assert.equal(await p2, undefined);   // 收敛 M2 Task 13：脏态确认框的「否」= undefined
 });
 
 // ---- 开工会话（Work Session）Task 12：renderSessionsView（合并/徽章/兜底/空态） ----
@@ -647,10 +647,11 @@ test("rowActions：gating 且已有活跃 work 行 → 打开会话在、我来�
   hooks.rowActions(detail, c, { t, view: { reload: async () => {}, shadow: new FakeElement("shadow") }, lang: "zh-CN" });
   const text = detail.textContent;
   assert.ok(text.includes(t("work.openBtn")), "打开会话在");
-  assert.ok(!text.includes(t("work.startBtn")), "我来开不渲染（避免弹选择器后被复用快路径忽略）");
+  // 收敛 M2 Task 14：整行文本断言改按钮域——行内「人工推翻」的下拉里有「开工」选项（recommendedActions.start），startBtn 改值后整行恒含该词
+  assert.equal(find(detail, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent.includes(t("work.startBtn"))).length, 0, "开工按钮不渲染（避免弹选择器后被复用快路径忽略）");
 });
 
-test("rowActions：gating 无活跃行 → 我来开在（fresh 正常入口不受影响）", async () => {
+test("rowActions：gating 无活跃行 → 开工在（fresh 正常入口不受影响）", async () => {
   const { installActions } = await import("../src/client/components/actions.mjs");
   const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [] });
   const detail = new FakeElement("div");
@@ -671,7 +672,7 @@ const mkCandidate = (stage, work = null, g1 = null) => ({
 
 const rowBtnTexts = (detail) => [...detail.children].filter((n) => String(n.tagName).toUpperCase() === "DIV" && n.className.includes("ux-narrow")).flatMap((n) => [...n.children[0].children].filter((x) => String(x.tagName).toUpperCase() === "BUTTON").map((b) => b.textContent));
 
-test("rowActions 状态映射：待拍板=我来开+G1对；活跃行=打开会话唯一；重试态=我来开", async () => {
+test("rowActions 状态映射：待拍板=开工（issue 另有自动执行）；活跃行=打开会话唯一；重试态=开工", async () => {
   const { installActions } = await import("../src/client/components/actions.mjs");
   const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [] });
   const view = { reload: async () => {}, shadow: new FakeElement("shadow") };
@@ -679,9 +680,9 @@ test("rowActions 状态映射：待拍板=我来开+G1对；活跃行=打开会�
   let detail = new FakeElement("div");
   hooks.rowActions(detail, mkCandidate("gating"), { t, view, lang: "zh-CN" });
   let btns = rowBtnTexts(detail);
-  assert.ok(btns.some((x) => x.includes(t("work.startBtn"))), "待拍板有我来开");
-  assert.ok(btns.some((x) => x.includes("G1 ") && x.includes(t("actions.pass"))), "G1 放行在主动作行");
-  assert.ok(btns.some((x) => x.includes(t("actions.reject"))), "G1 驳回不消失（R1-6③）");
+  assert.ok(btns.some((x) => x.includes(t("work.startBtn"))), "待拍板有开工");
+  assert.ok(btns.some((x) => x.includes(t("work.autoRun"))), "issue 行有自动执行（design-v2 §20 第 28 条）");
+  assert.equal(btns.some((x) => x.includes("G1 ")), false, "G1 放行 / 驳回按钮对不再渲染");
   assert.ok(!btns.some((x) => x.includes(t("work.openBtn"))), "无活跃行无打开会话");
   // 有活跃行（任意 stage）→ 打开会话唯一
   detail = new FakeElement("div");
@@ -693,10 +694,11 @@ test("rowActions 状态映射：待拍板=我来开+G1对；活跃行=打开会�
   detail = new FakeElement("div");
   hooks.rowActions(detail, mkCandidate("building", null, { decision: "pass", note: "", via: "workbench-ui", at: "t" }), { t, view, lang: "zh-CN" });
   btns = rowBtnTexts(detail);
-  assert.ok(btns.some((x) => x.includes(t("work.startBtn"))), "重试态有我来开");
+  assert.ok(btns.some((x) => x.includes(t("work.startBtn"))), "重试态有开工");
+  assert.ok(!btns.some((x) => x.includes(t("work.autoRun"))), "重试态无自动执行");
 });
 
-test("rowActions 开工路径映射（disc Task 1）：白名单源阶段首位=移到 待拍板；building/gating 不含", async () => {
+test("rowActions 开工路径映射（disc Task 1）：inbox/held/closed/shipped 首位=移到 待拍板；triaged 首位=开工；building/gating 不含", async () => {
   const { installActions } = await import("../src/client/components/actions.mjs");
   const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [] });
   const view = { reload: async () => {}, shadow: new FakeElement("shadow") };
@@ -708,10 +710,11 @@ test("rowActions 开工路径映射（disc Task 1）：白名单源阶段首位=
     const btns = [...primary.children].filter((x) => String(x.tagName).toUpperCase() === "BUTTON").map((b) => b.textContent);
     return { first: btns[0] ?? null, hasMove: btns.some((x) => x.includes(t("groups.gating")) && x.includes(t("actions.moveTo"))) };
   };
-  for (const st of ["inbox", "triaged", "held", "closed", "shipped"]) {
+  for (const st of ["inbox", "held", "closed", "shipped"]) {
     const r = firstBtn(st);
     assert.equal(r.first, t("actions.moveTo") + " " + t("groups.gating"), st + " 首位应为移到 待拍板");
   }
+  assert.equal(firstBtn("triaged").first, t("work.startBtn"), "triaged 首位=开工（design-v2 §20 第 28 条：已分诊可直接开工）");
   const rb = firstBtn("building");
   assert.equal(rb.hasMove, false, "building 不含移到 待拍板（disc#1）");
   const rg = firstBtn("gating");
@@ -837,6 +840,23 @@ test("candidateRow：六态状态点 + 元数据脚注（P0-2/P0-6）", async ()
   const root7 = new FakeElement("div");
   renderRow(root7, mk({ stage: "building" }), t, { expanded: false, onToggle: () => {}, run: { status: "succeeded" }, seen: true });
   assert.ok(!String(dotOf(root7).className).includes("st-unread"), "seen:true 后非 unread（rev-impl S1 断言补全）");
+});
+
+test("candidateRow：delivery.prNumber → 脚注出『PR #n · 待合并』链接；merged → 已合并", async () => {
+  const { renderRow } = await import("../src/client/components/candidateRow.mjs");
+  const mk = (over = {}) => ({ key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t", stage: "shipped", triage: null, ...over });
+  const root = new FakeElement("div");
+  renderRow(root, mk({ delivery: { prNumber: 81, prUrl: "https://github.com/o/r/pull/81", merged: false, mergedAt: null }, meta: { ageDays: 3 } }), t, { expanded: false, onToggle: () => {} });
+  const meta = find(root, (n) => n.className === "rowmeta")[0];
+  assert.ok(meta.textContent.includes("PR #81"), "脚注含 PR 号");
+  assert.ok(meta.textContent.includes(t("delivery.pending")), "待合并标记");
+  const link = find(meta, (n) => String(n.tagName).toUpperCase() === "A")[0];
+  assert.ok(link, "链接在场");
+  assert.equal(link.href, "https://github.com/o/r/pull/81");
+  assert.equal(link.target, "_blank"); assert.equal(link.rel, "noopener");
+  const root2 = new FakeElement("div");
+  renderRow(root2, mk({ delivery: { prNumber: 81, prUrl: "u", merged: true, mergedAt: "t" } }), t, { expanded: false, onToggle: () => {} });
+  assert.ok(find(root2, (n) => n.className === "rowmeta")[0].textContent.includes(t("delivery.merged")), "已合并标记");
 });
 
 test("kanban 分组列表化：列头/卡片信息集/推进/移至/空列引导（P0-1）", async () => {
@@ -1852,4 +1872,182 @@ test("FakeElement 写读一致：cssText 解析与 placeholder getter（P2 retro
   assert.equal(n.style.opacity, ".55", "直接赋值读回");
   n.setAttribute("placeholder", "abc");
   assert.equal(n.getAttribute("placeholder"), "abc");
+});
+
+test("mkStart：有记忆目录 → 不弹选择器直接 workStart；managed → workspace:managed；重试态 → another:true；422 → 回落选择器；选择器 null → 本地默认，undefined → 不调用", async () => {
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  const calls = [];
+  const api = {
+    workStart: async (key, cwd, another, lang, workspace) => {
+      calls.push({ key, cwd, another, lang, workspace });
+      if (cwd === "/gone") throw new Error("workspace-not-found");   // api.json 的错误形态：Error(body.error)
+      return { ok: true, sessionId: "dsh-l:work-n", reused: false };
+    },
+    workspaceStatus: async () => ({ exists: true, isRepo: true, dirty: false, branch: null, workspaceTitle: null }),
+    workDefaultDir: async () => ({ repo: "o/r", cwd: null, exists: false, workspaceTitle: null }),
+  };
+  const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [], deps: { api } });
+  const view = { reload: async () => {}, shadow: new FakeElement("shadow") };
+  const settle = () => new Promise((r) => setTimeout(r, 10));
+  const startBtn = (detail) => find(detail, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("work.startBtn"))[0];
+  const run = async (workDirs, cand) => {
+    hooks.strip(new FakeElement("div"), { t, state: { candidates: [], runs: [], workflow: { templates: [] }, settings: { workDirs } } });
+    const d = new FakeElement("div");
+    hooks.rowActions(d, cand, { t, view, lang: "zh-CN" });
+    const b = startBtn(d);
+    assert.ok(b, "开工按钮在场");
+    const pending = b.onclick();   // 不直接 await：红态下若误弹选择器，挂起的是无 timer 的 promise，不会拖住进程
+    await settle();
+    return { d, pending, shadow: view.shadow };
+  };
+  // 1) 有记忆目录：不弹选择器，直接带目录调用
+  let r = await run({ "o/r": "/home/u/workspace/r" }, mkCandidate("gating"));
+  assert.deepEqual(calls.pop(), { key: "o/r#issue#1", cwd: "/home/u/workspace/r", another: false, lang: "zh-CN", workspace: undefined });
+  assert.equal(r.shadow.children.length, 0, "有记忆目录不弹选择器");
+  // 2) 记忆为 managed
+  r = await run({ "o/r": "managed" }, mkCandidate("gating"));
+  assert.deepEqual(calls.pop(), { key: "o/r#issue#1", cwd: null, another: false, lang: "zh-CN", workspace: "managed" });
+  // 3) 重试态（building + G1 pass，无活跃行）→ another:true
+  r = await run({ "o/r": "/home/u/workspace/r" }, mkCandidate("building", null, { decision: "pass", note: "", via: "workbench-ui", at: "t" }));
+  assert.equal(calls.pop().another, true);
+  // 4) 记住的目录已不存在（422 workspace-not-found）→ 回落选择器并说明原因；取消 → 不再调用
+  r = await run({ "o/r": "/gone" }, mkCandidate("gating"));
+  assert.equal(calls.length, 1);   // 只有那次失败的调用
+  await settle();
+  assert.ok(view.shadow.textContent.includes(t("work.dirGone")), "回落选择器并显示原因");
+  find(view.shadow, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent.includes(t("work.pickCancel")))[0].onclick();
+  await r.pending;
+  assert.equal(calls.length, 1, "取消后不再调用");
+});
+
+test("pickWorkspace：去向提示三行（defaultDir 注入；未命中显示未命中；托管克隆显示 DSH Loop Forge；取消收尾返回 undefined）", async () => {
+  const { pickWorkspace } = await import("../src/client/components/actions.mjs");
+  const c = candidateForPicker();
+  const settle = () => new Promise((r) => setTimeout(r, 10));
+  const cancelOf = (shadow) => find(shadow, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent.includes(t("work.pickCancel")))[0];
+  const shadow = new FakeElement("shadow-root");
+  const p = pickWorkspace(shadow, { t, candidate: c, ui: {}, status: async () => ({ exists: true, workspaceTitle: "r" }), defaultDir: async () => ({ repo: "o/r", cwd: "/home/u/workspace/r", exists: true, workspaceTitle: null }) });
+  await settle();
+  const text = shadow.textContent;
+  assert.ok(text.includes(t("work.appearsDefault").replace("{dir}", "/home/u/workspace/r").replace("{where}", t("work.ungrouped"))), "本地默认行：未登记 → 未分组");
+  assert.ok(text.includes(t("work.appearsPick")), "选择目录行");
+  assert.ok(text.includes(t("work.appearsManaged")), "托管克隆行");
+  cancelOf(shadow).onclick();
+  assert.equal(await p, undefined);
+  const shadow2 = new FakeElement("shadow-root");
+  const p2 = pickWorkspace(shadow2, { t, candidate: c, ui: {}, status: async () => ({ exists: false }), defaultDir: async () => ({ repo: "o/r", cwd: null, exists: false, workspaceTitle: null }) });
+  await settle();
+  assert.ok(shadow2.textContent.includes(t("work.pickLocalFailed")), "未命中有说明");
+  find(shadow2, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent.includes(t("work.pickManaged")))[0].onclick();
+  assert.equal(await p2, "managed");
+});
+
+test("rowActions：可开工行出「开工」，issue 行另有「自动执行」，PR 行无；G1 放行与驳回按钮不再渲染", async () => {
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [] });
+  const view = { reload: async () => {}, shadow: new FakeElement("shadow") };
+  hooks.strip(new FakeElement("div"), { t, state: { candidates: [], runs: [], workflow: { templates: [] }, settings: { workDirs: {} }, paths: { workspacesDir: "/data/workspaces" } } });
+  const allBtns = (cand) => { const d = new FakeElement("div"); hooks.rowActions(d, cand, { t, view, lang: "zh-CN" }); return find(d, (n) => String(n.tagName).toUpperCase() === "BUTTON").map((b) => b.textContent); };
+  const issue = allBtns(mkCandidate("triaged"));
+  assert.ok(issue.some((x) => x === t("work.startBtn")), "已分诊 issue 有开工");
+  assert.ok(issue.some((x) => x === t("work.autoRun")), "issue 有自动执行");
+  const pr = allBtns({ ...mkCandidate("triaged"), type: "pull" });
+  assert.ok(pr.some((x) => x === t("work.startBtn")), "PR 有开工");
+  assert.ok(!pr.some((x) => x === t("work.autoRun")), "PR 无自动执行（ADR-0003）");
+  assert.ok(!pr.some((x) => x.includes("G1 ")), "G1 按钮对不再渲染");
+  assert.ok(allBtns(mkCandidate("inbox")).every((x) => x !== t("work.startBtn") && x !== t("work.autoRun")), "未分诊无开工与自动执行");
+});
+
+test("自动执行确认条：四行事实（含执行目录路径）+ 确认调 runStart + 取消收起", async () => {
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  const runs = [];
+  const api = { runStart: async (key, note) => { runs.push({ key, note }); return { ok: true, runId: "run-1" }; } };
+  const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [], deps: { api } });
+  const view = { reload: async () => {}, shadow: new FakeElement("shadow") };
+  hooks.strip(new FakeElement("div"), { t, state: { candidates: [], runs: [], workflow: { templates: [] }, settings: { workDirs: {} }, paths: { workspacesDir: "/data/workspaces" } } });
+  const d = new FakeElement("div");
+  hooks.rowActions(d, mkCandidate("gating"), { t, view, lang: "zh-CN" });
+  const autoBtn = find(d, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("work.autoRun"))[0];
+  assert.ok(autoBtn, "自动执行按钮在场");
+  const settle = () => new Promise((r) => setTimeout(r, 10));
+  const blockOf = () => find(d, (n) => n.className === "autorun")[0];
+  const btnIn = (block, text) => find(block, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === text)[0];
+  // 取消：确认块收起
+  autoBtn.onclick(); await settle();
+  let block = blockOf();
+  assert.ok(block, "点击后出现确认块");
+  btnIn(block, t("work.pickCancel")).onclick(); await settle();
+  assert.equal(blockOf(), undefined, "取消后收起");
+  assert.deepEqual(runs, [], "取消不建 run");
+  // 确认：四行事实 → runStart(key, "")
+  autoBtn.onclick(); await settle();
+  block = blockOf();
+  assert.ok(block, "再次点击出现确认块");
+  const text = block.textContent;
+  for (const key of ["work.autoConfirmTitle", "work.autoFactMode", "work.autoFactSession", "work.autoFactShip"]) assert.ok(text.includes(t(key)), key);
+  assert.ok(text.includes(t("work.autoFactPath").replace("{dir}", "/data/workspaces/o_r_issue_1")), "执行目录路径");
+  btnIn(block, t("work.autoGo")).onclick(); await settle(); await settle();
+  assert.deepEqual(runs, [{ key: "o/r#issue#1", note: "" }]);
+});
+
+test("存活执行行：无开工与自动执行，只有打开会话与取消执行，无 G1 按钮对", async () => {
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [] });
+  const view = { reload: async () => {}, shadow: new FakeElement("shadow") };
+  const run = { id: "run-1", candidateKey: "o/r#issue#1", status: "waiting", waitingGate: "g2", waitingGateId: "G2", currentNodeIds: ["g2"], failedNodeIds: [], cancelledNodeIds: [], models: {}, templateId: "loop-v1", error: null, waitingSince: null, history: [], nodeStatuses: [],
+    sessions: [{ nodeId: "build", nodeName: "build", sessionId: "dsh-l:run-1:build:2" }] };
+  hooks.strip(new FakeElement("div"), { t, state: { candidates: [], runs: [run], workflow: { templates: [] } } });
+  const d = new FakeElement("div");
+  hooks.rowActions(d, { ...mkCandidate("gating"), currentRunId: "run-1" }, { t, view, lang: "zh-CN" });
+  const texts = find(d, (n) => String(n.tagName).toUpperCase() === "BUTTON").map((b) => b.textContent);
+  assert.ok(!texts.some((x) => x === t("work.startBtn")), "无开工（design-v2 §20 第 19 条）");
+  assert.ok(!texts.some((x) => x === t("work.autoRun")), "无自动执行");
+  assert.ok(texts.some((x) => x.startsWith(t("sessions.open") + " · ")), "有打开会话");
+  assert.ok(texts.includes(t("actions.cancelRun")), "有取消执行");
+  assert.ok(!texts.some((x) => x.includes("G1 ")), "无 G1 按钮对");
+});
+
+test("更多折叠：可开工或有会话时在场；『换个目录开工…』在；存活执行或已有会话时『另开会话』在并调 workStart(key, <记住的非托管目录或 null>, true, lang)", async () => {
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  const calls = [];
+  const api = { workStart: async (...args) => { calls.push(args); return { ok: true, sessionId: "dsh-l:work-n", reused: false }; } };
+  const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [], deps: { api } });
+  const view = { reload: async () => {}, shadow: new FakeElement("shadow") };
+  const settle = () => new Promise((r) => setTimeout(r, 10));
+  // 定位按 summary 文案找「更多」：行内本就有「人工推翻」的 <details class="override-box">，按 DETAILS 计数会得 2
+  const moreOf = (d) => find(d, (n) => String(n.tagName).toUpperCase() === "DETAILS" && (n.children[0]?.textContent ?? "") === t("actions.more"))[0];
+  const btnIn = (root, text) => find(root, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === text)[0];
+  // inbox：不可开工（building + G1 pass 是重试态，可开工，不能当「不可开工」样例）、无会话 → 无「更多」
+  hooks.strip(new FakeElement("div"), { t, state: { candidates: [], runs: [], workflow: { templates: [] }, settings: { workDirs: {} } } });
+  let d = new FakeElement("div");
+  hooks.rowActions(d, mkCandidate("inbox"), { t, view, lang: "zh-CN" });
+  assert.equal(moreOf(d), undefined, "inbox 行无「更多」");
+  // gating（可开工）：有「更多」与「换个目录开工…」，无「另开会话」
+  d = new FakeElement("div");
+  hooks.rowActions(d, mkCandidate("gating"), { t, view, lang: "zh-CN" });
+  let more = moreOf(d);
+  assert.ok(more, "可开工行有「更多」");
+  assert.ok(btnIn(more, t("work.changeDir")), "有换个目录开工");
+  assert.equal(btnIn(more, t("sessions.another")), undefined, "无会话时无另开");
+  // 换个目录：无视记忆，直接弹选择器；取消 → 不调用
+  btnIn(more, t("work.changeDir")).onclick(); await settle();
+  assert.ok(view.shadow.children.length > 0, "弹选择器");
+  find(view.shadow, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent.includes(t("work.pickCancel")))[0].onclick(); await settle();
+  assert.equal(calls.length, 0, "取消不调用");
+  // 存活执行 + 记住的非托管目录 → 另开：workStart(key, dir, true, lang)
+  const run = { id: "run-1", candidateKey: "o/r#issue#1", status: "waiting", waitingGate: "g2", waitingGateId: "G2", currentNodeIds: ["g2"], failedNodeIds: [], cancelledNodeIds: [], models: {}, templateId: "loop-v1", error: null, waitingSince: null, history: [], nodeStatuses: [], sessions: [] };
+  hooks.strip(new FakeElement("div"), { t, state: { candidates: [], runs: [run], workflow: { templates: [] }, settings: { workDirs: { "o/r": "/home/u/workspace/r" } } } });
+  d = new FakeElement("div");
+  hooks.rowActions(d, { ...mkCandidate("gating"), currentRunId: "run-1" }, { t, view, lang: "zh-CN" });
+  more = moreOf(d);
+  assert.ok(more, "存活执行行有「更多」");
+  assert.equal(btnIn(more, t("work.changeDir")), undefined, "存活执行无换目录开工");
+  btnIn(more, t("sessions.another")).onclick(); await settle();
+  assert.deepEqual(calls.pop(), ["o/r#issue#1", "/home/u/workspace/r", true, "zh-CN"]);
+  // 无记忆 → null（服务端解析本地默认）
+  hooks.strip(new FakeElement("div"), { t, state: { candidates: [], runs: [run], workflow: { templates: [] }, settings: { workDirs: {} } } });
+  d = new FakeElement("div");
+  hooks.rowActions(d, { ...mkCandidate("gating"), currentRunId: "run-1" }, { t, view, lang: "zh-CN" });
+  btnIn(moreOf(d), t("sessions.another")).onclick(); await settle();
+  assert.deepEqual(calls.pop(), ["o/r#issue#1", null, true, "zh-CN"]);
 });
