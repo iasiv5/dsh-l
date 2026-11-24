@@ -472,7 +472,7 @@ test("renderLoginGate：installing 轮询中三关全绿 → 自动续走 bind+o
 
 const candidateForPicker = () => ({ key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t" });
 
-test("pickWorkspace：三选项渲染 + 本地默认 null + 取消 null + 托管 managed", async () => {
+test("pickWorkspace：三选项渲染 + 本地默认 null + 取消 undefined + 托管 managed", async () => {
   const { pickWorkspace } = await import("../src/client/components/actions.mjs");
   const c = candidateForPicker();
   const shadow = new FakeElement("shadow-root");
@@ -514,7 +514,7 @@ test("pickWorkspace：选择目录 → 脏态警示行 + confirm 双分支", asy
   await new Promise((r) => setTimeout(r, 10));
   assert.ok(confirms[0] && confirms[0].includes(t("work.dirtyHint")), "确认文案含脏态警示");
   assert.equal(await p1, "/picked/dir");
-  // confirm(false) → resolve null
+  // confirm(false) → resolve undefined（收敛 M2 Task 13：null 留给「本地默认检出」）
   const shadow2 = new FakeElement("shadow-root");
   const p2 = pickWorkspace(shadow2, { t, candidate: c, ui: { pickDirectory: async () => "/picked/dir" }, status, confirm: async () => false });
   const btns2 = () => shadow2.children[0].children[0].children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON");
@@ -523,6 +523,21 @@ test("pickWorkspace：选择目录 → 脏态警示行 + confirm 双分支", asy
   btns2().find((b) => b.textContent.includes(t("work.pickProceed"))).onclick();
   await new Promise((r) => setTimeout(r, 10));
   assert.equal(await p2, undefined);   // 收敛 M2 Task 13：脏态确认框的「否」= undefined
+  // 评审实施 I5：脏态分支的另两个取消出口也必须是 undefined——回退成 null 会把明确的取消变成「本地默认检出」
+  const drive = async (shadow) => {
+    const p = pickWorkspace(shadow, { t, candidate: c, ui: { pickDirectory: async () => "/picked/dir" }, status, confirm: async () => true });
+    const btns = () => shadow.children[0].children[0].children.filter((n) => String(n.tagName).toUpperCase() === "BUTTON");
+    btns().find((b) => b.textContent.includes(t("work.pickBrowse"))).onclick();
+    await new Promise((r) => setTimeout(r, 10));
+    return { p, btns };
+  };
+  const dirty3 = await drive(new FakeElement("shadow-root"));
+  dirty3.btns().find((b) => b.textContent.includes(t("work.pickCancel"))).onclick();
+  assert.equal(await dirty3.p, undefined, "脏态下点「取消」= undefined");
+  const shadow4 = new FakeElement("shadow-root");
+  const dirty4 = await drive(shadow4);
+  shadow4.children[0].onclick({ target: shadow4.children[0] });
+  assert.equal(await dirty4.p, undefined, "脏态下点遮罩 = undefined");
 });
 
 // ---- 开工会话（Work Session）Task 12：renderSessionsView（合并/徽章/兜底/空态） ----
@@ -586,6 +601,9 @@ test("renderSessionsView：兜底行（锚行反解/反解失败/run 孤儿仅�
   const emptyRoot = new FakeElement("div");
   renderSessionsView(emptyRoot, { t, items: [], summaries: [], onOpen: () => {}, onAnother: () => {} });
   assert.ok(emptyRoot.textContent.includes(t("sessions.empty")));
+  // 评审实施 I4：M2 之后行内没有「G1 放行」按钮，主动作叫「开工」——空态文案不能再教旧机制
+  assert.ok(emptyRoot.textContent.includes(t("work.startBtn")), "空态指向「开工」");
+  assert.ok(!/G1 放行|我来开/.test(emptyRoot.textContent), "空态不再教旧机制");
 });
 
 test("renderSessionsView：确认交付按钮仅 building/verifying 工作行出现，点击回调 onDeliver", async () => {

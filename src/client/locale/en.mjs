@@ -132,7 +132,7 @@ export const en = {
     badgeWork: "Work", badgeRun: "Run", badgeAuto: "Auto-approve", badgeGone: "Upstream closed",
     badgeMissing: "Not in session list", badgeRunning: "Running",
     open: "Open", another: "Start another", deliver: "Confirm delivery", deliverFailed: "Deliver failed",
-    empty: "No dsh-l sessions yet — pass G1 on a candidate in the list and choose \"Start it myself\".",
+    empty: "No dsh-l sessions yet — expand a candidate in the list and choose \"Start work\", or \"Run automatically\" on an issue; the sessions show up here.",
     ago: "{t} ago",
     archive: "Finished",
     stalled: "Possibly stuck",
