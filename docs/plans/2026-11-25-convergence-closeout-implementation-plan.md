@@ -12,7 +12,7 @@
 
 ## 架构快照
 
-1. **交付三态**：`candidate.delivery` 增 `closed: boolean` 与 `closedAt: string | null`。`postRefresh` 回填时先看 `mergedAt`（已合并），否则看 `state === "closed"`（已关闭，未合并）。已终态（`merged` 或 `closed`）的交付不再逐次查 `getPr`。脚注按三态显示「待合并 / 已合并 / 已关闭」。
+1. **交付三态**：`candidate.delivery` 增两个**可选**字段 `closed?: boolean` 与 `closedAt?: string | null`（创建交付时不初始化，只在回填「已关闭」时写入；读方按缺席即 false / null 处理）。`postRefresh` 回填时先看 `mergedAt`（已合并），否则看 `state === "closed"`（已关闭，未合并）。已终态（`merged` 或 `closed`）的交付不再逐次查 `getPr`。脚注按三态显示「待合并 / 已合并 / 已关闭」。
 2. **结束开工会话**（本次收口的四个小决定，评审 Q11 / Q21 / Q10 / Q18）：
     - (i) **结束＝标记**：`store.endWorkSession(key)` 给当前活跃行标 `endedAt`（不追加新行——追加会让会话页多出幽灵行）。`getWorkSession` 返回自末位向前最近一条无 `endedAt` 的行；全部已结束 → null。同一候选的多条历史活跃行可逐条结束。
     - (ii) **阶段回退只在最后一条活跃行结束时发生**：此时若候选在 `building` **且没有存活执行**，回 `triaged`（与「取消执行后可再次开工」一致）。还有活跃行时不回退——它明明还有会话在；有存活执行（running / waiting 的 run）时不回退——不让用户动作成为引擎 `syncStage` 之外的第二写者（§20 第 7 条）。
@@ -63,7 +63,7 @@
 | `docs/design-v2.md` | 改 | §20 末尾落地注记 |
 | `README.md` / `README.en.md` | 改 | 交付三态与结束会话各一句 |
 
-一起变化的边界：`store.endWorkSession`（Task 2）与 `handlers.postWorkEnd`（Task 3）是两个任务，Task 3 消费 Task 2 的产出；`errorText` 与它的三处消费点必须同任务（Task 5）；词典键与消费点同任务。
+一起变化的边界：`store.endWorkSession`（Task 2）与 `handlers.postWorkEnd`（Task 3）是两个任务，Task 3 消费 Task 2 的产出；`errorText` 与它的五处消费点必须同任务（Task 5）；词典键与消费点同任务。
 
 ## 任务清单
 
@@ -308,7 +308,17 @@
               more.append(btn(t("work.endSession"), () => go(async () => { await a.workEnd(c.key); })));
             }
     ```
-  - 词典：zh `work` 段 `endSession: "结束会话"`；en `endSession: "End session"`。
+  - 词典（整行替换，键后必须带逗号——行内片段不带逗号、没写插入位置，照抄进 `work: { … }` 即 SyntaxError，三个文件级全红；评审 Q28）：
+    - `src/client/locale/zh-CN.mjs`：把 `    startFailed: "开工失败",` 这一行替换为下面两行：
+  ```js
+    startFailed: "开工失败",
+    endSession: "结束会话",
+  ```
+    - `src/client/locale/en.mjs`：把 `    startFailed: "Start failed",` 这一行替换为下面两行：
+  ```js
+    startFailed: "Start failed",
+    endSession: "End session",
+  ```
 - Step 4：`client-render` → 80 / 80 / 0；`i18n`、`locale-parity`、`design-lint` 不变；全量 → 419 / 419 / 0。
 - 接口：Consumes Task 3 的路由；Produces 用户入口。
 
@@ -388,10 +398,10 @@
     ```js
       "errors.codes": ["gate-requires-gating", "engine-issue-only", "run-already-active", "workspace-not-found", "managed-dir-explicit", "work-cwd-conflict", "no-work-session", "deliver-requires-building", "engine-not-wired", "work-not-wired", "gh-not-installed", "gh-not-authorized", "gh-not-ours", "credential-unhealthy", "credential-missing", "credential-invalid", "credential-format", "token-invalid", "auth-required", "already-authorized", "model-not-in-catalog", "preset-not-in-roster", "release-requires-shipped", "release-already-confirmed", "refresh-in-progress", "feishu-not-wired", "invalid-path", "gate-not-available-in-v1", "candidate-not-found", "kickoff-failed", "retry-requires-failed-or-cancelled", "retry-requires-failed", "attempt-exhausted"],
     ```
-  - 词典 `errors` 段增 `codes` 子对象。**带连字符的键必须加引号**，否则整份词典 SyntaxError、client-render / i18n / locale-parity 三个文件级全红（评审 Q20）。两份字典键集必须逐字相同（locale-parity 守护）。`zh-CN.mjs` 在 `actionFailed: "操作失败",` 之后插入：
+  - 词典 `errors` 段增 `codes` 子对象。文案对齐实际触发条件（评审 Q26）：`gate-requires-gating` 的触发是「阶段不是待拍板/已分诊」或「另开但 G1 未过」，行内「G1 放行」按钮已删，所以不写「先放行」；`gh-not-ours` 实指 gh 登录态不是工作台建立的。**带连字符的键必须加引号**，否则整份词典 SyntaxError、client-render / i18n / locale-parity 三个文件级全红（评审 Q20）。两份字典键集必须逐字相同（locale-parity 守护）。`zh-CN.mjs` 在 `actionFailed: "操作失败",` 之后插入：
   ```js
       codes: {
-        "gate-requires-gating": "这个候选还没放行 G1，先放行再操作",
+        "gate-requires-gating": "这个候选现在不能这么操作：要先分诊，或等它不再进行中",
       "engine-issue-only": "自动执行只服务 issue，PR 请用「开工」",
       "run-already-active": "这个候选已有执行在进行，先取消或等它结束",
       "workspace-not-found": "目录不存在，请重新选择",
@@ -403,7 +413,7 @@
       "work-not-wired": "开工会话未接入，这是部署问题",
       "gh-not-installed": "本机没有 gh，请先安装并登录",
       "gh-not-authorized": "gh 还没登录，请先 gh auth login",
-      "gh-not-ours": "gh 登录的账号不是当前仓库的所有者",
+      "gh-not-ours": "本机 gh 登录的不是工作台所用的账号",
       "credential-unhealthy": "GitHub 凭据失效，请重新校验或更换 token",
       "credential-missing": "没有可用的 GitHub 凭据",
       "credential-invalid": "凭据格式无效，请重新填写",
@@ -429,7 +439,7 @@
   `en.mjs` 在 `actionFailed: "Action failed",` 之后插入（同一组键，同一顺序）：
   ```js
       codes: {
-        "gate-requires-gating": "G1 has not been passed for this candidate yet — pass it first",
+        "gate-requires-gating": "This candidate cannot do that right now: triage it first, or wait until it is no longer in progress",
       "engine-issue-only": "Automatic runs serve issues only; for a PR use Start work",
       "run-already-active": "This candidate already has a run in progress — cancel it or wait",
       "workspace-not-found": "That directory does not exist — pick again",
@@ -441,7 +451,7 @@
       "work-not-wired": "Work sessions are not wired — this is a deployment problem",
       "gh-not-installed": "gh is not installed here — install it and sign in",
       "gh-not-authorized": "gh is not signed in — run gh auth login first",
-      "gh-not-ours": "The gh account is not the owner of this repository",
+      "gh-not-ours": "The gh sign-in on this machine is not the one the workbench set up",
       "credential-unhealthy": "The GitHub credential is unhealthy — re-verify it or replace the token",
       "credential-missing": "No usable GitHub credential",
       "credential-invalid": "The credential is malformed — enter it again",
@@ -484,23 +494,26 @@
             if (!cwd) return null;   // 无目录不发起（不得回退到本地检出）
             const r = await a.workStart(key, cwd, true, getLang());
             if (r?.ok) return null;
-            const head = t?.("sessions.anotherFailed") ?? "另开会话失败";
             const tt = t ?? makeT(getLang());   // t 缺省时用当前语言兜底——不传 t 也要能翻译，而不是回落括注（评审第 3 轮红一）
+            const head = tt("sessions.anotherFailed");   // 走兜底后的 tt，不传 t 也不中英混排（评审 Q25）。须在 tt 定义之后——const 有暂时性死区，先写 head 会报 Cannot access tt before initialization（执行方自检实测）
             const human = errorText(r?.error, tt);
             return human ? head + "：" + human : head + " (" + String(r?.error ?? "unknown") + ")";
           },
       ```
   - **范围外（写进落地注记）**：`kanban.mjs` 的 `kberr`、`review.mjs` 的 `rverr`、`workbench.mjs` 的「刷新失败」「确认交付失败」仍是「<动作失败> (码)」——它们不经过 `actions.mjs`，且看板与待我确认页在里程碑 3 会删除或重排，届时一并处理。
 - Step 4：`logic` → 33 / 33 / 0；`client-render` → 81 / 81 / 0；`i18n` → 6 / 6 / 0（白名单已补）；`design-lint`、`locale-parity` 不变；全量 → 421 / 421 / 0。
-- 接口：Produces `errorText(error, t) → string | null`；词典 `errors.codes.*`（27 键）。
+- 接口：Produces `errorText(error, t) → string | null`；词典 `errors.codes.*`（33 键）。
 
 ### Task 6: 构建、文档与提交
 
 - Step 1：`npm run build`（退出码 0）；`npm test` → `ℹ tests 421`、`ℹ pass 421`、`ℹ fail 0`；detector 逐文件集合比对：改动的 UI 源文件（`actions.mjs`、`candidateRow.mjs`、`logic.mjs`）新增条目 0。
 - Step 2：文档四处。
-  - `README.md`：交付那句「引擎为 issue 新开的 PR 记在来源候选上（「PR #n · 待合并 / 已合并」）」改为「（「PR #n · 待合并 / 已合并 / 已关闭」）」；在「更多 › 换个目录开工」可重选」之后增「；有进行中的开工会话时，「更多 › 结束会话」可以收掉它并让候选回到已分诊」。
-  - `README.en.md`：对应两处英文。
-  - `docs/design-v2.md` §20 末尾追加「收口落地注记（2026-11-25，commit <sha>）」：三项各一行，含 live store 读数（C1：当前 `delivery` 块为空，无实例；C2：#82 的 3 条残留行经「结束会话」清理后的索引读数；C3：33 个码收录）。
+  - `README.md`：交付那句「引擎为 issue 新开的 PR 记在来源候选上（「PR #n · 待合并 / 已合并」）」改为「（「PR #n · 待合并 / 已合并 / 已关闭」）」；在「更多 › 换个目录开工」可重选」之后增「；有进行中的开工会话时，「更多 › 结束会话」可以收掉它；最后一条会话结束后，候选才回到已分诊（有执行在跑时不动）」。
+  - `README.en.md`：把 `recorded on that candidate ("PR #n · Awaiting merge / Merged")` 换成 `recorded on that candidate ("PR #n · Awaiting merge / Merged / Closed")`；把 `**More › Start in another directory…** lets you re-pick.` 换成下面这句：
+  ```text
+  **More › Start in another directory…** lets you re-pick. While a work session is in progress, **More › End session** closes it; the candidate returns to Triaged only after its last session ends (and not while a run is alive).
+  ```
+  - `docs/design-v2.md` §20 末尾追加「收口落地注记（2026-11-25，commit <sha>）」：三项各一行，并**明写 C2「结束开工会话」的四个小决定**（标 `endedAt` / 最后一条结束且无存活执行时 building 回 `triaged` / 结束时归档宿主会话 / 入口在「更多」——主人 2026-11-25 追认，评审 Q11 / Q27），含 live store 读数（C1：当前 `delivery` 块为空，无实例；C2：#82 的 3 条残留行经「结束会话」清理后的索引读数；C3：33 个码收录）。
   - 本计划文件入 `docs/plans/`。
 - Step 3：提交划分（docs 独立）。
   - `fix(work): 收口——交付 PR 关闭态、结束开工会话、错误码人话`（源码、测试、README 双语、`lib/client.js`、`lib/host.js` 同 commit）。
