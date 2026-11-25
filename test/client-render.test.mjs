@@ -2202,3 +2202,20 @@ test("「更多」里的「结束会话」：有活跃开工会话时出现；�
     assert.equal(await h5.startAnother("o/r#issue#9", "/w"), t("sessions.anotherFailed") + " (boom)");
   });
   function hooks_strip_dir(hooks, workDirs) { hooks.strip(new FakeElement("div"), { t, state: { candidates: [], runs: [], workflow: { templates: [] }, settings: { workDirs } } }); }
+
+test("重试失败：retry-requires-failed 的用户可见文案含「或已取消」（条件本就包含已取消的节点，评审 closeout-impl S-5③）", async () => {
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  const err = new Error("retry-requires-failed"); err.status = 409;
+  const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [], deps: { api: { runRetry: async () => { throw err; } } } });
+  const run = { id: "run-1", candidateKey: "o/r#issue#1", status: "failed", waitingGateId: null, currentNodeIds: [], failedNodeIds: ["build"], cancelledNodeIds: [], models: {}, templateId: "loop-v1", error: null, waitingSince: null, history: [], nodeStatuses: [], sessions: [] };
+  hooks.strip(new FakeElement("div"), { t, state: { candidates: [], runs: [run], workflow: { templates: [] } } });
+  const d = new FakeElement("div");
+  hooks.rowActions(d, { ...mkCandidate("building"), currentRunId: "run-1" }, { t, view: { reload: async () => {}, shadow: new FakeElement("shadow") }, lang: "zh-CN" });
+  const retry = find(d, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("actions.retryRun"))[0];
+  assert.ok(retry, "重试按钮在场");
+  retry.onclick(); await new Promise((r) => setTimeout(r, 10));
+  const line = find(d, (n) => n.className === "rowerr")[0].textContent;
+  // 期望写字面内容，不经 t() 取——经 t() 取等于拿词典和自己比，恒真（执行方第一次就写成了恒真，变异下仍绿）
+  assert.ok(line.includes("只能重试失败或已取消的节点"), "文案须点明「或已取消」——条件本就包含已取消的节点：" + line);
+  assert.ok(!line.includes("(retry-requires-failed)"), "不显示原码括注");
+});

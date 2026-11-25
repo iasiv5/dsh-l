@@ -381,3 +381,4 @@ coordinator adapter（会话协调者，role→派发缝）、sub-SOP / preview-
   路由 `POST /dsh-l/work/end`。开工时 live store：#82 的索引有 3 条活跃行、阶段 `building`——是本项的现成样本，实机核验见下。
 - **C3 错误码人话**（评审 K21 I16）：`errorText(error, t)` 在 `errors.codes.<码>` 查到即翻译，未收录返回 `null`、由调用点回落「<动作失败> (码)」。`actions.mjs` 内五处拼接点全部接入。输出口径：行内 `go` 与批量分诊对收录码只输出人话；开工 / 另开 / `startAnother` 输出「<动作失败>：<人话>」。收录 33 个码（`handlers.mjs` 的 `fail` 字面量 28 个 + 开工会话透传 2 个 + 引擎透传 3 个）；带空格的整句不进词典。`errors.codes` 是「动态前缀键不得新增」的唯一例外，已进 i18n 白名单守护表。
 - **范围外（记为后续项）**：`kanban.mjs` / `review.mjs` / `workbench.mjs` 的同类错误拼接未经 `errorText`（看板与待我确认页在里程碑 3 会删除或重排，届时一并处理）；`getWorkSessions` 条目不带 `endedAt`，会话页仍把已结束的行当普通行展示（里程碑 3 第 23 条会删会话页）；结束后 `sweepActiveKeys` 仍视该候选为活跃，托管工作区不进保留期清扫。
+- **测试面的后续项**（产物评审 closeout-impl S-3 / S-4，主人知悉）：`actions.mjs` 五处 `errorText` 调用点中，批量分诊的翻译与回落、行内开工失败的未收录回落、「更多 › 另开会话」失败 chip（`workChip(more, …)` 分支）尚无回归测试；`work-session.ended` 留痕的 detail 无断言。其中「更多 › 另开会话」的失败分支是零覆盖——它与会话页「另开」走的是不同路径（后者经 `startAnother`，已有测试）。
