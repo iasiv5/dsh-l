@@ -369,3 +369,15 @@ coordinator adapter（会话协调者，role→派发缝）、sub-SOP / preview-
 - `/run/gate` 类型守卫实测：对已取消的 PR80 run（归属 PR 候选）请求 G2 放行 → `409 engine-issue-only`；前后 run 状态、候选 stage 与 run 历史长度均不变。
 - 界面（无头 Chromium）：侧栏「DSH Loop Forge」分组下已无验证会话；插件清单正常渲染（45 个可见按钮，无页面错误）。
 - 遗留可见问题：#82 仍显示在「进行中」分组——dsh-l 工作索引保留了 3 条已归档会话的活跃行（见上文「待办」）。
+
+**收口落地注记（2026-11-25，commit 864e2ba；计划 docs/plans/2026-11-25-convergence-closeout-implementation-plan.md，执行方 lead，经四轮对抗评审通过后开工）**
+
+- **C1 交付三态**（第 30 条的收口）：`candidate.delivery` 增可选字段 `closed` / `closedAt`；`postRefresh` 回填时已合并看 `mergedAt`，否则 `state === "closed"` 即「已关闭（未合并）」；已终态的交付不再逐次查 `getPr`。候选脚注显示「PR #n · 待合并 / 已合并 / 已关闭」。开工时 live store 里 `delivery` 块为空，无实例可看。
+- **C2 结束开工会话**——出处是本节落地注记的未结项「待办（计划外建议）」，归档钩子复用第 16 条；「结束开工会话」本身是本节没有的新语义，含**四个小决定**（主人 2026-11-25 追认，评审 Q11 / Q27）：
+    - (i) 结束＝给当前活跃行标 `endedAt`，不追加新行；`getWorkSession` 自末位向前取最近一条未结束行，多条历史活跃行可逐条结束。
+    - (ii) 阶段只在「最后一条活跃行结束」且「无存活执行」且候选在 `building` 时回 `triaged`。有活跃行时不回退；有存活执行时不碰阶段——用户动作不得成为引擎 `syncStage` 之外的第二写者（第 7 条）。
+    - (iii) 结束时经既有钩子归档宿主会话（宿主服务缺席或失败静默，不阻断结束）。
+    - (iv) 入口在候选行「更多」里的「结束会话」，仅当有活跃开工会话时出现。
+  路由 `POST /dsh-l/work/end`。开工时 live store：#82 的索引有 3 条活跃行、阶段 `building`——是本项的现成样本，实机核验见下。
+- **C3 错误码人话**（评审 K21 I16）：`errorText(error, t)` 在 `errors.codes.<码>` 查到即翻译，未收录返回 `null`、由调用点回落「<动作失败> (码)」。`actions.mjs` 内五处拼接点全部接入。输出口径：行内 `go` 与批量分诊对收录码只输出人话；开工 / 另开 / `startAnother` 输出「<动作失败>：<人话>」。收录 33 个码（`handlers.mjs` 的 `fail` 字面量 28 个 + 开工会话透传 2 个 + 引擎透传 3 个）；带空格的整句不进词典。`errors.codes` 是「动态前缀键不得新增」的唯一例外，已进 i18n 白名单守护表。
+- **范围外（记为后续项）**：`kanban.mjs` / `review.mjs` / `workbench.mjs` 的同类错误拼接未经 `errorText`（看板与待我确认页在里程碑 3 会删除或重排，届时一并处理）；`getWorkSessions` 条目不带 `endedAt`，会话页仍把已结束的行当普通行展示（里程碑 3 第 23 条会删会话页）；结束后 `sweepActiveKeys` 仍视该候选为活跃，托管工作区不进保留期清扫。
