@@ -1,5 +1,6 @@
 import { api } from "../api.mjs";
-import { pickTriageBatch, gateState, settingsPatch, workSessionSettingsPatch, runBlock, startable, runDirName } from "../logic.mjs";
+import { makeT } from "../i18n.mjs";
+import { pickTriageBatch, gateState, settingsPatch, workSessionSettingsPatch, runBlock, startable, runDirName, errorText } from "../logic.mjs";
 import { renderRunDetail } from "./runDetail.mjs";
 import { withPending } from "./uiFeedback.mjs";
 import { openRepoPicker } from "./repoPicker.mjs";
@@ -277,11 +278,15 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
     openWorkSession,
     sessionsFeed: () => (sessionsFeed ? sessionsFeed() : []),
     // 无目录不发起（不得回退到本地检出）；有目录照常另开。
-    startAnother: async (key, cwd, t) => {
-      if (!cwd) return null;   // 无目录不发起（不得回退到本地检出）
-      const r = await a.workStart(key, cwd, true, getLang());
-      return r?.ok ? null : (t?.("sessions.anotherFailed") ?? "另开会话失败") + " (" + String(r?.error ?? "unknown") + ")";
-    },
+        startAnother: async (key, cwd, t) => {
+          if (!cwd) return null;   // 无目录不发起（不得回退到本地检出）
+          const r = await a.workStart(key, cwd, true, getLang());
+          if (r?.ok) return null;
+          const tt = t ?? makeT(getLang());   // t 缺省时用当前语言兜底——不传 t 也要能翻译，而不是回落括注（评审第 3 轮红一）
+          const head = tt("sessions.anotherFailed");   // 走兜底后的 tt，不传 t 也不中英混排（评审 Q25）。须在 tt 定义之后——const 有暂时性死区，先写 head 会报 Cannot access tt before initialization（执行方自检实测）
+          const human = errorText(r?.error, tt);
+          return human ? head + "：" + human : head + " (" + String(r?.error ?? "unknown") + ")";
+        },
     header(header, { t, state, view }) {
       const b = btn(t("settings.title"), () => openSettings(view.shadow, { t, current: state?.settings ?? { intervalMinutes: 0 }, onSaved: () => view.reload() }));
       b.setAttribute("aria-label", t("settings.title"));
@@ -305,7 +310,7 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
       const keys = pickTriageBatch(state?.candidates ?? [], filters);
       bar.append(btn(t("actions.triageBatch") + " (" + keys.length + ")", async () => {
         try { await a.triage(keys, getLang()); errLine.textContent = ""; errLine.style.display = "none"; await view.reload(); }
-        catch (e) { errLine.textContent = t("errors.actionFailed") + " (" + (e?.message ?? e) + ")"; errLine.style.display = "block"; }   // 失败不 reload（P0 不变式）
+        catch (e) { errLine.textContent = errorText(e, t) ?? (t("errors.actionFailed") + " (" + (e?.message ?? e) + ")"); errLine.style.display = "block"; }   // 失败不 reload（P0 不变式）
       }, keys.length === 0));
       bar.append(errLine);
     },
@@ -317,7 +322,7 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
       detail.prepend(errLine);
       const go = async (fn) => {
         try { await fn(); errLine.textContent = ""; errLine.style.display = "none"; await view.reload(); }
-        catch (e) { errLine.textContent = t("errors.actionFailed") + " (" + (e?.message ?? e) + ")"; errLine.style.display = "block"; }   // 失败不 reload：全量重绘会立即抹掉错误行（rev-impl B1；与 kanban 同构——失败未改服务端状态）
+        catch (e) { errLine.textContent = errorText(e, t) ?? (t("errors.actionFailed") + " (" + (e?.message ?? e) + ")"); errLine.style.display = "block"; }   // 失败不 reload：全量重绘会立即抹掉错误行（rev-impl B1；与 kanban 同构——失败未改服务端状态）
       };
       const tr = c.triage ?? { validity: "medium", urgency: "P2", action: "hold", reason: "" };
       const v = sel(["high", "medium", "low"].map((x) => [x, t("validity." + x)]), tr.validity);
@@ -365,7 +370,8 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
         if (r?.ok && r.sessionId) {
           if (!r.reused && !openWorkSession(r.sessionId)) workChip(target, t("work.openPending"));
         } else if (r?.error) {
-          workChip(target, t("work.startFailed") + " (" + r.error + ")", true);
+            const failedOpen = errorText(r.error, t);
+            workChip(target, failedOpen ? t("work.startFailed") + "：" + failedOpen : t("work.startFailed") + " (" + r.error + ")", true);
         }
       };
       const mkStart = (target) => btn(t("work.startBtn"), () => go(async () => {
@@ -436,20 +442,24 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
       const rememberedDir = lastState?.settings?.workDirs?.[c.repo];
       const anotherDir = typeof rememberedDir === "string" && rememberedDir && rememberedDir !== "managed" ? rememberedDir : null;
       const canAnother = Boolean(anotherDir) && (Boolean(c.work?.sessionId) || runAlive);
-      if (canStart || canAnother) {
+      if (canStart || canAnother || c.work?.sessionId) {
         const more = document.createElement("details");
         more.className = "override-box";
         const moreSum = document.createElement("summary");
         moreSum.textContent = t("actions.more");
         more.append(moreSum);
         if (canStart) more.append(btn(t("work.changeDir"), () => go(async () => startIn(more, await pickWorkspace(view.shadow, pickOpts()))())));
+        if (c.work?.sessionId) {
+          more.append(btn(t("work.endSession"), () => go(async () => { await a.workEnd(c.key); })));
+        }
         if (canAnother) {
           more.append(btn(t("sessions.another"), () => go(async () => {
             const r = await a.workStart(c.key, anotherDir, true, lang);
             if (r?.ok && r.sessionId) {
               if (!r.reused && !openWorkSession(r.sessionId)) workChip(more, t("work.openPending"));
             } else if (r?.error) {
-              workChip(more, t("work.startFailed") + " (" + r.error + ")", true);
+              const failedAnother = errorText(r.error, t);
+              workChip(more, failedAnother ? t("work.startFailed") + "：" + failedAnother : t("work.startFailed") + " (" + r.error + ")", true);
             }
           })));
         }

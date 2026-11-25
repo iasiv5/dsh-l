@@ -1261,3 +1261,58 @@ test("postRunGate：PR 候选的 run 放行 → 409 engine-issue-only（引擎�
   assert.deepEqual([r.error, r.status], ["engine-issue-only", 409]);
   assert.equal(applied.length, 0, "不触达引擎");
 });
+  test("postRefresh：未合并的交付 PR 已关闭 → delivery.closed 回填；已终态的交付不再查 getPr（收敛收口 C1）", async () => {
+    const store = openStore(); login(store);
+    store.setWatch(["o/good"]);
+    store.upsertCandidates([{ repo: "o/good", type: "issue", number: 1, title: "t", author: "a", labels: [], createdAt: "2026-11-01T00:00:00Z", updatedAt: "T", url: "U", meta: {}, pull: null, bodyExcerpt: "" }]);
+    store.setDelivery("o/good#issue#1", { prNumber: 81, prUrl: "https://github.com/o/good/pull/81", merged: false, mergedAt: null, closed: false, closedAt: null }, "delivery.pr");
+    const provider = PROVIDER();
+    const asked = [];
+    provider.getPr = async ({ number }) => { asked.push(number); return { number, state: "closed", mergedAt: null, htmlUrl: "https://github.com/o/good/pull/81", headRef: "b" }; };
+    await makeHandlers({ store, provider, triage: noTriage, now: () => new Date("2026-11-24T00:00:00Z") }).postRefresh();
+    assert.deepEqual(store.getCandidate("o/good#issue#1").delivery, { prNumber: 81, prUrl: "https://github.com/o/good/pull/81", merged: false, mergedAt: null, closed: true, closedAt: "2026-11-24T00:00:00.000Z" });   // toISOString 带毫秒（评审 P1：原期望缺 .000，照计划执行必卡）
+    assert.equal(store.getCandidate("o/good#issue#1").history.at(-1).event, "delivery.closed");
+    await makeHandlers({ store, provider, triage: noTriage, now: () => new Date("2026-11-24T00:00:00Z") }).postRefresh();
+    assert.deepEqual(asked, [81], "已终态不再查");
+  });
+test("postWorkEnd：结束当前活跃行、留痕 work-session.ended、调 archiveSession；多条历史活跃行可逐条结束，最后一条结束时 building 才回 triaged（收敛收口 C2，评审 P2 / Q21）", async () => {
+  const store = openStore(); login(store); seed(store);
+  store.appendWorkSession("o/r#issue#1", { sessionId: "dsh-l:work-a", cwd: "/w", approvalPolicy: null, createdAt: "t", updatedAt: "t" });
+  store.appendWorkSession("o/r#issue#1", { sessionId: "dsh-l:work-b", cwd: "/w", approvalPolicy: null, createdAt: "t", updatedAt: "t" });
+  await store.setStage("o/r#issue#1", "building", "G1 pass");
+  const archived = [];
+  const mk = () => makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine: { hasAliveRun: () => false }, archiveSession: async (id) => { archived.push(id); } });
+  // 第一次：结束 b，回退到 a；仍有活跃行 → 阶段不动
+  const r1 = await mk().postWorkEnd({ key: "o/r#issue#1" });
+  assert.deepEqual([r1.ok, r1.sessionId], [true, "dsh-l:work-b"], "结束的是当前活跃行");
+  assert.equal(store.getWorkSession("o/r#issue#1").sessionId, "dsh-l:work-a", "回退到更早的活跃行——入口不消失");
+  assert.equal(store.getCandidate("o/r#issue#1").stage, "building", "仍有活跃行 → 阶段不动");
+  // 第二次：结束 a，没有活跃行了 → building 回 triaged
+  const r2 = await mk().postWorkEnd({ key: "o/r#issue#1" });
+  assert.deepEqual([r2.ok, r2.sessionId], [true, "dsh-l:work-a"]);
+  assert.equal(store.getWorkSession("o/r#issue#1"), null);
+  assert.equal(store.getCandidate("o/r#issue#1").stage, "triaged", "最后一条结束 → 回已分诊");
+  assert.equal(store.getCandidate("o/r#issue#1").history.at(-1).event, "work-session.ended");
+  assert.deepEqual(archived, ["dsh-l:work-b", "dsh-l:work-a"]);
+});
+
+test("postWorkEnd：无活跃行 → 404 no-work-session；归档钩子抛错不影响结束（缺席静默）；非 building 不改阶段", async () => {
+  const store = openStore(); login(store); seed(store);
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage });
+  assert.deepEqual([(await h.postWorkEnd({ key: "o/r#issue#1" })).error, 404], ["no-work-session", 404]);
+  store.appendWorkSession("o/r#issue#1", { sessionId: "dsh-l:work-b", cwd: "/w", approvalPolicy: null, createdAt: "t", updatedAt: "t" });
+  const boom = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine: { hasAliveRun: () => false }, archiveSession: async () => { throw new Error("registry down"); } });
+  assert.equal((await boom.postWorkEnd({ key: "o/r#issue#1" })).ok, true, "归档失败不阻断结束");
+  assert.equal(store.getWorkSession("o/r#issue#1"), null);
+  assert.equal(store.getCandidate("o/r#issue#1").stage, "inbox", "非 building 的候选不改阶段（seed 默认 inbox）");
+});
+
+test("postWorkEnd：有存活执行时不改阶段——用户动作不得成为引擎 syncStage 之外的第二写者（评审 Q10，design-v2 §20 第 7 条）", async () => {
+  const store = openStore(); login(store); seed(store);
+  store.appendWorkSession("o/r#issue#1", { sessionId: "dsh-l:work-a", cwd: "/w", approvalPolicy: null, createdAt: "t", updatedAt: "t" });
+  await store.setStage("o/r#issue#1", "building", "G1 pass");
+  const h = makeHandlers({ store, provider: PROVIDER(), triage: noTriage, engine: { hasAliveRun: () => true } });   // run 仍在 running / waiting
+  assert.equal((await h.postWorkEnd({ key: "o/r#issue#1" })).ok, true, "会话照常结束");
+  assert.equal(store.getWorkSession("o/r#issue#1"), null);
+  assert.equal(store.getCandidate("o/r#issue#1").stage, "building", "有存活执行 → 阶段不动，留给引擎");
+});

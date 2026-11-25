@@ -39,6 +39,7 @@ export const api = {
   workDefaultDir: (repo) => get("dsh-l/work/default-dir?repo=" + encodeURIComponent(repo)),
   workSessions: () => get("dsh-l/work/sessions"),
   workDeliver: (key, note = "") => send("dsh-l/work/deliver", { key, note }),
+  workEnd: (key) => send("dsh-l/work/end", { key }),
   rolesList: () => get("dsh-l/roles"),
   rolesUpsert: (role) => send("dsh-l/roles", { role }),
   rolesDelete: (id) => send("dsh-l/roles/delete", { id }),

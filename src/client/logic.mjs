@@ -302,3 +302,11 @@ export function savePins(storage, pins) {
 export function makePinId() {
   return "pin-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
 }
+  // 错误码人话（收敛收口 C3，评审 K21 I16）：服务端 fail(code) 的码经词典 errors.codes.<码> 翻译；未收录返回 null，
+  // 由调用点回落到「<动作失败> (码)」——未收录的可能是网络错误或宿主新增的码，带前缀比裸码信息多。
+  export function errorText(error, t) {
+    const code = String(error?.message ?? error ?? "").trim();
+    if (!code) return null;
+    const text = t("errors.codes." + code);
+    return text === "errors.codes." + code ? null : text;
+  }

@@ -94,6 +94,13 @@ export function createStore({ filePath, now = () => new Date() }) {
     c.history.push({ at: now().toISOString(), event, detail: detail ?? "" });
     if (c.history.length > HISTORY_LIMIT) c.history.splice(0, c.history.length - HISTORY_LIMIT);
   };
+  // 开工会话索引：自末位向前最近一条无 endedAt 的行 = 活跃行（收敛收口 C2，评审 P2：结束是「标记」不是「追加」，
+  // 追加会让 getWorkSessions 多出幽灵行；回退语义让同一候选的多条历史活跃行可以逐条结束）。
+  const activeRowOf = (key) => {
+    const rows = doc.workSessions[key] ?? [];
+    for (let i = rows.length - 1; i >= 0; i--) if (!rows[i].endedAt) return rows[i];
+    return null;
+  };
   return {
     getWatch: () => doc.watch,
     setWatch(repos) { doc.watch = { repos: [...new Set(repos)], updatedAt: now().toISOString() }; persist(); },
@@ -147,9 +154,15 @@ export function createStore({ filePath, now = () => new Date() }) {
     setWorkDir(repo, cwd) { (doc.settings.workDirs ??= {})[repo] = cwd; persist(); },
     // 开工会话索引（GLOSSARY「开工会话」）：append 追加行（末位=活跃）；get 取末位或 null（候选不存在不炸——
     // 读路径无候选校验，写路径 need(key) 404）。
-    getWorkSession: (key) => {
-      const rows = doc.workSessions[key];
-      return rows && rows.length ? rows[rows.length - 1] : null;
+    getWorkSession: (key) => activeRowOf(key),
+    endWorkSession(key) {
+      need(key);
+      const active = activeRowOf(key);
+      if (!active) return null;
+      active.endedAt = now().toISOString();
+      active.updatedAt = active.endedAt;
+      persist();
+      return active.sessionId;
     },
     appendWorkSession(key, row) {
       need(key);

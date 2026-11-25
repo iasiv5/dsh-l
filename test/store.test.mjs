@@ -359,3 +359,28 @@ test("workDirs：新档缺省空对象；setWorkDir 写入并持久化；旧档�
   writeFileSync(legacy, JSON.stringify({ version: 3, runs: {}, roles: {}, watch: { repos: [] }, candidates: {}, snapshots: {}, repos: {}, ingestLog: [], settings: { intervalMinutes: 0 }, auth: {}, credential: {} }));
   assert.deepEqual(createStore({ filePath: legacy }).getSettings().workDirs, {});   // 旧档（无 workDirs 键）回填
 });
+test("endWorkSession：给当前活跃行标 endedAt，不追加行；getWorkSession 回退到最近一条未结束行；全结束 → null（收敛收口 C2，评审 P2）", () => {
+  const filePath = join(mkdtempSync(join(tmpdir(), "dsh-l-")), "store.json");
+  const s = createStore({ filePath, now: () => new Date("2026-11-25T00:00:00Z") });
+  s.upsertCandidates([raw(3)]);
+  const key = candidateKey("iasiv5/dsh-skins", "issue", 3);
+  s.appendWorkSession(key, { sessionId: "dsh-l:work-a", cwd: "/w/a", approvalPolicy: null, createdAt: "t", updatedAt: "t" });
+  s.appendWorkSession(key, { sessionId: "dsh-l:work-b", cwd: "/w/b", approvalPolicy: null, createdAt: "t", updatedAt: "t" });
+  assert.equal(s.getWorkSession(key).sessionId, "dsh-l:work-b", "末位为活跃");
+  // 结束 b：标 endedAt，行数不变，回退到 a
+  assert.equal(s.endWorkSession(key), "dsh-l:work-b");
+  const rows = s.listWorkSessions().find((r) => r.key === key).rows;
+  assert.equal(rows.length, 2, "不追加行");
+  assert.equal(rows[1].endedAt, "2026-11-25T00:00:00.000Z");
+  assert.equal(rows[0].endedAt, undefined, "更早的行不动");
+  assert.equal(s.getWorkSession(key).sessionId, "dsh-l:work-a", "回退到最近一条未结束行");
+  assert.equal(createStore({ filePath }).getWorkSession(key).sessionId, "dsh-l:work-a", "落盘可读回");
+  // 结束 a：全结束 → null
+  assert.equal(s.endWorkSession(key), "dsh-l:work-a");
+  assert.equal(s.getWorkSession(key), null);
+  assert.equal(s.endWorkSession(key), null, "没有活跃行 → 返回 null，不抛");
+  // 再开一个新行 → 又有活跃行（结束不封死候选）
+  s.appendWorkSession(key, { sessionId: "dsh-l:work-c", cwd: "/w/c", approvalPolicy: null, createdAt: "t", updatedAt: "t" });
+  assert.equal(s.getWorkSession(key).sessionId, "dsh-l:work-c");
+  assert.throws(() => s.endWorkSession("o/r#issue#404"), /not found/);
+});

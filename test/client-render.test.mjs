@@ -2134,8 +2134,71 @@ test("会话页「另开」失败就地呈现原因；startAnother 把错误响�
   const api = { workStart: async () => ({ error: "managed-dir-explicit", status: 409 }) };
   const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [], deps: { api } });
   const failed = await hooks.startAnother("o/r#issue#9", "/home/u/workspace/r");
-  assert.equal(failed, t("sessions.anotherFailed") + " (managed-dir-explicit)", "错误响应转成文案");
+    assert.equal(failed, t("sessions.anotherFailed") + "：" + t("errors.codes.managed-dir-explicit"), "错误响应转成文案（收录的码翻译，收敛收口 C3）");
   const api2 = { workStart: async () => ({ ok: true, sessionId: "dsh-l:work-n", reused: false }) };
   const hooks2 = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [], deps: { api: api2 } });
   assert.equal(await hooks2.startAnother("o/r#issue#9", "/home/u/workspace/r"), null, "成功返回 null（行内无痕）");
 });
+  test("candidateRow：delivery.closed → 脚注出『PR #n · 已关闭』；merged 仍为『已合并』（收敛收口 C1）", async () => {
+    const { renderRow } = await import("../src/client/components/candidateRow.mjs");
+    const mk = (delivery) => ({ key: "o/r#issue#1", repo: "o/r", type: "issue", number: 1, title: "t", stage: "shipped", triage: null, delivery });
+    const closed = new FakeElement("div");
+    renderRow(closed, mk({ prNumber: 81, prUrl: "u", merged: false, mergedAt: null, closed: true, closedAt: "t" }), t, { expanded: false, onToggle: () => {} });
+    assert.ok(find(closed, (n) => n.className === "rowmeta")[0].textContent.includes("PR #81") && find(closed, (n) => n.className === "rowmeta")[0].textContent.includes(t("delivery.closed")), "已关闭标记");
+    const merged = new FakeElement("div");
+    renderRow(merged, mk({ prNumber: 81, prUrl: "u", merged: true, mergedAt: "t", closed: false, closedAt: null }), t, { expanded: false, onToggle: () => {} });
+    assert.ok(find(merged, (n) => n.className === "rowmeta")[0].textContent.includes(t("delivery.merged")), "已合并不变");
+  });
+test("「更多」里的「结束会话」：有活跃开工会话时出现；点击调 workEnd(key)（收敛收口 C2）", async () => {
+  const { installActions } = await import("../src/client/components/actions.mjs");
+  const calls = [];
+  const api = { workEnd: async (key) => { calls.push(key); return { ok: true, sessionId: "dsh-l:work-a" }; } };
+  const hooks = installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [], deps: { api } });
+  const view = { reload: async () => {}, shadow: new FakeElement("shadow") };
+  const d = new FakeElement("div");
+  hooks.rowActions(d, mkCandidate("building", { sessionId: "dsh-l:work-a", cwd: "/w" }), { t, view, lang: "zh-CN" });
+  const more = find(d, (n) => String(n.tagName).toUpperCase() === "DETAILS" && (n.children[0]?.textContent ?? "") === t("actions.more"))[0];
+  assert.ok(more, "有活跃会话 → 有「更多」");
+  const endBtn = find(more, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("work.endSession"))[0];
+  assert.ok(endBtn, "有「结束会话」");
+  endBtn.onclick(); await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(calls, ["o/r#issue#1"]);
+  // 无活跃会话 → 无「结束会话」
+  const d2 = new FakeElement("div");
+  hooks.rowActions(d2, mkCandidate("triaged"), { t, view, lang: "zh-CN" });
+  assert.equal(find(d2, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("work.endSession")).length, 0);
+});
+  test("动作失败：收录的错误码显示人话；未收录的码保持「操作失败 (码)」；开工与另开失败同样翻译（收敛收口 C3）", async () => {
+    const { installActions } = await import("../src/client/components/actions.mjs");
+    const mkHooks = (api) => installActions({ getLang: () => "zh-CN", openWorkSession: () => true, pickDirectory: null, sessionsFeed: () => [], deps: { api } });
+    const settle = () => new Promise((r) => setTimeout(r, 10));
+    // 1) 行内迁移失败：收录的码 → 人话，不带原码括注
+    const known = new Error("managed-dir-explicit"); known.status = 409;
+    const h1 = mkHooks({ stage: async () => { throw known; } });
+    const d1 = new FakeElement("div");
+    h1.rowActions(d1, mkCandidate("triaged"), { t, view: { reload: async () => {}, shadow: new FakeElement("shadow") }, lang: "zh-CN" });
+    find(d1, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("actions.moveTo") + " " + t("groups.closed"))[0].onclick(); await settle();
+    const e1 = find(d1, (n) => n.className === "rowerr")[0].textContent;
+    assert.ok(e1.includes(t("errors.codes.managed-dir-explicit")) && !e1.includes("(managed-dir-explicit)"), "收录的码显示人话：" + e1);
+    // 2) 未收录的码 → 回落「操作失败 (码)」
+    const h2 = mkHooks({ stage: async () => { throw new Error("boom"); } });
+    const d2 = new FakeElement("div");
+    h2.rowActions(d2, mkCandidate("triaged"), { t, view: { reload: async () => {}, shadow: new FakeElement("shadow") }, lang: "zh-CN" });
+    find(d2, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("actions.moveTo") + " " + t("groups.closed"))[0].onclick(); await settle();
+    const e2 = find(d2, (n) => n.className === "rowerr")[0].textContent;
+    assert.ok(e2.includes(t("errors.actionFailed")) && e2.includes("(boom)"), "未收录回落旧格式：" + e2);
+    // 3) 行内「开工」失败（workStart 的码）同样翻译
+    const h3 = mkHooks({ workStart: async () => ({ error: "work-cwd-conflict", status: 409 }) });
+    hooks_strip_dir(h3, { "o/r": "/home/u/workspace/r" });
+    const d3 = new FakeElement("div");
+    h3.rowActions(d3, mkCandidate("gating"), { t, view: { reload: async () => {}, shadow: new FakeElement("shadow") }, lang: "zh-CN" });
+    find(d3, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("work.startBtn"))[0].onclick(); await settle();
+    const e3 = d3.textContent;
+    assert.ok(e3.includes(t("work.startFailed") + "：" + t("errors.codes.work-cwd-conflict")) && !e3.includes("(work-cwd-conflict)"), "开工失败翻译（动作失败：人话）：" + e3);
+    // 4) startAnother：收录 → 「另开会话失败：<人话>」；未收录 → 「另开会话失败 (码)」；t 缺省安全
+    const h4 = mkHooks({ workStart: async () => ({ error: "managed-dir-explicit", status: 409 }) });
+    assert.equal(await h4.startAnother("o/r#issue#9", "/w"), t("sessions.anotherFailed") + "：" + t("errors.codes.managed-dir-explicit"));
+    const h5 = mkHooks({ workStart: async () => ({ error: "boom", status: 500 }) });
+    assert.equal(await h5.startAnother("o/r#issue#9", "/w"), t("sessions.anotherFailed") + " (boom)");
+  });
+  function hooks_strip_dir(hooks, workDirs) { hooks.strip(new FakeElement("div"), { t, state: { candidates: [], runs: [], workflow: { templates: [] }, settings: { workDirs } } }); }

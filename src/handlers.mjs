@@ -61,7 +61,7 @@ const underDir = (p, root) => {
   return p === r || p.startsWith(r + "/");
 };
 
-export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, githubClientId = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null, workflowCatalog = { templates: [], warnings: [] }, engine = null, feishu = null, templates = {}, startWork = null, home = null, stat = null, workspace = null, sessionRoot = null, listPresets = async () => [], resolveLocalDir = null, workspaceTitleOf = async () => null, paths = null }) {
+export function makeHandlers({ store, provider, triage, credentials, tokenRef = null, githubClientId = null, execFile, fetch = globalThis.fetch, now = () => new Date(), onSettingsChange = () => {}, listCatalog = async () => [], hostDefault = () => null, ghBin = null, ghTmp = null, spawn = null, workflowCatalog = { templates: [], warnings: [] }, engine = null, feishu = null, templates = {}, startWork = null, home = null, stat = null, workspace = null, sessionRoot = null, archiveSession = null, listPresets = async () => [], resolveLocalDir = null, workspaceTitleOf = async () => null, paths = null }) {
   // 两级 token 链（gh-as-source 2026-11-20）：credentials 引用覆写 → gh 登录态兜底；token 只存 gh 凭据库。
   const token = () => provider.resolveToken({ credentials, tokenRef, execFile, ghPath: ghBin });
   // 任务包 v2 生产接线（M4 契约补全，M5 后落账）：makeRunId 先行 + 首个 agent 节点角色 + workflow 块；
@@ -321,11 +321,12 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
             const own = new Set(delivered.map((c) => c.delivery.prNumber));
             const pullsKept = pulls.filter((p) => !own.has(p.number));
             for (const c of delivered) {
-              if (c.delivery.merged) continue;
-              try {
-                const pr = await provider.getPr({ repo, number: c.delivery.prNumber, token: tk, fetch });
-                if (pr?.mergedAt) store.setDelivery(c.key, { merged: true, mergedAt: pr.mergedAt }, "delivery.merged");
-              } catch {}
+            if (c.delivery.merged || c.delivery.closed) continue;   // 终态：已合并 / 已关闭未合并，都不再查
+            try {
+            const pr = await provider.getPr({ repo, number: c.delivery.prNumber, token: tk, fetch });
+            if (pr?.mergedAt) store.setDelivery(c.key, { merged: true, mergedAt: pr.mergedAt }, "delivery.merged");
+            else if (pr?.state === "closed") store.setDelivery(c.key, { closed: true, closedAt: now().toISOString() }, "delivery.closed");
+            } catch {}
             }
             merged.push(...issues, ...pullsKept);
             perRepo[repo] = { issues: issues.length, pulls: pulls.length, fetchedAt: now().toISOString(), error: null };
@@ -682,6 +683,22 @@ export function makeHandlers({ store, provider, triage, credentials, tokenRef = 
       store.setStage(key, "shipped", "work deliver");
       store.recordHistory(key, "work-session.delivered", body?.note ?? "");
       return { ok: true };
+    },
+    // 结束开工会话（收敛收口 C2）：结束当前活跃行并留痕；仅当「没有活跃行了」且「没有存活执行」且候选在 building 时回已分诊——
+    // 有存活执行时不碰阶段，用户动作不得成为引擎 syncStage 之外的第二写者（评审 Q10，design-v2 §20 第 7 条）。
+    async postWorkEnd(body) {
+      const gate = requireAuth(); if (gate) return gate;
+      const key = body?.key;
+      const c = store.getCandidate(key);
+      if (!c) return fail("not found", 404);
+      const active = store.getWorkSession(key);
+      if (!active) return fail("no-work-session", 404);
+      store.endWorkSession(key);
+      const engineBusy = engine ? engine.hasAliveRun(key) : false;
+      if (c.stage === "building" && !store.getWorkSession(key) && !engineBusy) store.setStage(key, "triaged", "work session ended");
+      store.recordHistory(key, "work-session.ended", active.sessionId);
+      try { await archiveSession?.(active.sessionId); } catch {}
+      return { ok: true, sessionId: active.sessionId };
     },
     async getRoles() {
       const gate = requireAuth(); if (gate) return gate;

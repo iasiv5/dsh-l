@@ -336,3 +336,13 @@ test("runDirName：与 workspace.sanitizeKey 同构（o/r#issue#1 → o_r_issue_
   assert.equal(runDirName("iasiv5/dsh-m#pull#80"), "iasiv5_dsh-m_pull_80");
   assert.equal(runDirName(null), "");
 });
+  test("errorText：收录的码 → 词典文案；未收录 → null（调用点回落旧格式）；无 error → null（收敛收口 C3）", async () => {
+    const { errorText } = await import("../src/client/logic.mjs");
+    const dict = { "errors.codes.managed-dir-explicit": "托管克隆请用「托管克隆」按钮进入", "errors.codes.gate-requires-gating": "先对待拍板候选放行 G1" };
+    const t = (k) => dict[k] ?? k;
+    assert.equal(errorText("managed-dir-explicit", t), "托管克隆请用「托管克隆」按钮进入");
+    assert.equal(errorText(new Error("gate-requires-gating"), t), "先对待拍板候选放行 G1");
+    assert.equal(errorText("some-new-code", t), null, "未收录 → null，调用点回落「操作失败 (码)」");
+    assert.equal(errorText(undefined, t), null, "无错误 → null");
+    assert.equal(errorText(new Error(""), t), null, "空消息 → null");
+  });

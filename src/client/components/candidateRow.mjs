@@ -29,7 +29,7 @@ export function metaFootnote(candidate, t) {
     link.href = String(d.prUrl ?? "#");
     link.target = "_blank";
     link.rel = "noopener";
-    link.textContent = (segs.length ? " · " : "") + "PR #" + d.prNumber + " · " + (d.merged ? t("delivery.merged") : t("delivery.pending"));
+    link.textContent = (segs.length ? " · " : "") + "PR #" + d.prNumber + " · " + (d.merged ? t("delivery.merged") : d.closed ? t("delivery.closed") : t("delivery.pending"));
     foot.append(link);
   }
   return foot;

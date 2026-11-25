@@ -92,6 +92,7 @@ test("i18n 动态前缀键白名单守护（M5 T6，评审 R-3）：源码动态
     validity: ["high", "medium", "low", "none"],
     recommendedActions: ["start", "feedback", "close", "hold"],
     "run.status": ["running", "waiting", "succeeded", "failed", "cancelled"],
+    "errors.codes": ["gate-requires-gating", "engine-issue-only", "run-already-active", "workspace-not-found", "managed-dir-explicit", "work-cwd-conflict", "no-work-session", "deliver-requires-building", "engine-not-wired", "work-not-wired", "gh-not-installed", "gh-not-authorized", "gh-not-ours", "credential-unhealthy", "credential-missing", "credential-invalid", "credential-format", "token-invalid", "auth-required", "already-authorized", "model-not-in-catalog", "preset-not-in-roster", "release-requires-shipped", "release-already-confirmed", "refresh-in-progress", "feishu-not-wired", "invalid-path", "gate-not-available-in-v1", "candidate-not-found", "kickoff-failed", "retry-requires-failed-or-cancelled", "retry-requires-failed", "attempt-exhausted"],
     stages: ["ingest", "backlog", "triage", "feedback", "build", "verify", "ship"],
   };
   const clientDir = path.resolve(import.meta.dirname, "../src/client");

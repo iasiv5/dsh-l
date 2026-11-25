@@ -177,6 +177,7 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     stat: (p) => statSync(p),
     workspace,
     sessionRoot,
+    archiveSession: (sessionId) => archiveSession(ctx, sessionId),
     // 收敛 M2 Task 13：选择器去向提示的数据面——本地默认检出解析、宿主工作区名（未登记为 null → 界面显示「未分组」）。
     paths: { dataDir: dir, workspacesDir: sessionRoot },
     resolveLocalDir: (repo) => resolveLocalWorkspace(repo, { home: homedir(), stat: (p) => statSync(p) }),
@@ -206,6 +207,7 @@ export function buildRuntime(ctx, config, { makeTriage, listCatalog = async () =
     "/dsh-l/work/default-dir": { GET: handlers.getWorkDefaultDir },
     "/dsh-l/work/sessions": { GET: handlers.getWorkSessions },
     "/dsh-l/work/deliver": { POST: handlers.postWorkDeliver },
+    "/dsh-l/work/end": { POST: handlers.postWorkEnd },
     "/dsh-l/run/gate": { POST: handlers.postRunGate },
     "/dsh-l/run/cancel": { POST: handlers.postRunCancel },
     "/dsh-l/run/retry": { POST: handlers.postRunRetry },
