@@ -508,7 +508,7 @@
 
 - Step 1：`npm run build`（退出码 0）；`npm test` → `ℹ tests 421`、`ℹ pass 421`、`ℹ fail 0`；detector 逐文件集合比对：改动的 UI 源文件（`actions.mjs`、`candidateRow.mjs`、`logic.mjs`）新增条目 0。
 - Step 2：文档四处。
-  - `README.md`：交付那句「引擎为 issue 新开的 PR 记在来源候选上（「PR #n · 待合并 / 已合并」）」改为「（「PR #n · 待合并 / 已合并 / 已关闭」）」；在「更多 › 换个目录开工」可重选」之后增「；有进行中的开工会话时，「更多 › 结束会话」可以收掉它；最后一条会话结束后，候选才回到已分诊（有执行在跑时不动）」。
+  - `README.md`：交付那句「引擎为 issue 新开的 PR 记在来源候选上（「PR #n · 待合并 / 已合并」）」改为「（「PR #n · 待合并 / 已合并 / 已关闭」）」；在「更多 › 换个目录开工」可重选」；在它之后增「；有进行中的开工会话时，「更多 › 结束会话」可以收掉它；最后一条会话结束后，候选才回到已分诊（有执行在跑时不动）」。
   - `README.en.md`：把 `recorded on that candidate ("PR #n · Awaiting merge / Merged")` 换成 `recorded on that candidate ("PR #n · Awaiting merge / Merged / Closed")`；把 `**More › Start in another directory…** lets you re-pick.` 换成下面这句：
   ```text
   **More › Start in another directory…** lets you re-pick. While a work session is in progress, **More › End session** closes it; the candidate returns to Triaged only after its last session ends (and not while a run is alive).
