@@ -84,7 +84,7 @@ export function createStore({ filePath, now = () => new Date() }) {
   doc.settings.workSessionPreset ??= null;          // 开工会话 agent preset，null=部署默认
   doc.settings.workDirs ??= {};                    // 收敛 M2 Task 13：按仓库记住的开工目录（repo → 目录 | "managed"）
   doc.settings.workSessionApprovalPolicy ??= null;  // 开工会话初始审批策略，null=宿主部署默认（零 setPolicy）
-  doc.workSessions ??= {};                          // 开工会话索引：candidateKey → 行数组（末位=活跃）
+  doc.workSessions ??= {};                          // 开工会话索引：candidateKey → 行数组（活跃行 = 自末位向前最近一条无 endedAt 的行）
   const need = (key) => {
     const c = doc.candidates[key];
     if (!c) throw Object.assign(new Error("candidate not found: " + key), { status: 404 });
