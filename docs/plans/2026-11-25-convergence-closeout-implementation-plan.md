@@ -19,7 +19,7 @@
     - (iii) **归档宿主会话**：经 M1 Task 7 的 `archiveSession` 钩子（宿主服务缺席或失败静默，不阻断结束）。
     - (iv) **入口**：候选行「更多」里的「结束会话」，仅当有活跃开工会话时出现。
     路由 `POST /dsh-l/work/end`：候选须有活跃行，否则 404；留痕 `work-session.ended`。
-3. **错误码人话**：新增纯函数 `errorText(error, t)`（`src/client/logic.mjs`）：在 `errors.codes.<码>` 查到则返回该文案，否则返回 `null`，由调用点回落到「<动作失败> (码)」（未收录的可能是网络错误或宿主新增的码，带前缀比裸码信息多）。`actions.mjs` 内五处拼接点（批量分诊、行内 `go`、行内「开工」失败、「更多 › 另开会话」失败、`startAnother`）统一经它翻译；其它文件的同类拼接列为范围外。动态键 `errors.codes` 进入 i18n 白名单守护表（本计划对「动态前缀键不得新增」的唯一例外），33 个码逐键列出。
+3. **错误码人话**：新增纯函数 `errorText(error, t)`（`src/client/logic.mjs`）：在 `errors.codes.<码>` 查到则返回该文案，否则返回 `null`，由调用点回落到「<动作失败> (码)」（未收录的可能是网络错误或宿主新增的码，带前缀比裸码信息多）。`actions.mjs` 内五处拼接点（批量分诊、行内 `go`、行内「开工」失败、「更多 › 另开会话」失败、`startAnother`）统一经它翻译；其它文件的同类拼接列为范围外。**输出口径**（评审 Q22）：行内 `go` 与批量分诊的错误行就在触发的按钮下方，收录码只输出人话；开工 / 另开 / `startAnother` 的失败 chip 输出「<动作失败>：<人话>」——用户看到一句人话时要知道是哪个动作失败了。未收录一律回落「<动作失败> (码)」。动态键 `errors.codes` 进入 i18n 白名单守护表（本计划对「动态前缀键不得新增」的唯一例外），33 个码逐键列出。
 
 ## 全局约束（逐字继承 dsh-l 仓约与收敛计划）
 
@@ -42,11 +42,11 @@
 | logic | 32 | 33 | Task 5 +1 |
 | host-smoke | 8 | 8 | 不变 |
 | i18n / locale-parity / design-lint | 6 / 1 / 1 | 6 / 1 / 1 | 不变 |
-| 全量 | 412 | 420 | +8 |
+| 全量 | 412 | 421 | +9 |
 
-**逐任务累计**（按顺序执行）：Task 1 → 414；Task 2 → 415；Task 3 → 418；Task 4 → 419；Task 5 → 420。
+**逐任务累计**（按顺序执行）：Task 1 → 414；Task 2 → 415；Task 3 → 418；Task 4 → 419；Task 5 → 421（Task 5 在 client-render 加 1 条、logic 加 1 条）。
 
-**计数口径**：各任务 Step 2 / Step 4 写的是**按任务顺序执行到该点**的单文件与全量计数（含此前任务的增量）。若只单跑某一任务做红绿复核，数字会不同——例如只做 Task 2 + Task 3 时 handlers 红为 80 / 77 / 3、绿 80 / 80 / 0，全量 416；做全部五个任务时终点 420（执行方 2026-11-25 在副本实测）。评审复核时请按「顺序累计」核对，或按此说明换算。
+**计数口径**：各任务 Step 2 / Step 4 写的是**按任务顺序执行到该点**的单文件与全量计数（含此前任务的增量）。若只单跑某一任务做红绿复核，数字会不同——例如只做 Task 2 + Task 3 时 handlers 红为 80 / 77 / 3、绿 80 / 80 / 0，全量 416；做全部五个任务时终点 421（评审第 3 轮在副本实测；执行方原估 420，少算了 Task 5 的 1 条）。评审复核时请按「顺序累计」核对，或按此说明换算。
 
 ## 文件结构与职责
 
@@ -346,7 +346,7 @@
       h3.rowActions(d3, mkCandidate("gating"), { t, view: { reload: async () => {}, shadow: new FakeElement("shadow") }, lang: "zh-CN" });
       find(d3, (n) => String(n.tagName).toUpperCase() === "BUTTON" && n.textContent === t("work.startBtn"))[0].onclick(); await settle();
       const e3 = d3.textContent;
-      assert.ok(e3.includes(t("work.startFailed")) && e3.includes(t("errors.codes.work-cwd-conflict")) && !e3.includes("(work-cwd-conflict)"), "开工失败翻译：" + e3);
+      assert.ok(e3.includes(t("work.startFailed") + "：" + t("errors.codes.work-cwd-conflict")) && !e3.includes("(work-cwd-conflict)"), "开工失败翻译（动作失败：人话）：" + e3);
       // 4) startAnother：收录 → 「另开会话失败：<人话>」；未收录 → 「另开会话失败 (码)」；t 缺省安全
       const h4 = mkHooks({ workStart: async () => ({ error: "managed-dir-explicit", status: 409 }) });
       assert.equal(await h4.startAnother("o/r#issue#9", "/w"), t("sessions.anotherFailed") + "：" + t("errors.codes.managed-dir-explicit"));
@@ -461,29 +461,32 @@
       ```
     - 行内「开工」失败（`workChip(target, …)`）与「更多 › 另开会话」失败（`workChip(more, …)`）两处：
       ```js
-              workChip(target, errorText(r.error, t) ?? (t("work.startFailed") + " (" + r.error + ")"), true);
+              const failedOpen = errorText(r.error, t);
+              workChip(target, failedOpen ? t("work.startFailed") + "：" + failedOpen : t("work.startFailed") + " (" + r.error + ")", true);
       ```
       ```js
-                workChip(more, errorText(r.error, t) ?? (t("work.startFailed") + " (" + r.error + ")"), true);
+                const failedAnother = errorText(r.error, t);
+                workChip(more, failedAnother ? t("work.startFailed") + "：" + failedAnother : t("work.startFailed") + " (" + r.error + ")", true);
       ```
-    - `startAnother` 的完整目标语句（`t` 可选安全；收录用全角冒号连接，未收录回落括注）：
+    - `startAnother` 的完整目标语句（`t` 可选；缺省时经 `makeT(getLang())` 兜底，所以不传 `t` 也能翻译。`actions.mjs` 顶部 import 增 `makeT`：`import { makeT } from "../i18n.mjs";`。收录用全角冒号连接，未收录回落括注）：
       ```js
           startAnother: async (key, cwd, t) => {
             if (!cwd) return null;   // 无目录不发起（不得回退到本地检出）
             const r = await a.workStart(key, cwd, true, getLang());
             if (r?.ok) return null;
             const head = t?.("sessions.anotherFailed") ?? "另开会话失败";
-            const human = errorText(r?.error, (k) => t?.(k) ?? k);
+            const tt = t ?? makeT(getLang());   // t 缺省时用当前语言兜底——不传 t 也要能翻译，而不是回落括注（评审第 3 轮红一）
+            const human = errorText(r?.error, tt);
             return human ? head + "：" + human : head + " (" + String(r?.error ?? "unknown") + ")";
           },
       ```
   - **范围外（写进落地注记）**：`kanban.mjs` 的 `kberr`、`review.mjs` 的 `rverr`、`workbench.mjs` 的「刷新失败」「确认交付失败」仍是「<动作失败> (码)」——它们不经过 `actions.mjs`，且看板与待我确认页在里程碑 3 会删除或重排，届时一并处理。
-- Step 4：`logic` → 33 / 33 / 0；`client-render` → 81 / 81 / 0；`i18n` → 6 / 6 / 0（白名单已补）；`design-lint`、`locale-parity` 不变；全量 → 420 / 420 / 0。
+- Step 4：`logic` → 33 / 33 / 0；`client-render` → 81 / 81 / 0；`i18n` → 6 / 6 / 0（白名单已补）；`design-lint`、`locale-parity` 不变；全量 → 421 / 421 / 0。
 - 接口：Produces `errorText(error, t) → string | null`；词典 `errors.codes.*`（27 键）。
 
 ### Task 6: 构建、文档与提交
 
-- Step 1：`npm run build`（退出码 0）；`npm test` → `ℹ tests 420`、`ℹ pass 420`、`ℹ fail 0`；detector 逐文件集合比对：改动的 UI 源文件（`actions.mjs`、`candidateRow.mjs`、`logic.mjs`）新增条目 0。
+- Step 1：`npm run build`（退出码 0）；`npm test` → `ℹ tests 421`、`ℹ pass 421`、`ℹ fail 0`；detector 逐文件集合比对：改动的 UI 源文件（`actions.mjs`、`candidateRow.mjs`、`logic.mjs`）新增条目 0。
 - Step 2：文档四处。
   - `README.md`：交付那句「引擎为 issue 新开的 PR 记在来源候选上（「PR #n · 待合并 / 已合并」）」改为「（「PR #n · 待合并 / 已合并 / 已关闭」）」；在「更多 › 换个目录开工」可重选」之后增「；有进行中的开工会话时，「更多 › 结束会话」可以收掉它并让候选回到已分诊」。
   - `README.en.md`：对应两处英文。
@@ -521,7 +524,7 @@ rm -rf .detector-old
 ```
 
 
-- `build exit=0`；`ℹ tests 420`、`ℹ pass 420`、`ℹ fail 0`。
+- `build exit=0`；`ℹ tests 421`、`ℹ pass 421`、`ℹ fail 0`。
 - 单文件终点：`store` 29、`handlers` 81、`client-render` 81、`logic` 33、`github` 35、`host-smoke` 8（逐个单跑核对）。
 - detector（基线读数 2026-11-25 在副本实测：6 个 UI 源文件均为 0，`lib/client.js` 为 12）：每个文件「新增条目=0」；`lib/client.js` 新 = 旧 = 12。
 - `git status --short` 无未提交改动（落地注记除外）。
