@@ -187,7 +187,7 @@ test("postRefresh：未合并的交付 PR 已合并 → delivery.merged 回填",
   store.upsertCandidates([{ repo: "o/good", type: "issue", number: 1, title: "t", author: "a", labels: [], createdAt: "2026-11-01T00:00:00Z", updatedAt: "T", url: "U", meta: {}, pull: null, bodyExcerpt: "" }]);
   store.setDelivery("o/good#issue#1", { prNumber: 81, prUrl: "https://github.com/o/good/pull/81", merged: false, mergedAt: null }, "delivery.pr");
   const provider = PROVIDER();
-  provider.getPr = async ({ number }) => (number === 81 ? { number, state: "MERGED", mergedAt: "2026-11-24T00:00:00Z", htmlUrl: "https://github.com/o/good/pull/81", headRef: "b" } : null);
+  provider.getPr = async ({ number }) => (number === 81 ? { number, state: "closed", mergedAt: "2026-11-24T00:00:00Z", htmlUrl: "https://github.com/o/good/pull/81", headRef: "b" } : null);
   await makeHandlers({ store, provider, triage: noTriage }).postRefresh();
   assert.deepEqual(store.getCandidate("o/good#issue#1").delivery, { prNumber: 81, prUrl: "https://github.com/o/good/pull/81", merged: true, mergedAt: "2026-11-24T00:00:00Z" });
   assert.equal(store.getCandidate("o/good#issue#1").history.at(-1).event, "delivery.merged");

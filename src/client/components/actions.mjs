@@ -278,15 +278,15 @@ export function installActions({ getLang, openWorkSession = () => false, pickDir
     openWorkSession,
     sessionsFeed: () => (sessionsFeed ? sessionsFeed() : []),
     // 无目录不发起（不得回退到本地检出）；有目录照常另开。
-        startAnother: async (key, cwd, t) => {
-          if (!cwd) return null;   // 无目录不发起（不得回退到本地检出）
-          const r = await a.workStart(key, cwd, true, getLang());
-          if (r?.ok) return null;
-          const tt = t ?? makeT(getLang());   // t 缺省时用当前语言兜底——不传 t 也要能翻译，而不是回落括注（评审第 3 轮红一）
-          const head = tt("sessions.anotherFailed");   // 走兜底后的 tt，不传 t 也不中英混排（评审 Q25）。须在 tt 定义之后——const 有暂时性死区，先写 head 会报 Cannot access tt before initialization（执行方自检实测）
-          const human = errorText(r?.error, tt);
-          return human ? head + "：" + human : head + " (" + String(r?.error ?? "unknown") + ")";
-        },
+    startAnother: async (key, cwd, t) => {
+      if (!cwd) return null;   // 无目录不发起（不得回退到本地检出）
+      const r = await a.workStart(key, cwd, true, getLang());
+      if (r?.ok) return null;
+      const tt = t ?? makeT(getLang());   // t 缺省时用当前语言兜底——不传 t 也要能翻译，而不是回落括注（评审第 3 轮红一）
+      const head = tt("sessions.anotherFailed");   // 走兜底后的 tt，不传 t 也不中英混排（评审 Q25）。须在 tt 定义之后——const 有暂时性死区，先写 head 会报 Cannot access tt before initialization（执行方自检实测）
+      const human = errorText(r?.error, tt);
+      return human ? head + "：" + human : head + " (" + String(r?.error ?? "unknown") + ")";
+    },
     header(header, { t, state, view }) {
       const b = btn(t("settings.title"), () => openSettings(view.shadow, { t, current: state?.settings ?? { intervalMinutes: 0 }, onSaved: () => view.reload() }));
       b.setAttribute("aria-label", t("settings.title"));

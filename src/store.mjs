@@ -152,7 +152,7 @@ export function createStore({ filePath, now = () => new Date() }) {
     setSettings(patch) { doc.settings = { ...doc.settings, ...patch }; persist(); },
     // 开工目录记忆（design-v2 §20 第 13 条）：postWorkStart 成功后按仓库写入。
     setWorkDir(repo, cwd) { (doc.settings.workDirs ??= {})[repo] = cwd; persist(); },
-    // 开工会话索引（GLOSSARY「开工会话」）：append 追加行（末位=活跃）；get 取末位或 null（候选不存在不炸——
+    // 开工会话索引（GLOSSARY「开工会话」）：append 追加行；get 取自末位向前最近一条无 endedAt 的行（候选不存在不炸——
     // 读路径无候选校验，写路径 need(key) 404）。
     getWorkSession: (key) => activeRowOf(key),
     endWorkSession(key) {
