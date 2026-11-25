@@ -85,14 +85,14 @@
       const provider = PROVIDER();
       const asked = [];
       provider.getPr = async ({ number }) => { asked.push(number); return { number, state: "closed", mergedAt: null, htmlUrl: "https://github.com/o/good/pull/81", headRef: "b" }; };
-      await makeHandlers({ store, provider, triage: noTriage }).postRefresh();
+      await makeHandlers({ store, provider, triage: noTriage, now: () => new Date("2026-11-24T00:00:00Z") }).postRefresh();
       assert.deepEqual(store.getCandidate("o/good#issue#1").delivery, { prNumber: 81, prUrl: "https://github.com/o/good/pull/81", merged: false, mergedAt: null, closed: true, closedAt: "2026-11-24T00:00:00.000Z" });   // toISOString 带毫秒（评审 P1：原期望缺 .000，照计划执行必卡）
       assert.equal(store.getCandidate("o/good#issue#1").history.at(-1).event, "delivery.closed");
-      await makeHandlers({ store, provider, triage: noTriage }).postRefresh();
+      await makeHandlers({ store, provider, triage: noTriage, now: () => new Date("2026-11-24T00:00:00Z") }).postRefresh();
       assert.deepEqual(asked, [81], "已终态不再查");
     });
     ```
-    夹具：回填的 `closedAt` 取自 `now()`，须确定——两处 `makeHandlers` 都传 `now: () => new Date("2026-11-24T00:00:00Z")`；期望值用 `toISOString` 的形态（带 `.000Z`）。
+    夹具：回填的 `closedAt` 取自 `now()`，测试代码块里两处 `makeHandlers` 已带 `now: () => new Date("2026-11-24T00:00:00Z")`——只写在说明里不写进代码块，照块抄会漏（执行方自检实测全量 421 / 420 / 1）；期望值用 `toISOString` 的形态（带 `.000Z`）。
   - `test/client-render.test.mjs` 末尾追加：
     ```js
     test("candidateRow：delivery.closed → 脚注出『PR #n · 已关闭』；merged 仍为『已合并』（收敛收口 C1）", async () => {
@@ -108,7 +108,17 @@
     ```
 - Step 2：`node --test test/handlers.test.mjs` → 78 / 77 / 1；`node --test test/client-render.test.mjs` → 79 / 78 / 1。红在各自第一条 `assert`。
 - Step 3（绿）：
-  - `src/handlers.mjs` 的 `postRefresh` 回填循环改为：
+  - `src/handlers.mjs` 的 `postRefresh`：把下面这块（现有回填循环）
+  ```js
+            for (const c of delivered) {
+              if (c.delivery.merged) continue;
+              try {
+                const pr = await provider.getPr({ repo, number: c.delivery.prNumber, token: tk, fetch });
+                if (pr?.mergedAt) store.setDelivery(c.key, { merged: true, mergedAt: pr.mergedAt }, "delivery.merged");
+              } catch {}
+            }
+  ```
+  整段替换为：
     ```js
             for (const c of delivered) {
               if (c.delivery.merged || c.delivery.closed) continue;   // 终态：已合并 / 已关闭未合并，都不再查
