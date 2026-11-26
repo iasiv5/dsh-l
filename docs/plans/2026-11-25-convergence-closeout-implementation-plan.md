@@ -21,6 +21,8 @@
     路由 `POST /dsh-l/work/end`：候选须有活跃行，否则 404；留痕 `work-session.ended`。
 3. **错误码人话**：新增纯函数 `errorText(error, t)`（`src/client/logic.mjs`）：在 `errors.codes.<码>` 查到则返回该文案，否则返回 `null`，由调用点回落到「<动作失败> (码)」（未收录的可能是网络错误或宿主新增的码，带前缀比裸码信息多）。`actions.mjs` 内五处拼接点（批量分诊、行内 `go`、行内「开工」失败、「更多 › 另开会话」失败、`startAnother`）统一经它翻译；其它文件的同类拼接列为范围外。**输出口径**（评审 Q22）：行内 `go` 与批量分诊的错误行就在触发的按钮下方，收录码只输出人话；开工 / 另开 / `startAnother` 的失败 chip 输出「<动作失败>：<人话>」——用户看到一句人话时要知道是哪个动作失败了。未收录一律回落「<动作失败> (码)」。动态键 `errors.codes` 进入 i18n 白名单守护表（本计划对「动态前缀键不得新增」的唯一例外），33 个码逐键列出。
 
+**路径占位**（同前一份计划「路径占位」）：`<仓库>` = 本仓库根目录；`<技能目录>` = impeccable 技能所在目录。
+
 ## 全局约束（逐字继承 dsh-l 仓约与收敛计划）
 
 - 零运行时依赖（devDeps 仅 esbuild）；`package.json` / `package-lock.json` 不动。
@@ -69,7 +71,7 @@
 
 ### Task 0: 基线核对
 
-- Step 1：`set -o pipefail; cd /home/ubuntu/workspace/dsh-l; npm test 2>&1 | grep -E "^ℹ (tests|pass|fail)"` → `ℹ tests 412`、`ℹ pass 412`、`ℹ fail 0`。
+- Step 1：`set -o pipefail; cd <仓库>; npm test 2>&1 | grep -E "^ℹ (tests|pass|fail)"` → `ℹ tests 412`、`ℹ pass 412`、`ℹ fail 0`。
 - Step 2：`git status --short` → 空；`git rev-parse --short HEAD` → `6c6a37b` 或其后仅含文档提交。
 
 ### Task 1: `postRefresh` 回填「已关闭」+ 脚注三态
@@ -534,7 +536,7 @@
 # detector 逐文件集合比对（基线 = 本计划开工前的提交，不是 a859af6——照搬旧基线会扫进 M1/M2 的 8 个文件）
 # 旧版文件须放在项目目录内（检测器只对项目内文件套用 DESIGN.md）；去行号后的条目集合不得出现基线版没有的条目
 BASE=14750e0   # 开工前最后一个计划提交；若开工前又有提交，改成那个
-IMPECCABLE=/home/ubuntu/.dsh/profiles/web/node_modules/@iasiv5/dsh-skills/skills/impeccable/scripts/impeccable
+IMPECCABLE=<技能目录>/impeccable/scripts/impeccable
 norm() { jq -r '.[] | "\(.antipattern)|\(.snippet // "")"' | sort; }
 rm -rf .detector-old
 for f in src/client/components/actions.mjs src/client/components/candidateRow.mjs src/client/logic.mjs src/client/api.mjs src/client/locale/zh-CN.mjs src/client/locale/en.mjs lib/client.js; do

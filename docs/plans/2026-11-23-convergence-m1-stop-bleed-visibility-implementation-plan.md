@@ -29,6 +29,8 @@
 7. **run 会话登记**：`store.appendRunSession(runId, nodeId, sessionId)` 追加 `run.sessionLog[] = { nodeId, sessionId, at }`；`summarizeRun` 增 `sessions[] = { nodeId, nodeName, sessionId, at }`（最近在前；`at` 取自 `sessionLog`，回退条目为 `null`）。没有 `sessionLog` 的旧 run 回退到各节点 `nodeStates[*].sessionId`。
 8. **行内会话入口**：候选展开区的 run 行，按候选汇总它的全部 run（run 号新到旧），每个会话一个按钮「打开 · <节点名>」，同一会话只列一次，点击走既有 `openWorkSession`。
 
+**路径占位**（公开仓库不带本机路径）：`<仓库>` = 本仓库根目录；`<技能目录>` = impeccable 技能所在目录，本机为 `~/.dsh/profiles/web/node_modules/@iasiv5/dsh-skills/skills/impeccable`；`<会话根>` = 宿主 `~/.dsh`；`<仓库>/.dsh-research/` = 工作区级 scratch（已 gitignored）。
+
 ## 全局约束（逐字继承）
 
 - 零运行时 dependencies（devDeps 仅 esbuild）；host Node ≥24 ESM（.mjs）；client 原生 DOM + Shadow DOM 零框架。
@@ -37,7 +39,7 @@
 - 双语：全部 UI 文案走 `zh-CN` / `en` 双字典（`test/i18n.test.mjs` + `test/locale-parity.test.mjs` 守护）；组件内静态字面量键。本计划不新增 i18n 键；会话标题是数据串，不入字典。
 - DESIGN.md：Host-Theme（禁硬编码浅色底）、One Voice（一屏一个反色主 CTA）、不声明 font-family（mono 除外）、状态语义复用 `st-*` 六态 token、reduced-motion 成对降级。
 - 宿主服务只经 `ctx.get()` 可选获取（兼容 `engines.dsh >=0.2.2-rc.1`；rc.5 实证在场）。
-- impeccable（Operate 模式，既有「瓷面工作台」世界内的窄改动）：动 UI 前读 `/home/ubuntu/.dsh/profiles/web/node_modules/@iasiv5/dsh-skills/skills/impeccable/reference/craft-floor.md`；交互组件六态齐全（default / hover / focus / active / disabled / loading）；不用浮层（行内按钮，无 overflow 裁切面）；UI 改动后在仓根做逐文件 detector 集合比对（命令见第二部分「最终验证（两部分合并）」）：对每个改动的 UI 源文件与 `lib/client.js`，取基线版与当前版的条目，去行号后（`antipattern|snippet`）当前版的集合不得出现基线版没有的条目。`workbench.mjs`（基线 11 条）与 `lib/client.js`（基线 12 条）本就有既有 advisory，所以不要求输出 `[]`；只比条数也不够——会掩盖一减一加的换血（执行期勘正 2026-11-24，评审实施 I2）；不重写 DESIGN.md。
+- impeccable（Operate 模式，既有「瓷面工作台」世界内的窄改动）：动 UI 前读 `<技能目录>/impeccable/reference/craft-floor.md`；交互组件六态齐全（default / hover / focus / active / disabled / loading）；不用浮层（行内按钮，无 overflow 裁切面）；UI 改动后在仓根做逐文件 detector 集合比对（命令见第二部分「最终验证（两部分合并）」）：对每个改动的 UI 源文件与 `lib/client.js`，取基线版与当前版的条目，去行号后（`antipattern|snippet`）当前版的集合不得出现基线版没有的条目。`workbench.mjs`（基线 11 条）与 `lib/client.js`（基线 12 条）本就有既有 advisory，所以不要求输出 `[]`；只比条数也不够——会掩盖一减一加的换血（执行期勘正 2026-11-24，评审实施 I2）；不重写 DESIGN.md。
 - 测试判据：`node --test` 的选项必须写在文件参数前；判据看「精确用例名 + `ℹ tests/pass/fail` 计数」，计数不符即停；字符串核对用 `grep -F`；管道一律 `set -o pipefail`；红灯必须落在目标断言行。
 - 仓库在 `main` 直改（历批先例，主人已确认）；docs 类变更独立 commit。
 - 实机生效：host 行为变更需重启 DSH 服务；重启只用 `dshm_restart` 且须主人同意，放在本轮最后一个动作，核验放下一轮。
@@ -106,12 +108,12 @@
 判据命令统一写法（下文简称「单文件判据」）：
 
 ```bash
-set -o pipefail; cd /home/ubuntu/workspace/dsh-l; node --test test/<文件>.test.mjs 2>&1 | grep -E "^ℹ (tests|pass|fail)|^not ok"
+set -o pipefail; cd <仓库>; node --test test/<文件>.test.mjs 2>&1 | grep -E "^ℹ (tests|pass|fail)|^not ok"
 ```
 
 ### Task 0: 基线核对
 
-- Step 1：跑 `set -o pipefail; cd /home/ubuntu/workspace/dsh-l; npm test 2>&1 | grep -E "^ℹ (tests|pass|fail)"`。
+- Step 1：跑 `set -o pipefail; cd <仓库>; npm test 2>&1 | grep -E "^ℹ (tests|pass|fail)"`。
   - Expected：`ℹ tests 367`、`ℹ pass 367`、`ℹ fail 0`。计数不符即停，先对齐基线。
 - Step 2：跑 `git status --short`。
   - Expected：只有 ` M GLOSSARY.md`、` M docs/design-v2.md`、`?? docs/adr/0003-split-pr-and-issue-delivery-semantics.md`、`?? docs/plans/2026-11-23-convergence-m1-stop-bleed-visibility-implementation-plan.md`。出现其它改动即停。
@@ -423,7 +425,7 @@ set -o pipefail; cd /home/ubuntu/workspace/dsh-l; node --test test/<文件>.test
 ### Task 8: 候选行会话入口（UI）
 
 - Consumes：`state.runs[*].sessions`（Task 4）、`openWorkSession`（`installActions` 既有闭包）。Produces：run 行的会话按钮。
-- Step 1（impeccable 前置）：读 `/home/ubuntu/.dsh/profiles/web/node_modules/@iasiv5/dsh-skills/skills/impeccable/reference/craft-floor.md`。本任务属既有世界内的窄 refinement：不重跑世界工作坊，不重写 DESIGN.md。按 `reference/new-work.md` §5 判定是否落 surface brief：落则用 `/home/ubuntu/.dsh/profiles/web/node_modules/@iasiv5/dsh-skills/skills/impeccable/scripts/impeccable surface-brief write src/client/components/workbench.mjs /home/ubuntu/workspace/.dsh-research/dsh-l-workstart-review/m1-surface-brief.md`（正文文件放 gitignore 区，不入库），正文只写设计简报的压缩版（范围与访客模式、受众与任务、证据与范围、选定方向、未决项）；若要求 Direction contract 六块，FORM 的 seed 按工具实跑输出填写，取不到写 `seed: none (unavailable)`，不得编造。设计简报不写入源码与 `lib/`。
+- Step 1（impeccable 前置）：读 `<技能目录>/impeccable/reference/craft-floor.md`。本任务属既有世界内的窄 refinement：不重跑世界工作坊，不重写 DESIGN.md。按 `reference/new-work.md` §5 判定是否落 surface brief：落则用 `<技能目录>/impeccable/scripts/impeccable surface-brief write src/client/components/workbench.mjs <仓库>/.dsh-research/dsh-l-workstart-review/m1-surface-brief.md`（正文文件放 gitignore 区，不入库），正文只写设计简报的压缩版（范围与访客模式、受众与任务、证据与范围、选定方向、未决项）；若要求 Direction contract 六块，FORM 的 seed 按工具实跑输出填写，取不到写 `seed: none (unavailable)`，不得编造。设计简报不写入源码与 `lib/`。
 - Step 2（红）：`test/client-render.test.mjs` 在用例「actions runRow 详情 toggle 展开/收起（P1-5）」之后新增：
 
   ```js
@@ -495,7 +497,7 @@ set -o pipefail; cd /home/ubuntu/workspace/dsh-l; node --test test/<文件>.test
 - Step 5（实机核验，须主人同意后执行 `dshm_restart`，且为当轮最后一个动作；核验放下一轮）：
   - 构建指纹：`grep -c -F "DSH Loop Forge" lib/host.js` → 不小于 1（单独执行、读输出；计数 0 时 grep 退出码为 1，不入 `&&` 链）。
   - 服务时间戳：跑 `[ "$(systemctl show deepseek-harness.service -p ActiveEnterTimestamp --value --timestamp=unix | tr -d '@' | cut -d. -f1)" -gt "$(stat -c %Y lib/host.js)" ]`，退出码 0 即「重启晚于构建」（本机实测该选项输出形如 `@1795412998`；人类可读格式带时区缩写，跨机有歧义，不作判据）。`curl` 返回 200 与 `workspaces` 目录存在都是恒真信号，不作判据。（2026-11-24 勘正，评审 K21 I7：本机重启后又构建过，该判据因此不成立；以 `GET /dsh-l/health` 的构建标识为主证据，见 design-v2 §20 落地注记。）
-  - 在工作台点一次「分诊待分诊」或让任一 run 派发节点后：`ls /home/ubuntu/.dsh/sessions | grep -F "dsh-l-workspaces"` 出现新桶；宿主侧栏出现分组「DSH Loop Forge」，其下会话标题形如「分诊 · N 条」或「<仓库名>#<号> · <节点> ①」；分诊会话随即从侧栏消失（已归档）。
+  - 在工作台点一次「分诊待分诊」或让任一 run 派发节点后：`ls <会话根>/sessions | grep -F "dsh-l-workspaces"` 出现新桶；宿主侧栏出现分组「DSH Loop Forge」，其下会话标题形如「分诊 · N 条」或「<仓库名>#<号> · <节点> ①」；分诊会话随即从侧栏消失（已归档）。
   - 新桶内标题读数：对新桶里最新的 `session.v4.jsonl.zstd` 跑 `zstd -dc <文件> | jq -r 'select(.type=="session/title") | .data.title' | tail -1`，输出形如 `分诊 · N 条` 或 `<仓库名>#<号> · <节点> ①`。
   - 人读核验（B7③）：在工作台展开候选，点「打开 · <节点名>」落到该会话；分诊会话归档后从侧栏消失。这一条同时是 `lib/client.js` 生效的证据：浏览器可能缓存旧 bundle，按钮不出现时先硬刷新再判失败。
   - 把核验结果写进 Step 3 的落地注记后再提交。
@@ -515,7 +517,7 @@ set -o pipefail; cd /home/ubuntu/workspace/dsh-l; node --test test/<文件>.test
 ## 最终验证
 
 ```bash
-set -o pipefail; cd /home/ubuntu/workspace/dsh-l
+set -o pipefail; cd <仓库>
 npm run build; echo "build exit=$?"
 npm test 2>&1 | grep -E "^ℹ (tests|pass|fail)"
 # detector 逐文件集合比对：命令见第二部分「最终验证（两部分合并）」（本部分单独验时基线仍是 a859af6）
@@ -839,12 +841,12 @@ git status --short
 ## 最终验证（两部分合并）
 
 ```bash
-set -o pipefail; cd /home/ubuntu/workspace/dsh-l
+set -o pipefail; cd <仓库>
 npm run build; echo "build exit=$?"
 npm test 2>&1 | grep -E "^ℹ (tests|pass|fail)"
 # detector 逐文件集合比对：去行号后的条目集合不得出现基线版没有的条目
 #（旧版文件须放在项目目录内——检测器只对项目内文件套用 DESIGN.md；判据自证：注入一条新 advisory → 新增条目=1）
-IMPECCABLE=/home/ubuntu/.dsh/profiles/web/node_modules/@iasiv5/dsh-skills/skills/impeccable/scripts/impeccable
+IMPECCABLE=<技能目录>/impeccable/scripts/impeccable
 norm() { jq -r '.[] | "\(.antipattern)|\(.snippet // "")"' | sort; }
 rm -rf .detector-old
 for f in $(git diff --name-only a859af6..HEAD -- src/client) lib/client.js; do
